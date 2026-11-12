@@ -1,6 +1,0 @@
-// SPDX-License-Identifier: GPL-3.0-only
-package helium314.keyboard.latin
-
-enum class InputStyle {
-    NONE, TYPING, UPDATE_BATCH, TAIL_BATCH, APPLICATION_SPECIFIED, RECORRECTION, PREDICTION, BEGINNING_OF_SENTENCE_PREDICTION
-}

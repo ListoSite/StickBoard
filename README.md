@@ -1,15 +1,12 @@
-# StickBoard
+# StickTag
 
-Teclado Android pessoal, ao estilo do Fleksy, com sugestões de stickers.
+App Android para pôr **tags** (emojis e palavras) nos teus stickers, criar packs para o WhatsApp
+e usar um **teclado de stickers** que lê a frase que escreveste e sugere os stickers que combinam.
 
-Baseado no [HeliBoard](https://github.com/HeliBorg/HeliBoard) (fork do AOSP / OpenBoard), sob a licença **GPL-3.0** — ver [LICENSE](LICENSE).
-O código original é dos autores do HeliBoard; as alterações do StickBoard estão neste repositório.
+- `src/` — código Java (packs, conversão WebP, metadados EXIF, ligação ao WhatsApp, teclado de stickers)
+- `assets/www/` — interface (HTML/JS): `index.html` (app), `kb.html` (teclado), `match.js` (procura por palavras)
+- `assets/www/emoji.json` — emojis com palavras em PT/EN (Unicode CLDR + emojibase), gerado com `tools/build_emoji.py`
+- `tools/build.sh` — compila o APK sem Gradle
 
 ## Descarregar
-Cada alteração no ramo `main` é compilada automaticamente pelo GitHub Actions.
-O APK mais recente está em **Releases** → `StickBoard.apk`.
-
-## Fases
-1. Base: teclado com correção automática, dicionários PT/FR/DE/EN, tema verde e amarelo, linha de números.
-2. Gestos e barras ao estilo Fleksy (apagar palavra a deslizar, barra de atalhos de texto, painel de edição e cursor).
-3. Stickers: barra que sugere stickers conforme o que escreves, packs do teclado e emojis com palavras.
+Cada alteração no ramo `main` é compilada pelo GitHub Actions. O APK mais recente está em **Releases** → `StickTag.apk`.
