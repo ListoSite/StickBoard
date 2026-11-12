@@ -184,7 +184,9 @@ public final class Store {
             try {
                 byte[] b = readFile(f);
                 byte[] nb = Webp.withExif(b, want);
-                if (nb.length > (anim ? ANIM_LIMIT : STATIC_LIMIT)) nb = Webp.withExif(b, null);
+                Webp.Info wi = Webp.info(b);
+                boolean thisAnim = anim || (wi != null && wi.animated);
+                if (nb.length > (thisAnim ? ANIM_LIMIT : STATIC_LIMIT)) nb = Webp.withExif(b, null);
                 writeFile(f, nb);
                 s.put("exif", want);
             } catch (IOException ignored) {}

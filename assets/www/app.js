@@ -106,7 +106,7 @@ const isAdded = st => st && (st.addedWa === 1 || st.addedW4b === 1);
 const isKb = p => p.kind === 'kb';
 const maxOf = p => isKb(p) ? 300 : 30;
 const countLabel = p => isKb(p) ? `${p.stickers.length} stickers` : `${p.stickers.length}/30 stickers`;
-const kindLabel = p => (isKb(p) ? 'só teclado · ' : '') + (p.animated ? 'animado' : 'estático');
+const kindLabel = p => isKb(p) ? 'só teclado' : (p.animated ? 'animado' : 'estático');
 function emoWords(e) { return Match.effectiveWords(e, S.data, emoInfo); }
 
 function issues(p) {
@@ -220,7 +220,7 @@ async function newPack(thenShared) {
   <label class="field"><span>Autor</span><input class="input" id="np-pub" maxlength="128" value="${esc(store.get('pub', ''))}" placeholder="O teu nome"></label>
   <div class="field"><span>Para onde</span><div class="seg" id="np-kind"><button class="on" data-k="wa">WhatsApp + teclado</button><button data-k="kb">Só teclado</button></div></div>
   <div class="hint" id="np-khint" style="margin:-4px 0 12px">Vai para o WhatsApp (3 a 30 stickers) e também aparece no teclado de stickers.</div>
-  <div class="field"><span>Tipo de stickers</span><div class="seg" id="np-type"><button class="on" data-a="0">Estáticos</button><button data-a="1">Animados</button></div></div>
+  <div class="field" id="np-typef"><span>Tipo de stickers</span><div class="seg" id="np-type"><button class="on" data-a="0">Estáticos</button><button data-a="1">Animados</button></div></div>
   <div class="hint" id="np-hint">Aceita imagens (PNG, JPG, WebP…). São convertidas para 512×512.</div><div style="height:12px"></div>`;
   const res = await new Promise(resolve => {
     dialog({ title: 'Novo pack', html, buttons: [{ label: 'Cancelar', cls: 'ghost', value: null }, { label: 'Criar', cls: 'primary', value: d => ({ name: $('#np-name', d).value, pub: $('#np-pub', d).value }) }] }).then(resolve);
@@ -228,7 +228,9 @@ async function newPack(thenShared) {
       $$('#np-kind button').forEach(b => b.onclick = () => {
         kind = b.dataset.k;
         $$('#np-kind button').forEach(x => x.classList.toggle('on', x === b));
-        $('#np-khint').textContent = kind === 'kb' ? 'Fica só no teclado de stickers: sem limites do WhatsApp (até 300 stickers).' : 'Vai para o WhatsApp (3 a 30 stickers) e também aparece no teclado de stickers.';
+        $('#np-khint').textContent = kind === 'kb' ? 'Fica só no teclado de stickers: até 300 stickers, e podes misturar animados com estáticos.' : 'Vai para o WhatsApp (3 a 30 stickers) e também aparece no teclado de stickers.';
+        $('#np-typef').classList.toggle('hidden', kind === 'kb');
+        $('#np-hint').classList.toggle('hidden', kind === 'kb');
       });
       $$('#np-type button').forEach(b => b.onclick = () => {
         animated = b.dataset.a === '1';
@@ -240,7 +242,7 @@ async function newPack(thenShared) {
   if (!res) return null;
   store.set('pub', res.pub.trim());
   let p;
-  try { p = JSON.parse(A.createPack(res.name, res.pub, animated, kind)); } catch (e) { toast('Erro a criar'); return null; }
+  try { p = JSON.parse(A.createPack(res.name, res.pub, kind === 'kb' ? false : animated, kind)); } catch (e) { toast('Erro a criar'); return null; }
   if (p.error) { toast(p.error); return null; }
   reload();
   if (thenShared) return p;
@@ -305,7 +307,7 @@ function viewPack() {
   const grid = el('<div class="grid"></div>');
   p.stickers.forEach((s, i) => {
     const em = s.emojis && s.emojis.length ? `<div class="em emo">${s.emojis.map(esc).join('')}</div>` : '<div class="em none">sem emoji</div>';
-    const c = el(`<div class="st"><div class="im"><img loading="lazy" src="${imgUrl(p, s.f)}"></div>${em}${s.words && s.words.length ? `<span class="wd">${s.words.length} pal.</span>` : ''}${S.sel ? '<span class="ck"></span>' : (p.cover === s.f ? '<span class="cv">★</span>' : '')}</div>`);
+    const c = el(`<div class="st"><div class="im"><img loading="lazy" src="${imgUrl(p, s.f)}"></div>${em}${s.words && s.words.length ? `<span class="wd">${s.words.length} pal.</span>` : ''}${s.anim && isKb(p) ? '<span class="wd" style="left:auto;right:10px;top:auto;bottom:34px;color:var(--amber)">GIF</span>' : ''}${S.sel ? '<span class="ck"></span>' : (p.cover === s.f ? '<span class="cv">★</span>' : '')}</div>`);
     if (S.sel && S.sel.has(s.f)) c.classList.add('sel');
     c.onclick = () => {
       if (S.sel) { S.sel.has(s.f) ? S.sel.delete(s.f) : S.sel.add(s.f); c.classList.toggle('sel'); updSelBar(); return; }
@@ -346,8 +348,8 @@ async function packMenu(p) {
 }
 
 async function moveStickers(p, files) {
-  const others = S.data.packs.filter(x => x.id !== p.id && !!x.animated === !!p.animated);
-  if (!others.length) { toast(`Não há outro pack ${p.animated ? 'animado' : 'estático'} para onde mover.`); return; }
+  const others = S.data.packs.filter(x => x.id !== p.id && (isKb(x) || isKb(p) || !!x.animated === !!p.animated));
+  if (!others.length) { toast('Não há outro pack para onde mover.'); return; }
   let chosen = null;
   const html = `<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">${others.map(o => `<button class="pack" data-id="${esc(o.id)}" style="margin:0;text-align:left"><div class="tray" style="width:44px;height:44px">${o.stickers.length ? `<img src="${trayUrl(o)}">` : ''}</div><div class="info"><div class="name">${esc(o.name)}</div><div class="meta" style="margin:0">${countLabel(o)} · ${kindLabel(o)}</div></div></button>`).join('')}</div>`;
   const pr = dialog({ title: 'Mover para…', html, buttons: [{ label: 'Cancelar', cls: 'ghost', value: null }] });

@@ -170,7 +170,7 @@ public class MainActivity extends Activity {
                                     .put("error", Store.isKb(p) ? "o pack já está cheio (" + Store.maxStickers(p) + ")" : "o pack já tem 30 stickers (o máximo do WhatsApp)"));
                             continue;
                         }
-                        Importer.Result r = Importer.importUri(MainActivity.this, u, packId, p.optBoolean("animated"), data.optBoolean("fill"));
+                        Importer.Result r = Importer.importUri(MainActivity.this, u, packId, p.optBoolean("animated"), data.optBoolean("fill"), Store.isKb(p));
                         if (r.error != null) {
                             errors.put(new JSONObject().put("name", r.name).put("error", r.error));
                             continue;
@@ -184,6 +184,7 @@ public class MainActivity extends Activity {
                             st.put("f", r.file);
                             st.put("emojis", r.emojis);
                             st.put("words", new JSONArray());
+                            if (r.animated) st.put("anim", true);
                             p.getJSONArray("stickers").put(st);
                             Store.sync(MainActivity.this, data, p);
                             Store.save(MainActivity.this, data);
@@ -367,7 +368,10 @@ public class MainActivity extends Activity {
                     JSONObject data = Store.load(MainActivity.this);
                     JSONObject a = Store.findPack(data, from), b = Store.findPack(data, to);
                     if (a == null || b == null) return err("pack não encontrado");
-                    if (a.optBoolean("animated") != b.optBoolean("animated")) return err("Não dá para misturar stickers animados com estáticos.");
+                    if (!Store.isKb(b)) {
+                        boolean stAnim = Store.findSticker(a, file) != null && (Store.findSticker(a, file).optBoolean("anim") || a.optBoolean("animated"));
+                        if (stAnim != b.optBoolean("animated")) return err("Os packs do WhatsApp não podem misturar animados com estáticos.");
+                    }
                     if (b.getJSONArray("stickers").length() >= Store.maxStickers(b)) return err("Esse pack já está cheio.");
                     JSONObject s = Store.findSticker(a, file);
                     if (s == null) return err("sticker não encontrado");

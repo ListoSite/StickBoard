@@ -25,6 +25,7 @@ public final class Importer {
         public String error;          // motivo, se falhou
         public String note;           // aviso (ex.: animado convertido em estático)
         public String name;           // nome original
+        public boolean animated;      // sticker animado
     }
 
     static int seq = 0;
@@ -35,6 +36,11 @@ public final class Importer {
     }
 
     public static Result importUri(Context c, Uri uri, String packId, boolean animatedPack, boolean fill) {
+        return importUri(c, uri, packId, animatedPack, fill, false);
+    }
+
+    /** mixed = pack só do teclado: aceita estáticos e animados juntos. */
+    public static Result importUri(Context c, Uri uri, String packId, boolean animatedPack, boolean fill, boolean mixed) {
         Result r = new Result();
         r.name = displayName(c, uri);
         byte[] b;
@@ -61,7 +67,12 @@ public final class Importer {
             } catch (Exception ignored) {}
         }
         byte[] out;
-        if (animatedPack) {
+        if (mixed && info != null && info.animated && info.frames > 1 && b.length <= Store.ANIM_LIMIT) {
+            // animado num pack do teclado: fica como está
+            out = Webp.withExif(b, null);
+            r.animated = true;
+            if (info.width != 512 || info.height != 512) r.note = "animado com " + info.width + "×" + info.height + " (o WhatsApp prefere 512×512)";
+        } else if (animatedPack) {
             if (info == null || !info.animated || info.frames < 2) {
                 r.error = "não é um sticker animado (este pack só aceita WebP animados)";
                 return r;
@@ -70,6 +81,7 @@ public final class Importer {
                 r.error = "sticker animado tem de ter 512×512 (tem " + info.width + "×" + info.height + ")";
                 return r;
             }
+            r.animated = true;
             if (info.totalMs > 10000) { r.error = "a animação passa dos 10 segundos"; return r; }
             if (info.minFrameMs > 0 && info.minFrameMs < 8) { r.error = "a animação tem frames demasiado rápidos"; return r; }
             out = Webp.withExif(b, null);
