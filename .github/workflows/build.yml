@@ -1,0 +1,54 @@
+name: Compilar StickBoard
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Compilar o APK
+        run: |
+          chmod +x gradlew
+          set -o pipefail
+          ./gradlew assembleRelease --stacktrace 2>&1 | tee build.log
+
+      - name: Publicar o APK nas Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          cp "$APK" StickBoard.apk
+          TAG="v0.1.${{ github.run_number }}"
+          gh release create "$TAG" StickBoard.apk --title "StickBoard $TAG" --notes "Compilação automática do commit ${GITHUB_SHA::7}. Descarrega o StickBoard.apk." --latest
+
+      - name: Guardar o registo do erro (se falhar)
+        if: failure()
+        run: |
+          git config user.name "build-bot"
+          git config user.email "build-bot@users.noreply.github.com"
+          tail -n 400 build.log > ci-error.log || echo "sem build.log" > ci-error.log
+          git checkout --orphan ci-logs
+          git rm -rf --cached . > /dev/null
+          git add -f ci-error.log
+          git commit -m "erro da compilação ${{ github.run_number }}"
+          git push -f origin ci-logs
