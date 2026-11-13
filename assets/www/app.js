@@ -193,7 +193,7 @@ function render() {
 /* ---------- lista de packs ---------- */
 function viewPacks() {
   const v = el('<section class="view"></section>');
-  const tp = el(`<div class="top"><div style="flex:1;min-width:0"><h1>StickTag</h1><div class="sub">Os teus stickers com tags</div></div><button class="btn sm" id="dp" title="Procurar repetidos">👯</button><button class="btn sm" id="fd">📁 Pastas</button></div>`);
+  const tp = el(`<div class="top"><div class="brand"><div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.6" fill="currentColor"/></svg></div><div style="min-width:0"><h1>StickTag</h1><div class="sub">Os teus stickers com tags</div></div></div><button class="hbtn" id="dp" title="Procurar repetidos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="13" height="13" rx="3"/><path d="M16 8V6a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v7a3 3 0 0 0 3 3h2"/></svg></button><button class="hbtn" id="fd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Pastas</button></div>`);
   tp.querySelector('#fd').onclick = () => { S.folders = true; render(); $('#main').scrollTop = 0; };
   tp.querySelector('#dp').onclick = () => findDupes(null);
   v.appendChild(tp);
@@ -442,9 +442,9 @@ function openFolderViewer(list, start) {
     <div class="fv-bottom">
       <button class="fv-pack" id="pk"><span class="muted">Pack:</span> <b id="pkn"></b> <span class="muted">▾</span></button>
       <div class="fv-acts">
-        <button class="fv-b del" id="dl"><span>🗑️</span>Apagar</button>
-        <button class="fv-b" id="ed"><span>✏️</span>Editar</button>
-        <button class="fv-b add" id="ad"><span>➕</span>Pôr no pack</button>
+        <button class="fv-b del" id="dl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>Apagar</button>
+        <button class="fv-b" id="ed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>Editar</button>
+        <button class="fv-b add" id="ad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Pôr no pack</button>
       </div>
     </div></div>`);
   const ov = openOverlay(v, { modal: true, onClose: () => { if (changed && S.folder) { S.ffiles = null; render(); } } });
@@ -1576,7 +1576,6 @@ function viewKeyboard() {
   const nAdult = S.data.packs.reduce((a, p) => a + p.stickers.filter(s => Match.isAdult(p, s)).length, 0);
   const am = el(`<div class="card ${adultOn() ? 'a18card' : ''}" style="margin-bottom:12px"><div class="opt" style="padding:0;border:0"><div class="t"><b>🔞 Modo +18</b><div class="small muted">${adultOn() ? 'Ligado: o teclado, a bolha, as sugestões, a pesquisa e os recentes só mostram stickers +18.' : 'Desligado: os stickers +18 ficam escondidos em todo o lado.'} Tens ${nAdult} sticker${nAdult === 1 ? '' : 's'} +18. Também podes trocar com o botão 🔞 no teclado e na bolha.</div></div><button class="sw ${adultOn() ? 'on' : ''}" id="am"></button></div><div class="hint" style="margin-top:8px">Para marcar: no menu ⋮ de um pack («Marcar como 🔞 +18») ou num sticker (botão «🔞 +18»).</div></div>`);
   $('#am', am).onclick = () => { try { S.data = JSON.parse(A.setOption('adultMode', !adultOn())); } catch (e) {} toast(adultOn() ? '🔞 Modo +18 ligado' : 'Modo normal'); render(); };
-  v.appendChild(am);
   let st = {};
   try { st = JSON.parse(A.keyboardStatus()); } catch (e) {}
   const on = !!st.enabled;
@@ -1588,6 +1587,7 @@ function viewKeyboard() {
   c1.querySelector('#ka').onclick = () => A.openKeyboardSettings();
   c1.querySelector('#kp').onclick = () => A.showKeyboardPicker();
   v.appendChild(c1);
+  v.appendChild(am);
   // bolha flutuante
   let bs = {};
   try { bs = JSON.parse(A.bubbleStatus()); } catch (e) {}
