@@ -474,6 +474,10 @@ public class BubbleService extends AccessibilityService {
             try { Store.learn(BubbleService.this, packId, file, new JSONArray(wordsJson)); } catch (Exception ignored) {}
         }
 
+        @JavascriptInterface public void learn2(String packId, String file, String wordsJson, String skippedJson) {
+            try { Store.learn(BubbleService.this, packId, file, new JSONArray(wordsJson), skippedJson == null ? null : new JSONArray(skippedJson)); } catch (Exception ignored) {}
+        }
+
         @JavascriptInterface public void hideNow() {
             ui.post(new Runnable() { @Override public void run() { hide(); } });
         }

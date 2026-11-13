@@ -265,30 +265,124 @@ public final class Store {
         }
     }
 
-    /** O teclado aprende: estas palavras levaram a este sticker. */
-    public static void learn(Context c, String packId, String file, JSONArray words) {
+    /*
+     * Aprendizagem do teclado.
+     * Cada sticker guarda em "lrn" as palavras que escreveste antes de o mandar: {palavra: [peso, dia, vezes]}.
+     * - o peso sobe 1 cada vez que usas essa palavra para esse sticker (máx. 12);
+     * - vai perdendo força com o tempo (metade a cada 45 dias sem uso): se deixares de usar uma palavra, ela desaparece;
+     * - quando escolhes outro sticker em vez dos que apareciam primeiro, esses perdem um pouco de peso para essas palavras;
+     * - também conta quantas vezes usas o sticker e a que horas (para o sugerir à hora a que costumas).
+     */
+    static final double HALF_LIFE_DAYS = 45;
+
+    static int today() { return (int) (System.currentTimeMillis() / 86400000L); }
+
+    static double decayed(JSONArray e, int today) {
+        if (e == null) return 0;
+        return e.optDouble(0, 0) * Math.pow(0.5, Math.max(0, today - e.optInt(1, today)) / HALF_LIFE_DAYS);
+    }
+
+    /** "learn" antigo ({palavra: vezes}) → "lrn" novo. */
+    static JSONObject lrnOf(JSONObject s, int today) throws JSONException {
+        JSONObject l = s.optJSONObject("lrn");
+        if (l != null) return l;
+        l = new JSONObject();
+        JSONObject old = s.optJSONObject("learn");
+        if (old != null) {
+            java.util.Iterator<String> it = old.keys();
+            while (it.hasNext()) { String k = it.next(); int n = old.optInt(k, 1); l.put(k, new JSONArray().put(Math.min(12, n)).put(today - 7).put(n)); }
+            s.remove("learn");
+        }
+        s.put("lrn", l);
+        return l;
+    }
+
+    static double r2(double v) { return Math.round(v * 100) / 100.0; }
+
+    public static void learn(Context c, String packId, String file, JSONArray words) { learn(c, packId, file, words, null); }
+
+    public static void learn(Context c, String packId, String file, JSONArray words, JSONArray skipped) {
         synchronized (LOCK) {
             try {
                 JSONObject data = load(c);
+                if (!data.optBoolean("learnOn", true)) return;
                 JSONObject p = findPack(data, packId);
                 JSONObject s = p == null ? null : findSticker(p, file);
-                if (s == null || words == null) return;
-                JSONObject l = s.optJSONObject("learn");
-                if (l == null) { l = new JSONObject(); s.put("learn", l); }
-                for (int i = 0; i < words.length(); i++) {
-                    String w = words.optString(i, "").trim();
-                    if (w.length() < 2 || w.length() > 30) continue;
-                    l.put(w, l.optInt(w, 0) + 1);
-                }
-                // no máximo 40 palavras aprendidas por sticker: tira as menos usadas
-                while (l.length() > 40) {
-                    String min = null; int mv = Integer.MAX_VALUE;
-                    java.util.Iterator<String> it = l.keys();
-                    while (it.hasNext()) { String k = it.next(); if (l.optInt(k) < mv) { mv = l.optInt(k); min = k; } }
-                    l.remove(min);
+                if (s == null) return;
+                int day = today();
+                // quantas vezes e a que horas usas este sticker
+                s.put("uses", s.optInt("uses", 0) + 1);
+                s.put("last", day);
+                JSONArray h = s.optJSONArray("hrs");
+                if (h == null || h.length() != 6) { h = new JSONArray(); for (int i = 0; i < 6; i++) h.put(0); s.put("hrs", h); }
+                int b = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) / 4;
+                h.put(b, h.optInt(b, 0) + 1);
+                if (words != null && words.length() > 0) {
+                    JSONObject l = lrnOf(s, day);
+                    java.util.HashSet<String> ws = new java.util.HashSet<String>();
+                    for (int i = 0; i < words.length(); i++) {
+                        String w = words.optString(i, "").trim().toLowerCase();
+                        if (w.length() < 2 || w.length() > 40 || !ws.add(w)) continue;
+                        JSONArray e = l.optJSONArray(w);
+                        double wt = decayed(e, day) + 1;
+                        l.put(w, new JSONArray().put(r2(Math.min(12, wt))).put(day).put((e == null ? 0 : e.optInt(2, 0)) + 1));
+                    }
+                    // no máximo 60 palavras por sticker: saem as mais fracas
+                    while (l.length() > 60) {
+                        String min = null; double mv = Double.MAX_VALUE;
+                        java.util.Iterator<String> it = l.keys();
+                        while (it.hasNext()) { String k = it.next(); double v = decayed(l.optJSONArray(k), day); if (v < mv) { mv = v; min = k; } }
+                        l.remove(min);
+                    }
+                    // escolheste este em vez dos que estavam à frente: esses perdem um pouco para estas palavras
+                    if (skipped != null) for (int i = 0; i < skipped.length() && i < 4; i++) {
+                        JSONObject x = skipped.optJSONObject(i);
+                        if (x == null) continue;
+                        JSONObject sp = findPack(data, x.optString("p"));
+                        JSONObject ss = sp == null ? null : findSticker(sp, x.optString("f"));
+                        if (ss == null || ss == s) continue;
+                        JSONObject l2 = ss.optJSONObject("lrn");
+                        if (l2 == null && ss.optJSONObject("learn") != null) l2 = lrnOf(ss, day);
+                        if (l2 == null) continue;
+                        for (String w : ws) {
+                            JSONArray e = l2.optJSONArray(w);
+                            if (e == null) continue;
+                            double wt = decayed(e, day) - 0.6;
+                            if (wt <= 0.25) l2.remove(w);
+                            else l2.put(w, new JSONArray().put(r2(wt)).put(day).put(e.optInt(2, 0)));
+                        }
+                    }
                 }
                 save(c, data);
             } catch (JSONException ignored) {}
+        }
+    }
+
+    /** Esquecer: uma palavra de um sticker, tudo de um sticker (word = "") ou tudo de todos (packId = null). */
+    public static String forget(Context c, String packId, String file, String word) {
+        synchronized (LOCK) {
+            try {
+                JSONObject data = load(c);
+                JSONArray ps = data.optJSONArray("packs");
+                for (int i = 0; ps != null && i < ps.length(); i++) {
+                    JSONObject p = ps.getJSONObject(i);
+                    if (packId != null && !packId.equals(p.optString("id"))) continue;
+                    JSONArray a = p.optJSONArray("stickers");
+                    for (int k = 0; a != null && k < a.length(); k++) {
+                        JSONObject s = a.getJSONObject(k);
+                        if (file != null && file.length() > 0 && !file.equals(s.optString("f"))) continue;
+                        if (word != null && word.length() > 0) {
+                            JSONObject l = lrnOf(s, today());
+                            l.remove(word);
+                        } else {
+                            s.remove("lrn"); s.remove("learn");
+                            if (packId == null) { s.remove("uses"); s.remove("hrs"); s.remove("last"); }
+                        }
+                    }
+                }
+                save(c, data);
+                return data.toString();
+            } catch (JSONException e) { return null; }
         }
     }
 

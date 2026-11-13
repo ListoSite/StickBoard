@@ -414,6 +414,11 @@ public class KeyboardService extends InputMethodService {
             try { Store.learn(KeyboardService.this, packId, file, new JSONArray(wordsJson)); } catch (Exception ignored) {}
         }
 
+        /** Aprender com contexto: palavras + os stickers que estavam à frente e não escolheste. */
+        @JavascriptInterface public void learn2(String packId, String file, String wordsJson, String skippedJson) {
+            try { Store.learn(KeyboardService.this, packId, file, new JSONArray(wordsJson), skippedJson == null ? null : new JSONArray(skippedJson)); } catch (Exception ignored) {}
+        }
+
         @JavascriptInterface public String addWords(String packId, String file, String wordsJson) {
             try { String d = Store.addWords(KeyboardService.this, packId, file, new JSONArray(wordsJson)); return d == null ? "{}" : d; }
             catch (Exception e) { return "{}"; }

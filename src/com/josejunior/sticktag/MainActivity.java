@@ -977,6 +977,17 @@ public class MainActivity extends Activity {
                         JSONArray w2 = s.optJSONArray("words");
                         for (int k = 0; w2 != null && k < w2.length(); k++) if (!contains(wd, w2.optString(k))) wd.put(w2.optString(k));
                         if (s.optBoolean("fav")) keep.put("fav", true);
+                        if (s.has("lrn") || s.has("learn")) {
+                            JSONObject lk = Store.lrnOf(keep, Store.today()), lo = Store.lrnOf(s, Store.today());
+                            JSONArray ks2 = lo.names();
+                            for (int k = 0; ks2 != null && k < ks2.length(); k++) {
+                                String w = ks2.optString(k);
+                                JSONArray a1 = lk.optJSONArray(w), a2 = lo.optJSONArray(w);
+                                double wt = Store.decayed(a1, Store.today()) + Store.decayed(a2, Store.today());
+                                lk.put(w, new JSONArray().put(Store.r2(Math.min(12, wt))).put(Store.today()).put((a1 == null ? 0 : a1.optInt(2)) + (a2 == null ? 0 : a2.optInt(2))));
+                            }
+                            keep.put("uses", keep.optInt("uses") + s.optInt("uses"));
+                        }
                         JSONObject l2 = s.optJSONObject("learn");
                         if (l2 != null) {
                             JSONObject l = keep.optJSONObject("learn"); if (l == null) { l = new JSONObject(); keep.put("learn", l); }
@@ -1203,6 +1214,13 @@ public class MainActivity extends Activity {
                     try { bulkDone(new JSONObject().put("kind", "deletePack").put("n", 1)); } catch (JSONException ignored) {}
                 }
             });
+        }
+
+        /** Esquecer o que o teclado aprendeu (uma palavra, um sticker ou tudo). */
+        @JavascriptInterface
+        public String forgetLearned(String packId, String file, String word) {
+            String d = Store.forget(MainActivity.this, packId == null || packId.length() == 0 ? null : packId, file, word);
+            return d == null ? err("erro") : d;
         }
 
         /** Cópia automática: escolher a pasta. */

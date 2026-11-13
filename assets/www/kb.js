@@ -74,10 +74,14 @@ function renderTabs() {
   });
 }
 
+let lastRes = [];
 function sendIt(p, s) {
   pushRecent(p.id, s.f);
   const words = M.queryTokens(text);
-  if (words.length) { try { K.learn(p.id, s.f, JSON.stringify(words)); } catch (e) {} }
+  // os que estavam à frente nas sugestões e não escolheste: o teclado aprende que não eram esses
+  const skipped = [];
+  if (words.length && tab === 'sug') for (const r of lastRes) { if (r.p.id === p.id && r.s.f === s.f) break; skipped.push({ p: r.p.id, f: r.s.f }); if (skipped.length >= 3) break; }
+  try { K.learn2(p.id, s.f, JSON.stringify(words), JSON.stringify(skipped)); } catch (e) { if (words.length) try { K.learn(p.id, s.f, JSON.stringify(words)); } catch (e2) {} }
   K.send(p.id, s.f);
 }
 
@@ -191,6 +195,7 @@ function renderGrid() {
       const pos = new Map(shufOrder.map((k, i) => [k, i]));
       res = res.slice().sort((a, b) => (pos.get(a.p.id + '/' + a.s.f) ?? 999) - (pos.get(b.p.id + '/' + b.s.f) ?? 999));
     }
+    lastRes = DATA.kbShuffle ? [] : res;
     if (res.length) res.forEach(r => g.appendChild(tile(r.p, r.s)));
     else {
       if (text.trim()) addMsg(g, `Nenhum sticker para <b>«${esc(lastWords(text))}»</b>. Dá palavras ou emojis aos teus stickers no StickTag.`);
@@ -198,6 +203,8 @@ function renderGrid() {
       const tw = timeWords();
       const now = M.search(IDX, tw.q, 12);
       if (now.length) { addMsg(g, `🕗 Para agora · ${tw.label}`, 'secl'); now.forEach(r => g.appendChild(tile(r.p, r.s))); }
+      const hab = M.habitual(IDX, 12).filter(r => !now.some(x => x.p.id === r.p.id && x.s.f === r.s.f));
+      if (hab.length) { addMsg(g, '🧠 Costumas mandar a esta hora', 'secl'); hab.forEach(r => g.appendChild(tile(r.p, r.s))); }
       else if (!text.trim()) addMsg(g, 'Escreve uma frase no teu teclado normal e depois abre este teclado: aparecem aqui os stickers que combinam. Ou toca em 🔍 para procurar.');
       renderRecent(g, true);
     }

@@ -135,7 +135,9 @@ function tile(p, s) {
   d.onclick = () => {
     pushRecent(p.id, s.f);
     const w = M.queryTokens(text);
-    if (w.length) { try { B.learn(p.id, s.f, JSON.stringify(w)); } catch (e) {} }
+    const skipped = [];
+    if (w.length && tab === 'sug') for (const r of lastRes) { if (r.p.id === p.id && r.s.f === s.f) break; skipped.push({ p: r.p.id, f: r.s.f }); if (skipped.length >= 3) break; }
+    try { B.learn2(p.id, s.f, JSON.stringify(w), JSON.stringify(skipped)); } catch (e) { if (w.length) try { B.learn(p.id, s.f, JSON.stringify(w)); } catch (e2) {} }
     const ov = document.createElement('div'); ov.className = 'sending'; ov.textContent = 'A enviar…';
     $('#card').appendChild(ov);
     setTimeout(() => ov.remove(), 1200);
@@ -168,6 +170,7 @@ function drawPanel() {
   const st = $('#strip');
   st.innerHTML = '';
   if (tab === 'sug') {
+    lastRes = DATA.kbShuffle ? [] : res;
     if (res.length) res.forEach(r => st.appendChild(tile(r.p, r.s)));
     else {
       const tw = timeWords();
@@ -224,7 +227,7 @@ bub.addEventListener('pointerup', () => {
 });
 $('#x').onclick = () => B.expand(false);
 $('#spx').onclick = () => B.cancelSpecial();
-let SPS = null;
+let SPS = null, lastRes = [];
 $('#kb').onclick = () => B.openKeyboard();
 $('#a18').onclick = () => {
   const on = !DATA.adultMode;

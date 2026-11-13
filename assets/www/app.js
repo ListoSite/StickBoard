@@ -938,14 +938,23 @@ function openEditor(packId, idx) {
       <div class="row" style="margin-top:18px;justify-content:space-between"><div class="sec" style="margin:0">Palavras para este sticker</div><button class="btn sm" id="ocr">✨ Ler o texto</button></div>
       <div class="words"></div>
       <div class="hint" style="margin-top:6px">Quando escreveres uma destas palavras, o teclado de stickers sugere este sticker. As palavras dos emojis também contam.</div>
-      ${Object.keys(s.learn || {}).length ? `<div class="sec" style="margin-top:16px">Aprendidas pelo teclado</div><div class="words" id="lw"></div><div class="hint" style="margin-top:6px">Palavras que escreveste antes de escolher este sticker. Toca no × para esquecer.</div>` : ''}
+      ${learnBlock(s)}
       <div class="row" style="margin-top:16px;flex-wrap:wrap"><button class="btn sm" id="fv">${s.fav ? '⭐ Favorito' : '☆ Favorito'}</button><button class="btn sm" id="gl">💾 Galeria</button><button class="btn sm" id="cv">${p.cover === s.f ? '★ É a capa' : '☆ Capa'}</button><button class="btn sm" id="mv">Mover</button>${p.adult ? '' : `<button class="btn sm ${s.adult ? 'a18on' : ''}" id="a18">${s.adult ? '🔞 É +18' : '🔞 +18'}</button>`}${s.anim || p.animated ? '<button class="btn sm" id="smo">✨ Suavizar</button>' : ''}<button class="btn sm danger" id="dl">Apagar</button></div>`;
-    const lw = $('#lw', bd);
-    if (lw) {
-      const L = s.learn || {};
-      lw.innerHTML = Object.keys(L).sort((a, b) => L[b] - L[a]).map(w => `<span class="wchip" style="background:var(--greenSoft);color:var(--green)">${esc(w)} <small style="opacity:.6">×${L[w]}</small><button data-w="${esc(w)}" style="background:rgba(37,211,102,.25);color:var(--green)">×</button></span>`).join('');
-      $$('button', lw).forEach(b => b.onclick = () => { const c = cur(); delete c.learn[b.dataset.w]; commit(); drawAll(); });
-    }
+    $$('#lw .lchip', bd).forEach(b => b.onclick = async () => {
+      const w = b.dataset.w;
+      const r = await dialog({ title: `«${w}»`, html: '<div class="hint">O teclado aprendeu esta palavra contigo para este sticker.</div>', buttons: [{ label: 'Tornar palavra fixa', value: 'fix' }, { label: 'Esquecer', cls: 'danger', value: 'forget' }, { label: 'Fechar', cls: 'ghost', value: null }] });
+      if (!r) return;
+      if (r === 'fix') { const c = cur(); if (!c.words.some(y => norm(y) === norm(w))) c.words.push(w); commit(); }
+      try { const d = JSON.parse(A.forgetLearned(p.id, cur().f, w)); if (!d.error) { S.data = d; p = packOf(packId); } } catch (e) {}
+      toast(r === 'fix' ? `«${w}» ficou como palavra fixa` : `Esqueci «${w}»`);
+      drawAll();
+    });
+    const lf = $('#lforget', bd);
+    if (lf) lf.onclick = async () => {
+      if (!await confirmBox('Esquecer tudo deste sticker?', 'As palavras aprendidas saem. As tuas palavras fixas e os emojis ficam.', 'Esquecer')) return;
+      try { const d = JSON.parse(A.forgetLearned(p.id, cur().f, '')); if (!d.error) { S.data = d; p = packOf(packId); } } catch (e) {}
+      drawAll();
+    };
     $('#fv', bd).onclick = () => { const c = cur(); c.fav = !c.fav; commit(); drawAll(); toast(c.fav ? 'Nos favoritos do teclado ⭐' : 'Tirado dos favoritos'); };
     $('#gl', bd).onclick = () => { const r = JSON.parse(A.saveToGallery(p.id, s.f)); toast(r.error ? 'Não guardei: ' + r.error : 'Guardado em Imagens/StickTag ✓'); };
     drawTop(); drawWords(); redrawPicker();
@@ -1717,6 +1726,7 @@ function viewKeyboard() {
   c1.querySelector('#ka').onclick = () => A.openKeyboardSettings();
   c1.querySelector('#kp').onclick = () => A.showKeyboardPicker();
   v.appendChild(c1);
+  v.appendChild(learnCard());
   v.appendChild(am);
   // bolha flutuante
   let bs = {};
@@ -2096,6 +2106,45 @@ async function cleanupFolder(uris, quiet) {
   if (S.ffiles) { const gone = new Set(uris); S.ffiles = S.ffiles.filter(x => !gone.has(x.uri)); }
   if (n && !quiet) toast(`🧹 ${n} apagado${n === 1 ? '' : 's'} da pasta (já ${n === 1 ? 'está' : 'estão'} na app)`, 2600);
   return n;
+}
+
+/* ---------- o que o teclado aprendeu ---------- */
+const HOURS = ['de madrugada', 'de manhã cedo', 'de manhã', 'à tarde', 'ao fim da tarde', 'à noite'];
+function habitText(s) {
+  const u = s.uses || 0;
+  if (!u) return '';
+  const h = s.hrs || [];
+  const tot = h.reduce((a, x) => a + (x || 0), 0);
+  let best = -1, bv = 0;
+  h.forEach((v, i) => { if (v > bv) { bv = v; best = i; } });
+  const when = tot >= 3 && bv / tot >= 0.34 ? ` · mais ${HOURS[best]}` : '';
+  return `Mandaste-o ${u}×${when}`;
+}
+function learnBlock(s) {
+  const L = Match.learned(s);
+  const hab = habitText(s);
+  if (!L.length && !hab) return '';
+  const dots = e => '●'.repeat(Math.max(1, Math.min(4, Math.ceil(e / 2)))) + '○'.repeat(4 - Math.max(1, Math.min(4, Math.ceil(e / 2))));
+  return `<div class="row" style="margin-top:16px;justify-content:space-between"><div class="sec" style="margin:0">🧠 O teclado aprendeu</div>${L.length ? '<button class="btn sm ghost" id="lforget">Esquecer tudo</button>' : ''}</div>
+    ${hab ? `<div class="hint" style="margin:4px 0 8px">${esc(hab)}</div>` : ''}
+    ${L.length ? `<div class="words" id="lw">${L.slice(0, 30).map(l => `<button class="lchip" data-w="${esc(l.w)}">${esc(l.w)} <span class="ld">${dots(l.eff)}</span></button>`).join('')}</div>
+    <div class="hint" style="margin-top:6px">Palavras que escreves antes de mandar este sticker. Ganham força quando as usas e vão perdendo se deixares de as usar. Toca numa para a tornar fixa ou esquecer.</div>` : ''}`;
+}
+function learnCard() {
+  let nW = 0, nS = 0;
+  S.data.packs.forEach(p => p.stickers.forEach(s => { const n = Match.learned(s).length; if (n) { nS++; nW += n; } }));
+  const on = S.data.learnOn !== false;
+  const c = el(`<div class="card" style="margin-bottom:12px"><div class="opt" style="padding:0;border:0"><div class="t"><b>🧠 Aprender com o que escreves</b><div class="small muted">${on ? `Já aprendi ${nW} palavra${nW === 1 ? '' : 's'} em ${nS} sticker${nS === 1 ? '' : 's'}.` : 'Desligado: o teclado não aprende nada novo.'}</div></div><button class="sw ${on ? 'on' : ''}" id="lon"></button></div>
+    <div class="hint" style="margin-top:8px">Cada vez que mandas um sticker, o teclado guarda as palavras que escreveste antes (e pares como «boa noite»). Dá prioridade aos que usas mais e à hora a que os costumas usar. Se deixares de usar uma palavra para um sticker, ela vai perdendo força até desaparecer. Se escolheres outro em vez dos primeiros sugeridos, esses descem para essa palavra.</div>
+    ${nW ? '<button class="btn sm ghost" id="lall" style="margin-top:10px">Esquecer tudo o que aprendi</button>' : ''}</div>`);
+  $('#lon', c).onclick = () => { try { S.data = JSON.parse(A.setOption('learnOn', !on)); } catch (e) {} render(); };
+  const la = $('#lall', c);
+  if (la) la.onclick = async () => {
+    if (!await confirmBox('Esquecer tudo?', 'Todas as palavras aprendidas e os hábitos (quantas vezes e a que horas) são apagados. As tuas palavras fixas e os emojis ficam.', 'Esquecer tudo')) return;
+    try { const d = JSON.parse(A.forgetLearned('', '', '')); if (!d.error) S.data = d; } catch (e) {}
+    toast('Esqueci tudo'); render();
+  };
+  return c;
 }
 /* ---------- stickers repetidos ---------- */
 function ignoredDupes() { try { return new Set(JSON.parse(localStorage.getItem('dupIgnore') || '[]')); } catch (e) { return new Set(); } }

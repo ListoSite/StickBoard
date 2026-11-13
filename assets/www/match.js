@@ -130,13 +130,12 @@
         if (!cache.has(k)) cache.set(k, effectiveWords(e, data, emoInfo));
         for (const w of cache.get(k)) { const t = prep(w); if (t.length) kws.push({ t, w: 1.5, src: w }); }
       }
-      // palavras que o teclado aprendeu contigo
-      const learn = st.learn || {};
-      for (const w of Object.keys(learn)) {
-        const c = learn[w] || 1;
-        kws.push({ t: [{ w, s: stem(w) }], w: 1 + Math.min(c, 4) * 0.6, src: w, learned: true });
+      // palavras que o teclado aprendeu contigo (perdem força se deixares de as usar)
+      for (const l of learned(st)) {
+        const t = l.w.includes(' ') ? prep(l.w) : [{ w: l.w, s: stem(l.w) }];
+        if (t.length) kws.push({ t, w: 1 + Math.min(l.eff, 6) * 0.55, src: l.w, learned: true });
       }
-      items.push({ p, s: st, kws, emo: (st.emojis || []).map(stripVS) });
+      items.push({ p, s: st, kws, emo: (st.emojis || []).map(stripVS), boost: habitBoost(st) });
     }
     return items;
   }
@@ -179,16 +178,62 @@
         if (best > 0) { score += best * kw.w; why.add(kw.src); }
       }
       for (const e of qe) if (it.emo.includes(e)) { score += 4; why.add(e); }
-      if (score >= 0.9) res.push({ p: it.p, s: it.s, score, why: Array.from(why) });
+      // os que usas muito (e a esta hora) ficam um pouco à frente dos outros que também combinam
+      if (score >= 0.9) res.push({ p: it.p, s: it.s, score: score + (it.boost || 0), why: Array.from(why) });
     }
     res.sort((a, b) => b.score - a.score);
     return res.slice(0, limit || 30);
   }
 
-  /** As palavras com significado da frase (para o teclado aprender). */
+  /** As palavras com significado da frase (para o teclado aprender) + pares de palavras seguidas ("boa noite"). */
   function queryTokens(text) {
     const line = String(text || '').split('\n').pop();
-    return Array.from(new Set(tokens(line).slice(-8).filter(x => !STOP.has(x) && x.length >= 2)));
+    const all = tokens(line).slice(-10);
+    const words = Array.from(new Set(all.filter(x => !STOP.has(x) && x.length >= 2))).slice(-8);
+    const pairs = [];
+    for (let i = 0; i + 1 < all.length; i++) {
+      const a = all[i], b = all[i + 1];
+      if (a.length >= 2 && b.length >= 3 && !STOP.has(b)) pairs.push(a + ' ' + b);
+    }
+    return words.concat(Array.from(new Set(pairs)).slice(-4));
+  }
+
+  const DAY = 86400000, HALF = 45;
+  /** O que o teclado aprendeu de um sticker: [{w, eff (força atual), n (vezes), last (dia)}]. */
+  function learned(st) {
+    const out = [];
+    const today = Math.floor(Date.now() / DAY);
+    if (st.lrn) for (const w in st.lrn) {
+      const e = st.lrn[w] || [];
+      const eff = (e[0] || 0) * Math.pow(0.5, Math.max(0, today - (e[1] || today)) / HALF);
+      if (eff >= 0.25) out.push({ w, eff, n: e[2] || 0, last: e[1] || today });
+    } else if (st.learn) for (const w in st.learn) out.push({ w, eff: Math.min(12, st.learn[w] || 1) * 0.8, n: st.learn[w] || 1, last: today - 7 });
+    return out.sort((a, b) => b.eff - a.eff);
+  }
+
+  const bucket = () => Math.floor(new Date().getHours() / 4);
+  /** Pequeno empurrão para os stickers que usas muito, ultimamente e a esta hora. */
+  function habitBoost(st) {
+    const u = st.uses || 0;
+    if (!u) return 0;
+    const today = Math.floor(Date.now() / DAY);
+    const fresh = Math.pow(0.5, Math.max(0, today - (st.last || today)) / 30);
+    let b = Math.min(Math.log2(1 + u), 3) * 0.12 * fresh;
+    const h = st.hrs || [];
+    const tot = h.reduce((a, x) => a + (x || 0), 0);
+    if (tot >= 3 && (h[bucket()] || 0) / tot >= 0.34) b += 0.3;
+    return b;
+  }
+
+  /** Os stickers que costumas mandar a esta hora (para quando ainda não escreveste nada). */
+  function habitual(index, limit) {
+    const b = bucket();
+    return index
+      .map(it => ({ it, n: ((it.s.hrs || [])[b] || 0) }))
+      .filter(x => x.n >= 2)
+      .sort((a, c) => c.n - a.n || (c.it.s.uses || 0) - (a.it.s.uses || 0))
+      .slice(0, limit || 12)
+      .map(x => ({ p: x.it.p, s: x.it.s }));
   }
 
   /** Sticker +18: o pack todo ou só o sticker marcado. */
@@ -211,5 +256,5 @@
     return Object.assign({}, data, { packs });
   }
 
-  window.Match = { queryTokens, isAdult, modeData, norm, stripVS, tokens, stem, defaultWords, effectiveWords, buildIndex, search, emojisIn, STOP };
+  window.Match = { learned, habitual, habitBoost, queryTokens, isAdult, modeData, norm, stripVS, tokens, stem, defaultWords, effectiveWords, buildIndex, search, emojisIn, STOP };
 })();
