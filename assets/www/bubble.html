@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:transparent;color:#EEF1F5;font-family:Roboto,system-ui,sans-serif;font-size:14px;overflow:hidden;user-select:none;-webkit-user-select:none}
+button{font:inherit;color:inherit;background:none;border:0;padding:0}
+.hidden{display:none!important}
+#bub{position:fixed;left:4px;top:4px;width:48px;height:48px;border-radius:50%;background:#25D366;display:grid;place-items:center;box-shadow:0 4px 14px rgba(0,0,0,.45);touch-action:none}
+#bub.dim{background:#2C323C}
+#bub .ic{font-size:24px;line-height:1}
+#bub .bd{position:absolute;top:-2px;right:-2px;min-width:20px;height:20px;border-radius:10px;background:#FF5C6C;color:#fff;font-size:12px;font-weight:800;display:grid;place-items:center;padding:0 5px;border:2px solid #0E1014}
+#pan{position:fixed;inset:0;background:#0E1014;border-radius:18px 18px 0 0;border-top:1px solid #2A303A;display:flex;flex-direction:column}
+.hd{height:42px;display:flex;align-items:center;gap:6px;padding:0 6px 0 14px;flex:none}
+.q{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#9AA3B0;font-size:13px}
+.q b{color:#25D366}
+.ib{height:32px;padding:0 10px;border-radius:10px;background:#20252E;font-size:13px;font-weight:600;white-space:nowrap}
+.ib.x{width:34px;padding:0;font-size:17px}
+.strip{flex:1;display:grid;grid-auto-flow:column;grid-template-rows:repeat(2,1fr);grid-auto-columns:72px;gap:4px;overflow-x:auto;overflow-y:hidden;padding:2px 8px 8px}
+.s{border-radius:12px;display:grid;place-items:center}
+.s:active{background:#1d2620}
+.s img{width:90%;height:90%;object-fit:contain}
+.msg{grid-row:1/-1;color:#9AA3B0;font-size:13px;padding:10px 8px;width:300px;white-space:normal;line-height:1.4}
+.lbl{grid-row:1/-1;writing-mode:vertical-rl;transform:rotate(180deg);color:#6B7482;font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;text-align:center}
+</style>
+</head>
+<body>
+<div id="bub"><span class="ic">🏷️</span><span class="bd hidden" id="badge"></span></div>
+<div id="pan" class="hidden">
+  <div class="hd"><div class="q" id="q"></div><button class="ib" id="kb">⌨ Teclado de stickers</button><button class="ib x" id="x">✕</button></div>
+  <div class="strip" id="strip"></div>
+</div>
+<script src="match.js"></script>
+<script>
+'use strict';
+const B = window.BB, M = window.Match;
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const EM = new Map();
+const info = e => EM.get(M.stripVS(e));
+let DATA = { packs: [] }, IDX = [], text = '', mode = 'bubble', lastLoad = 0;
+const img = (p, f) => `f/${encodeURIComponent(p.id)}/${encodeURIComponent(f)}?v=${p.version || 0}`;
+
+function load(force) {
+  if (!force && Date.now() - lastLoad < 4000) return;
+  lastLoad = Date.now();
+  try { DATA = JSON.parse(B.getData()); } catch (e) {}
+  IDX = M.buildIndex(DATA, info);
+}
+function results() {
+  let r = M.search(IDX, text, 40);
+  if (DATA.kbShuffle && r.length > 1) for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; }
+  return r;
+}
+function timeWords() {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 12) return { label: 'Bom dia', q: 'bom dia manhã café' };
+  if (h >= 12 && h < 19) return { label: 'Boa tarde', q: 'boa tarde almoço' };
+  return { label: 'Boa noite', q: 'boa noite dormir sono' };
+}
+function getRecent() { try { return JSON.parse(localStorage.getItem('kbRecent') || '[]'); } catch (e) { return []; } }
+function pushRecent(p, f) { try { const r = getRecent().filter(x => !(x.p === p && x.f === f)); r.unshift({ p, f }); localStorage.setItem('kbRecent', JSON.stringify(r.slice(0, 40))); } catch (e) {} }
+
+function drawBadge() {
+  const n = text.trim() ? M.search(IDX, text, 99).length : 0;
+  const b = $('#badge');
+  b.classList.toggle('hidden', !n);
+  b.textContent = n > 9 ? '9+' : n;
+  $('#bub').classList.toggle('dim', !n);
+}
+function tile(p, s) {
+  const d = document.createElement('button');
+  d.className = 's';
+  d.innerHTML = `<img loading="lazy" src="${img(p, s.f)}">`;
+  d.onclick = () => {
+    pushRecent(p.id, s.f);
+    const w = M.queryTokens(text);
+    if (w.length) { try { B.learn(p.id, s.f, JSON.stringify(w)); } catch (e) {} }
+    B.send(p.id, s.f);
+  };
+  return d;
+}
+function msg(h, cls = 'msg') { const m = document.createElement('div'); m.className = cls; m.innerHTML = h; return m; }
+function drawPanel() {
+  const line = text.split('\n').pop().trim();
+  $('#q').innerHTML = line ? `<b>«${esc(line.length > 30 ? '…' + line.slice(-28) : line)}»</b>` : 'Escreve uma frase…';
+  const st = $('#strip');
+  st.innerHTML = '';
+  const res = results();
+  res.forEach(r => st.appendChild(tile(r.p, r.s)));
+  if (!res.length) {
+    const tw = timeWords();
+    const now = M.search(IDX, tw.q, 10);
+    if (line) st.appendChild(msg(`Nenhum sticker para «${esc(line.slice(-30))}». Abaixo: sugestões e recentes.`));
+    if (now.length) { st.appendChild(msg(tw.label, 'lbl')); now.forEach(r => st.appendChild(tile(r.p, r.s))); }
+    const rec = getRecent().map(x => { const p = DATA.packs.find(q => q.id === x.p); const s = p && p.stickers.find(q => q.f === x.f); return s ? { p, s } : null; }).filter(Boolean);
+    if (rec.length) { st.appendChild(msg('Recentes', 'lbl')); rec.forEach(x => st.appendChild(tile(x.p, x.s))); }
+  }
+  st.scrollLeft = 0;
+}
+
+// arrastar e tocar na bolha
+let down = null, moved = 0;
+const bub = $('#bub');
+bub.addEventListener('pointerdown', e => { down = { x: e.screenX, y: e.screenY }; moved = 0; bub.setPointerCapture(e.pointerId); });
+bub.addEventListener('pointermove', e => {
+  if (!down) return;
+  const dx = e.screenX - down.x, dy = e.screenY - down.y;
+  if (Math.abs(dx) + Math.abs(dy) < 2) return;
+  moved += Math.abs(dx) + Math.abs(dy);
+  if (moved > 8) B.drag(dx, dy);
+  down = { x: e.screenX, y: e.screenY };
+});
+bub.addEventListener('pointerup', () => {
+  if (!down) return;
+  down = null;
+  if (moved <= 8) { load(true); B.expand(true); }
+  else B.dragEnd();
+});
+$('#x').onclick = () => B.expand(false);
+$('#kb').onclick = () => B.openKeyboard();
+
+window.BubbleApp = {
+  setMode(m) {
+    mode = m;
+    $('#bub').classList.toggle('hidden', m !== 'bubble');
+    $('#pan').classList.toggle('hidden', m !== 'panel');
+    if (m === 'panel') drawPanel(); else drawBadge();
+  },
+  onText(t) {
+    text = t || '';
+    load(false);
+    if (mode === 'panel') drawPanel(); else drawBadge();
+  },
+  onSendFailed(why) {
+    B.expand(true);
+    const st = $('#strip');
+    st.innerHTML = '';
+    st.appendChild(msg(why === 'old' ? 'Enviar pela bolha precisa do Android 11 ou mais recente. Usa o botão de mudar de teclado.' : 'Ativa primeiro o teclado “StickTag · Stickers” (no StickTag → separador Teclado).'));
+  }
+};
+
+(async function () {
+  try {
+    const j = await (await fetch('emoji.json')).json();
+    j.emojis.forEach(a => EM.set(M.stripVS(a[0]), { e: a[0], n: a[2], pt: a[3] ? a[3].split('|') : [] }));
+  } catch (e) {}
+  load(true);
+  try { text = B.getText(); } catch (e) {}
+  BubbleApp.setMode('bubble');
+})();
+</script>
+</body>
+</html>

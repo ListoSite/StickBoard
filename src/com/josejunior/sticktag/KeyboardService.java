@@ -93,6 +93,16 @@ public class KeyboardService extends InputMethodService {
             ViewGroup.LayoutParams lp = web.getLayoutParams();
             if (lp != null && lp.height != dp(heightDp())) { lp.height = dp(heightDp()); web.setLayoutParams(lp); }
         }
+        // pedido vindo da bolha: envia já e volta ao teclado anterior
+        final String[] pend = Pending.take();
+        if (pend != null) {
+            ui.postDelayed(new Runnable() {
+                @Override public void run() {
+                    sendSticker(pend[0], pend[1]);
+                    ui.postDelayed(new Runnable() { @Override public void run() { switchBack(); } }, 450);
+                }
+            }, 250);
+        }
         try {
             JSONObject o = new JSONObject();
             o.put("text", currentText());

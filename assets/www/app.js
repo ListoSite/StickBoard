@@ -1113,6 +1113,42 @@ function viewKeyboard() {
   c1.querySelector('#ka').onclick = () => A.openKeyboardSettings();
   c1.querySelector('#kp').onclick = () => A.showKeyboardPicker();
   v.appendChild(c1);
+  // bolha flutuante
+  let bs = {};
+  try { bs = JSON.parse(A.bubbleStatus()); } catch (e) {}
+  const APPS = [['com.whatsapp', 'WhatsApp'], ['com.whatsapp.w4b', 'WA Business'], ['com.zhiliaoapp.musically,com.ss.android.ugc.trill', 'TikTok'], ['com.instagram.android', 'Instagram'], ['org.telegram.messenger', 'Telegram'], ['com.facebook.orca', 'Messenger'], ['com.google.android.apps.messaging,com.samsung.android.messaging', 'SMS'], ['com.discord', 'Discord'], ['com.snapchat.android', 'Snapchat']];
+  let chosen;
+  try { chosen = S.data.bubbleApps ? JSON.parse(S.data.bubbleApps) : null; } catch (e) { chosen = null; }
+  if (!chosen) chosen = APPS.flatMap(a => a[0].split(','));
+  v.appendChild(el(`<div class="sec">Bolha flutuante</div>`));
+  const bc = el(`<div class="card">
+    <div class="row" style="justify-content:space-between;margin-bottom:8px"><b>${bs.enabled ? 'Bolha ativada' : 'Bolha desativada'}</b>${bs.enabled ? '<span class="chip ok">✓ Ativa</span>' : '<span class="chip warn">Falta ativar</span>'}</div>
+    <div class="hint" style="margin-bottom:10px">Quando o teclado abre numa das apps escolhidas, aparece uma bolha 🏷️ com o número de stickers que combinam com o que escreveste. Tocas nela, escolhes o sticker e ele é enviado. Depois voltas sozinho ao teu teclado${bs.sdk && bs.sdk < 30 ? ' (enviar pela bolha precisa de Android 11+)' : ''}.</div>
+    ${bs.enabled ? '' : `<ol class="steps" style="margin:0 0 12px">
+      <li>Ativa primeiro o <b>teclado de stickers</b> (em cima).</li>
+      <li>Toca em <b>Ativar a bolha</b> → <b>Apps instaladas</b> → <b>StickTag · Bolha de stickers</b> → liga.</li>
+      <li>Se estiver cinzento ou bloqueado: toca em <b>Informações da app</b> → <b>⋮</b> (canto de cima) → <b>Permitir definições restritas</b>, e volta ao passo 2.</li></ol>
+      <div class="row" style="margin-bottom:12px"><button class="btn primary" id="ba">Ativar a bolha</button><button class="btn" id="bi">Informações da app</button></div>`}
+    <div class="opt" style="padding:6px 0"><div class="t"><b>Mostrar a bolha</b><div class="small muted">Desliga para a esconder sem desativar o serviço.</div></div><button class="sw ${S.data.bubbleOn !== false ? 'on' : ''}" id="bo"></button></div>
+    <div class="small muted" style="margin:8px 0 6px;font-weight:600">Apps onde a bolha aparece</div>
+    <div class="kw" id="bapps">${APPS.map(([k, l]) => `<span data-k="${k}" style="cursor:pointer;${k.split(',').some(x => chosen.includes(x)) ? 'background:var(--greenSoft);color:var(--green)' : ''}">${l}</span>`).join('')}</div>
+    <div class="hint" style="margin-top:10px">A bolha lê o texto só nessas apps e nunca em campos de palavra-passe. Nada sai do telemóvel.</div>
+  </div>`);
+  const ba = bc.querySelector('#ba'); if (ba) ba.onclick = () => A.openAccessibilitySettings();
+  const bi = bc.querySelector('#bi'); if (bi) bi.onclick = () => A.openAppInfo();
+  bc.querySelector('#bo').onclick = e => {
+    const val = !e.currentTarget.classList.contains('on');
+    try { S.data = JSON.parse(A.setOption('bubbleOn', val)); } catch (er) {}
+    e.currentTarget.classList.toggle('on', val);
+  };
+  $$('#bapps span', bc).forEach(sp => sp.onclick = () => {
+    const ks = sp.dataset.k.split(',');
+    const on = ks.some(x => chosen.includes(x));
+    chosen = on ? chosen.filter(x => !ks.includes(x)) : chosen.concat(ks);
+    try { S.data = JSON.parse(A.setText('bubbleApps', JSON.stringify(chosen))); } catch (er) {}
+    sp.style.background = on ? '' : 'var(--greenSoft)'; sp.style.color = on ? '' : 'var(--green)';
+  });
+  v.appendChild(bc);
   v.appendChild(el(`<div class="sec">Como se usa</div>`));
   v.appendChild(el(`<div class="card">
     <div class="how"><div class="n">1</div><div class="t"><b>Escreve no teu teclado</b>Por exemplo “eu te amo muito”, no Fleksy ou noutro.</div></div>

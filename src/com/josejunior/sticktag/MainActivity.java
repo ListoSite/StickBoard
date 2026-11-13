@@ -669,6 +669,39 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public String bubbleStatus() {
+            try {
+                String en = android.provider.Settings.Secure.getString(getContentResolver(), "enabled_accessibility_services");
+                String me = new android.content.ComponentName(MainActivity.this, BubbleService.class).flattenToString();
+                String meShort = new android.content.ComponentName(MainActivity.this, BubbleService.class).flattenToShortString();
+                boolean on = en != null && (en.contains(me) || en.contains(meShort));
+                return new JSONObject().put("enabled", on).put("sdk", Build.VERSION.SDK_INT).toString();
+            } catch (Exception e) { return "{}"; }
+        }
+
+        @JavascriptInterface
+        public void openAccessibilitySettings() {
+            ui.post(new Runnable() {
+                @Override public void run() {
+                    try { startActivity(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)); } catch (Exception ignored) {}
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void openAppInfo() {
+            ui.post(new Runnable() {
+                @Override public void run() {
+                    try {
+                        Intent it = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                        it.setData(Uri.parse("package:" + getPackageName()));
+                        startActivity(it);
+                    } catch (Exception ignored) {}
+                }
+            });
+        }
+
+        @JavascriptInterface
         public void pickFolder() {
             ui.post(new Runnable() {
                 @Override public void run() {

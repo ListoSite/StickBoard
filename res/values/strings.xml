@@ -2,4 +2,6 @@
 <resources>
     <string name="app_name">StickTag</string>
     <string name="kb_name">StickTag · Stickers</string>
+    <string name="bubble_name">StickTag · Bolha de stickers</string>
+    <string name="bubble_desc">Mostra uma bolha com os teus stickers que combinam com o que estás a escrever, só nas apps que escolheres no StickTag (nunca em campos de palavra-passe). O texto não sai do telemóvel: a app não tem acesso à internet.</string>
 </resources>
