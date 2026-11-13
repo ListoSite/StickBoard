@@ -126,6 +126,30 @@ public class MainActivity extends Activity {
         });
     }
 
+    static boolean contains(JSONArray a, String v) {
+        for (int i = 0; i < a.length(); i++) if (v.equals(a.optString(i))) return true;
+        return false;
+    }
+
+    /** Troca as referências a um sticker apagado pelas do que ficou, nos especiais. */
+    static void relinkSpecials(JSONObject data, String op, String of, String np, String nf) throws JSONException {
+        JSONArray sp = data.optJSONArray("specials");
+        if (sp == null) return;
+        for (int i = 0; i < sp.length(); i++) relink(sp.get(i), op, of, np, nf);
+    }
+
+    static void relink(Object o, String op, String of, String np, String nf) throws JSONException {
+        if (o instanceof JSONObject) {
+            JSONObject j = (JSONObject) o;
+            if (op.equals(j.optString("p", null)) && of.equals(j.optString("f", null))) { j.put("p", np); j.put("f", nf); }
+            JSONArray ks = j.names();
+            for (int i = 0; ks != null && i < ks.length(); i++) relink(j.get(ks.getString(i)), op, of, np, nf);
+        } else if (o instanceof JSONArray) {
+            JSONArray a = (JSONArray) o;
+            for (int i = 0; i < a.length(); i++) relink(a.get(i), op, of, np, nf);
+        }
+    }
+
     static String err(String msg) {
         try { return new JSONObject().put("error", msg).toString(); } catch (JSONException e) { return "{}"; }
     }
@@ -158,6 +182,7 @@ public class MainActivity extends Activity {
             @Override public void run() {
                 JSONArray added = new JSONArray(), errors = new JSONArray(), notes = new JSONArray();
                 int done = 0;
+                List<Dupes.Item> app = null;
                 for (Uri u : uris) {
                     done++;
                     js("onImportProgress", done + "," + uris.size());
@@ -191,6 +216,18 @@ public class MainActivity extends Activity {
                             Store.save(MainActivity.this, data);
                         }
                         added.put(r.file);
+                        // já tinhas um igual?
+                        try {
+                            if (app == null) app = Dupes.appItems(MainActivity.this, null);
+                            String hs = Dupes.hashFile(new File(Store.packDir(MainActivity.this, packId), r.file));
+                            Dupes.remember(MainActivity.this, packId + "/" + r.file, hs);
+                            Dupes.Item twin = hs == null ? null : Dupes.sameAs(app, hs, packId, r.file);
+                            if (twin != null) {
+                                JSONObject tp = Store.findPack(Store.load(MainActivity.this), twin.pack);
+                                notes.put(r.name + ": parece igual a um sticker que já tens" + (tp != null ? " (pack «" + tp.optString("name") + "»)" : "") + ". Vê em Packs › 👯 Repetidos.");
+                            }
+                            if (hs != null) { Dupes.Item me = new Dupes.Item(); me.pack = packId; me.file = r.file; me.h = Dupes.parse(hs); app.add(me); }
+                        } catch (Exception ignored) {}
                     } catch (Exception e) {
                         try { errors.put(new JSONObject().put("name", "?").put("error", "erro inesperado")); } catch (JSONException ignored) {}
                     }
@@ -219,6 +256,7 @@ public class MainActivity extends Activity {
             if (st != null) for (int k = 0; k < st.length(); k++) { String s = st.optJSONObject(k).optString("src", ""); if (s.length() > 0) have.add(s); }
         }
         String curStatic = null, curAnim = null;
+        List<Dupes.Item> app = Dupes.appItems(this, null);
         for (int i = 0; i < a.length(); i++) {
             js("onImportProgress", (i + 1) + "," + a.length());
             try {
@@ -228,6 +266,9 @@ public class MainActivity extends Activity {
                 InputStream in = getContentResolver().openInputStream(u);
                 byte[] b = Store.readAll(in, 30 * 1024 * 1024);
                 in.close();
+                // igual (pela imagem) a um que já tens ou que acabou de entrar? não repete
+                String hs = Dupes.hashBytes(b);
+                if (hs != null && Dupes.sameAs(app, hs, "", "") != null) { dup++; have.add(src); continue; }
                 Webp.Info info = Webp.info(b);
                 boolean anim = info != null && info.animated && info.frames > 1;
                 String target;
@@ -274,6 +315,11 @@ public class MainActivity extends Activity {
                     p.getJSONArray("stickers").put(st);
                     Store.sync(this, d, p);
                     Store.save(this, d);
+                }
+                if (hs != null) {
+                    String nh = Dupes.hashFile(new File(Store.packDir(this, target), r.file));
+                    Dupes.remember(this, target + "/" + r.file, nh);
+                    Dupes.Item me = new Dupes.Item(); me.pack = target; me.file = r.file; me.h = Dupes.parse(nh != null ? nh : hs); app.add(me);
                 }
                 have.add(src);
                 added++;
@@ -734,6 +780,108 @@ public class MainActivity extends Activity {
                     try { startActivityForResult(it, REQ_FOLDER); } catch (Exception e) { js("onFolderAdded", "null"); }
                 }
             });
+        }
+
+        /** Procura stickers repetidos em todos os packs (em segundo plano). */
+        @JavascriptInterface
+        public void findDupes() {
+            exec.execute(new Runnable() {
+                @Override public void run() {
+                    List<Dupes.Item> items = Dupes.appItems(MainActivity.this, new Dupes.Progress() {
+                        @Override public void on(int d, int t) { js("onDupesProgress", d + "," + t); }
+                    });
+                    try { js("onDupes", new JSONObject().put("groups", Dupes.groups(items, null)).put("total", items.size()).toString()); }
+                    catch (JSONException e) { js("onDupes", "{\"groups\":[]}"); }
+                }
+            });
+        }
+
+        /** Repetidos dentro de uma pasta do telemóvel e em relação aos stickers da app. */
+        @JavascriptInterface
+        public void findFolderDupes(final String filesJson) {
+            exec.execute(new Runnable() {
+                @Override public void run() {
+                    List<Dupes.Item> items = new ArrayList<Dupes.Item>();
+                    java.util.HashSet<Dupes.Item> docs = new java.util.HashSet<Dupes.Item>();
+                    try {
+                        JSONArray a = new JSONArray(filesJson);
+                        JSONObject cache = Dupes.loadCache(MainActivity.this);
+                        boolean changed = false;
+                        for (int i = 0; i < a.length(); i++) {
+                            JSONObject o = a.getJSONObject(i);
+                            String uri = o.getString("uri");
+                            String key = "doc|" + uri + "|" + o.optLong("size") + "|" + o.optLong("time");
+                            String hs = cache.optString(key, null);
+                            if (hs == null) {
+                                Uri u = Uri.parse(uri);
+                                if (!Folders.allowed(MainActivity.this, u)) continue;
+                                hs = Dupes.hashUri(MainActivity.this, u);
+                                if (hs != null) { cache.put(key, hs); changed = true; }
+                            }
+                            if ((i + 1) % 8 == 0 || i == a.length() - 1) js("onDupesProgress", (i + 1) + "," + a.length());
+                            if (hs == null) continue;
+                            Dupes.Item it = new Dupes.Item(); it.uri = uri; it.h = Dupes.parse(hs);
+                            items.add(it); docs.add(it);
+                        }
+                        if (changed) Dupes.saveCache(MainActivity.this, cache);
+                    } catch (JSONException ignored) {}
+                    items.addAll(Dupes.appItems(MainActivity.this, null));
+                    try { js("onDupes", new JSONObject().put("folder", true).put("groups", Dupes.groups(items, docs)).put("total", docs.size()).toString()); }
+                    catch (JSONException e) { js("onDupes", "{\"groups\":[]}"); }
+                }
+            });
+        }
+
+        /**
+         * Fica com um sticker e apaga os repetidos, juntando-lhe os emojis, as palavras e o que aprendeu.
+         * Os especiais que usavam os apagados passam a usar o que fica.
+         */
+        @JavascriptInterface
+        public String mergeStickers(String keepPack, String keepFile, String othersJson) {
+            synchronized (Store.LOCK) {
+                try {
+                    JSONObject data = Store.load(MainActivity.this);
+                    JSONObject kp = Store.findPack(data, keepPack);
+                    JSONObject keep = kp == null ? null : Store.findSticker(kp, keepFile);
+                    if (keep == null) return err("sticker não encontrado");
+                    JSONArray others = new JSONArray(othersJson);
+                    java.util.HashSet<String> touched = new java.util.HashSet<String>();
+                    touched.add(keepPack);
+                    JSONArray em = keep.optJSONArray("emojis"); if (em == null) { em = new JSONArray(); keep.put("emojis", em); }
+                    JSONArray wd = keep.optJSONArray("words"); if (wd == null) { wd = new JSONArray(); keep.put("words", wd); }
+                    for (int i = 0; i < others.length(); i++) {
+                        JSONObject o = others.getJSONObject(i);
+                        String op = o.optString("p"), of = o.optString("f");
+                        if (op.equals(keepPack) && of.equals(keepFile)) continue;
+                        JSONObject p = Store.findPack(data, op);
+                        JSONObject s = p == null ? null : Store.findSticker(p, of);
+                        if (s == null) continue;
+                        JSONArray e2 = s.optJSONArray("emojis");
+                        for (int k = 0; e2 != null && k < e2.length() && em.length() < 3; k++) if (!contains(em, e2.optString(k))) em.put(e2.optString(k));
+                        JSONArray w2 = s.optJSONArray("words");
+                        for (int k = 0; w2 != null && k < w2.length(); k++) if (!contains(wd, w2.optString(k))) wd.put(w2.optString(k));
+                        if (s.optBoolean("fav")) keep.put("fav", true);
+                        JSONObject l2 = s.optJSONObject("learn");
+                        if (l2 != null) {
+                            JSONObject l = keep.optJSONObject("learn"); if (l == null) { l = new JSONObject(); keep.put("learn", l); }
+                            JSONArray ks = l2.names();
+                            for (int k = 0; ks != null && k < ks.length(); k++) { String w = ks.optString(k); l.put(w, l.optInt(w, 0) + l2.optInt(w, 0)); }
+                        }
+                        if (!keep.has("secretName") && s.has("secretName")) { keep.put("secretName", s.optString("secretName")); keep.put("secretPub", s.optString("secretPub")); }
+                        // tira do pack e apaga o ficheiro
+                        JSONArray a = p.getJSONArray("stickers"), n = new JSONArray();
+                        for (int k = 0; k < a.length(); k++) if (!of.equals(a.getJSONObject(k).optString("f"))) n.put(a.get(k));
+                        p.put("stickers", n);
+                        new File(Store.packDir(MainActivity.this, op), of).delete();
+                        touched.add(op);
+                        relinkSpecials(data, op, of, keepPack, keepFile);
+                    }
+                    keep.remove("exif");
+                    for (String id : touched) { JSONObject p = Store.findPack(data, id); if (p != null) Store.sync(MainActivity.this, data, p); }
+                    Store.save(MainActivity.this, data);
+                    return data.toString();
+                } catch (JSONException e) { return err("erro a juntar"); }
+            }
         }
 
         /** O que o motor dos especiais viu ultimamente (para perceber falhas). */

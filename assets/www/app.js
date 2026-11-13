@@ -189,8 +189,9 @@ function render() {
 /* ---------- lista de packs ---------- */
 function viewPacks() {
   const v = el('<section class="view"></section>');
-  const tp = el(`<div class="top"><div style="flex:1;min-width:0"><h1>StickTag</h1><div class="sub">Os teus stickers com tags</div></div><button class="btn sm" id="fd">📁 Pastas</button></div>`);
+  const tp = el(`<div class="top"><div style="flex:1;min-width:0"><h1>StickTag</h1><div class="sub">Os teus stickers com tags</div></div><button class="btn sm" id="dp" title="Procurar repetidos">👯</button><button class="btn sm" id="fd">📁 Pastas</button></div>`);
   tp.querySelector('#fd').onclick = () => { S.folders = true; render(); $('#main').scrollTop = 0; };
+  tp.querySelector('#dp').onclick = () => findDupes(null);
   v.appendChild(tp);
   // procurar em todos os packs
   const total = S.data.packs.reduce((a, p) => a + p.stickers.length, 0);
@@ -341,7 +342,8 @@ function viewFolder() {
   tp.querySelector('#bk').onclick = () => { S.folder = null; S.fsel = null; render(); };
   tp.querySelector('#rf').onclick = () => { S.ffiles = null; render(); };
   v.appendChild(tp);
-  const acts = el(`<div class="row" style="margin-bottom:12px;flex-wrap:wrap"><button class="btn primary" id="ia" ${nNew ? '' : 'disabled'}>Importar tudo${nNew ? ` (${nNew})` : ''}</button><button class="btn" id="fl">${S.fonlyNew ? 'Ver todos' : 'Só os novos'}</button>${files.length ? '<button class="btn" id="vw">▶ Rever um a um</button>' : ''}</div>`);
+  const acts = el(`<div class="row" style="margin-bottom:12px;flex-wrap:wrap"><button class="btn primary" id="ia" ${nNew ? '' : 'disabled'}>Importar tudo${nNew ? ` (${nNew})` : ''}</button><button class="btn" id="fl">${S.fonlyNew ? 'Ver todos' : 'Só os novos'}</button>${files.length ? '<button class="btn" id="vw">▶ Rever um a um</button>' : ''}${S.ffiles.length > 1 ? '<button class="btn" id="dpf">👯 Repetidos</button>' : ''}</div>`);
+  const dpf = acts.querySelector('#dpf'); if (dpf) dpf.onclick = () => findDupes(S.ffiles);
   const vw = acts.querySelector('#vw'); if (vw) vw.onclick = () => openFolderViewer(files, 0);
   acts.querySelector('#fl').onclick = () => { S.fonlyNew = !S.fonlyNew; render(); };
   acts.querySelector('#ia').onclick = () => autoImportDialog(f, S.ffiles.filter(x => !isIn(x)));
@@ -1622,6 +1624,112 @@ function viewHelp() {
   return v;
 }
 
+/* ---------- stickers repetidos ---------- */
+function ignoredDupes() { try { return new Set(JSON.parse(localStorage.getItem('dupIgnore') || '[]')); } catch (e) { return new Set(); } }
+function ignoreDupe(sig) { try { const s = ignoredDupes(); s.add(sig); localStorage.setItem('dupIgnore', JSON.stringify([...s].slice(-500))); } catch (e) {} }
+const dupKey = x => x.uri ? 'u:' + x.uri : x.p + '/' + x.f;
+const dupSig = g => g.items.map(dupKey).sort().join('|');
+
+function findDupes(folderFiles) {
+  busy('A comparar os stickers…');
+  if (folderFiles) A.findFolderDupes(JSON.stringify(folderFiles.map(x => ({ uri: x.uri, size: x.size || 0, time: x.time || 0 }))));
+  else A.findDupes();
+}
+
+function showDupes(r) {
+  busy(null);
+  reload();
+  const folder = !!r.folder;
+  const ign = ignoredDupes();
+  let groups = (r.groups || []).filter(g => !ign.has(dupSig(g)));
+  // os iguais primeiro
+  groups.sort((a, b) => (a.level === 'same' ? 0 : 1) - (b.level === 'same' ? 0 : 1));
+  const tags = x => { const s = stRef(x); return s ? (s.s.emojis || []).length + (s.s.words || []).length : -1; };
+  groups.forEach(g => {
+    if (folder) {
+      const docs = g.items.filter(x => x.uri);
+      g.keep = g.items.some(x => !x.uri) ? null : dupKey(docs[0]);
+    } else {
+      const best = g.items.slice().sort((a, b) => tags(b) - tags(a) || ((packOf(b.p) && !isKb(packOf(b.p))) ? 1 : 0) - ((packOf(a.p) && !isKb(packOf(a.p))) ? 1 : 0))[0];
+      g.keep = dupKey(best);
+    }
+  });
+  let changed = false;
+  const sheet = el(`<div class="sheet"><div class="hd"><h3>👯 Repetidos${folder ? ' na pasta' : ''}</h3><button class="iconbtn" id="x">${ICON.close}</button></div><div class="bd" id="db"></div></div>`);
+  const ov = openOverlay(sheet, { onClose: () => { if (changed) { if (S.folder) S.ffiles = null; render(); } } });
+  $('#x', sheet).onclick = () => closeOverlay(ov);
+  const bd = $('#db', sheet);
+  const thumb = x => {
+    if (x.uri) return `<img loading="lazy" src="d/${encodeURIComponent(x.uri)}">`;
+    const s = stRef(x); return s ? `<img loading="lazy" src="${imgUrl(s.p, s.s.f)}">` : '❔';
+  };
+  const label = x => {
+    if (x.uri) return 'na pasta';
+    const s = stRef(x); if (!s) return '';
+    const t = tags(x);
+    return `${esc(s.p.name)}${t > 0 ? ` · ${t} tag${t > 1 ? 's' : ''}` : ''}`;
+  };
+  // aplica a ação de um grupo; devolve true se correu bem
+  async function act(g) {
+    if (folder) {
+      const del = g.items.filter(x => x.uri && dupKey(x) !== g.keep).map(x => x.uri);
+      if (!del.length) return true;
+      const n = A.deleteDocs(JSON.stringify(del));
+      if (n) changed = true;
+      return n > 0;
+    }
+    const keep = g.items.find(x => dupKey(x) === g.keep);
+    const others = g.items.filter(x => x !== keep && !x.uri);
+    let d;
+    try { d = JSON.parse(A.mergeStickers(keep.p, keep.f, JSON.stringify(others))); } catch (e) { d = { error: 'erro' }; }
+    if (d.error) { toast(d.error); return false; }
+    S.data = d; changed = true;
+    return true;
+  }
+  function draw() {
+    bd.innerHTML = '';
+    if (!groups.length) {
+      bd.appendChild(el(`<div class="empty" style="padding:30px 10px"><div class="big">🎉</div><h2>Nada repetido</h2><div>Comparei ${r.total || 0} sticker${r.total === 1 ? '' : 's'} pela imagem e não encontrei repetidos.</div></div>`));
+      return;
+    }
+    const nSame = groups.filter(g => g.level === 'same').length;
+    bd.appendChild(el(`<div class="hint" style="margin-bottom:10px">${folder
+      ? 'Comparei as imagens desta pasta entre si e com os stickers da app. O ★ fica; os outros ficheiros da pasta são apagados. Os stickers da app nunca são apagados aqui.'
+      : 'Comparei as imagens de todos os packs. Toca no sticker que queres manter (★). Os outros são apagados e as tags deles passam para o que fica.'}</div>`));
+    if (nSame > 1) {
+      const all = el(`<button class="btn primary block" style="margin-bottom:12px">${folder ? `Apagar os repetidos iguais (${nSame} grupos)` : `Juntar todos os iguais (${nSame} grupos)`}</button>`);
+      all.onclick = async () => {
+        if (!await confirmBox(folder ? 'Apagar os repetidos iguais?' : 'Juntar todos os iguais?', folder ? 'Em cada grupo fica o ★ e os outros ficheiros são apagados da pasta.' : 'Em cada grupo fica o ★ e os outros são apagados (as tags passam para o que fica).', folder ? 'Apagar' : 'Juntar')) return;
+        let ok = 0;
+        for (const g of groups.filter(g => g.level === 'same')) if (await act(g)) { ok++; g.done = true; }
+        groups = groups.filter(g => !g.done);
+        toast(`${ok} grupo${ok === 1 ? '' : 's'} resolvido${ok === 1 ? '' : 's'} ✓`);
+        draw();
+      };
+      bd.appendChild(all);
+    }
+    groups.forEach(g => {
+      const inApp = folder && g.items.some(x => !x.uri);
+      const c = el(`<div class="card dg"><div class="row" style="margin-bottom:8px"><span class="dtag ${g.level}">${g.level === 'same' ? 'Iguais' : 'Parecidos · talvez'}</span><span class="small muted" style="flex:1">${inApp ? 'já tens na app' : g.items.length + ' stickers'}</span></div><div class="ditems"></div><div class="row" style="margin-top:10px"><button class="btn sm ghost" data-a="ign">${g.level === 'same' ? 'Não são iguais' : 'Não são'}</button><button class="btn sm ${g.level === 'same' ? 'primary' : ''}" data-a="go">${folder ? (inApp ? 'Apagar da pasta' : 'Apagar os outros') : 'Juntar'}</button></div></div>`);
+      const it = $('.ditems', c);
+      g.items.forEach(x => {
+        const k = dupKey(x);
+        const canKeep = !(folder && !x.uri);
+        const b = el(`<button class="di ${k === g.keep ? 'keep' : ''} ${folder && !x.uri ? 'app' : ''}"><div class="dim">${thumb(x)}${k === g.keep ? '<span class="ks">★</span>' : ''}${x.anim ? '<span class="an">🎞️</span>' : ''}</div><div class="dl">${folder && !x.uri ? '📦 na app' : label(x)}</div></button>`);
+        b.onclick = () => { if (!canKeep) return; g.keep = k; draw(); };
+        it.appendChild(b);
+      });
+      c.querySelector('[data-a=ign]').onclick = () => { ignoreDupe(dupSig(g)); groups = groups.filter(x => x !== g); draw(); };
+      c.querySelector('[data-a=go]').onclick = async () => {
+        if (g.level !== 'same' && !await confirmBox('Tens a certeza?', 'Estes só são parecidos. Confirma que são mesmo o mesmo sticker.', folder ? 'Apagar' : 'Juntar')) return;
+        if (await act(g)) { groups = groups.filter(x => x !== g); toast(folder ? 'Apagado da pasta ✓' : 'Juntado ✓'); draw(); }
+      };
+      bd.appendChild(c);
+    });
+  }
+  draw();
+}
+
 /* ---------- stickers especiais ---------- */
 const SP_TYPES = {
   seq: { icon: '⏱️', name: 'Sequência', desc: 'Mandas um e os seguintes vão sozinhos, com o tempo que escolheres entre eles.' },
@@ -1879,6 +1987,8 @@ function editSecret(x) {
 /* ---------- respostas do lado nativo ---------- */
 window.App = {
   onImportProgress(done, total) { busy(`A importar ${done} de ${total}…`); },
+  onDupesProgress(done, total) { busy(`A comparar ${done} de ${total}…`); },
+  onDupes(r) { showDupes(r || { groups: [] }); },
   onImported(r) {
     if (S.vImp && r && !r.cancelled) {
       S.vImp--;
