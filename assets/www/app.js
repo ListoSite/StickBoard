@@ -340,20 +340,30 @@ function viewFolder() {
   tp.querySelector('#bk').onclick = () => { S.folder = null; S.fsel = null; render(); };
   tp.querySelector('#rf').onclick = () => { S.ffiles = null; render(); };
   v.appendChild(tp);
-  const acts = el(`<div class="row" style="margin-bottom:12px"><button class="btn primary" id="ia" ${nNew ? '' : 'disabled'}>Importar tudo${nNew ? ` (${nNew})` : ''}</button><button class="btn" id="fl">${S.fonlyNew ? 'Ver todos' : 'Só os novos'}</button></div>`);
+  const acts = el(`<div class="row" style="margin-bottom:12px;flex-wrap:wrap"><button class="btn primary" id="ia" ${nNew ? '' : 'disabled'}>Importar tudo${nNew ? ` (${nNew})` : ''}</button><button class="btn" id="fl">${S.fonlyNew ? 'Ver todos' : 'Só os novos'}</button>${files.length ? '<button class="btn" id="vw">▶ Rever um a um</button>' : ''}</div>`);
+  const vw = acts.querySelector('#vw'); if (vw) vw.onclick = () => openFolderViewer(files, 0);
   acts.querySelector('#fl').onclick = () => { S.fonlyNew = !S.fonlyNew; render(); };
   acts.querySelector('#ia').onclick = () => autoImportDialog(f, S.ffiles.filter(x => !isIn(x)));
   v.appendChild(acts);
-  v.appendChild(el(`<div class="hint" style="margin-bottom:10px">Toca para escolher. Os que têm ✓ já estão num pack.</div>`));
+  v.appendChild(el(`<div class="hint" style="margin-bottom:10px">Toca num sticker para o veres em grande. Carrega sem largar para escolher vários. Os que têm ✓ já estão num pack.</div>`));
   const grid = el('<div class="grid" style="grid-template-columns:repeat(4,1fr);gap:8px;margin-top:0"></div>');
   files.forEach(x => {
     const c = el(`<div class="st" style="padding:4px"><div class="im"><img loading="lazy" src="d/${encodeURIComponent(x.uri)}"></div>${isIn(x) ? '<span class="cv" style="color:var(--green);left:10px;right:auto">✓</span>' : ''}<span class="ck" style="${S.fsel.size ? '' : 'display:none'}"></span></div>`);
     if (S.fsel.has(x.uri)) c.classList.add('sel');
-    c.onclick = () => {
+    const toggle = () => {
       S.fsel.has(x.uri) ? S.fsel.delete(x.uri) : S.fsel.add(x.uri);
       c.classList.toggle('sel');
       $$('.ck', grid).forEach(k => k.style.display = S.fsel.size ? '' : 'none');
       drawBar();
+    };
+    let lp = null, longDone = false;
+    c.addEventListener('pointerdown', () => { longDone = false; clearTimeout(lp); lp = setTimeout(() => { longDone = true; toggle(); try { navigator.vibrate && navigator.vibrate(20); } catch (e) {} }, 450); });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => c.addEventListener(t, () => clearTimeout(lp)));
+    c.addEventListener('contextmenu', e => e.preventDefault());
+    c.onclick = () => {
+      if (longDone) { longDone = false; return; }
+      if (S.fsel.size) toggle();
+      else openFolderViewer(files, files.indexOf(x));
     };
     grid.appendChild(c);
   });
@@ -378,17 +388,149 @@ function viewFolder() {
   return v;
 }
 
-async function folderToPack(uris) {
+async function choosePack(title) {
   let chosen = null;
   const packs = S.data.packs;
   const html = `<div style="display:flex;flex-direction:column;gap:8px;max-height:50vh;overflow:auto;margin-bottom:12px">${packs.map(p => `<button class="pack" data-id="${esc(p.id)}" style="margin:0;text-align:left"><div class="tray" style="width:44px;height:44px">${p.stickers.length ? `<img src="${trayUrl(p)}">` : ''}</div><div class="info"><div class="name">${esc(p.name)}</div><div class="meta" style="margin:0">${countLabel(p)} · ${kindLabel(p)}</div></div></button>`).join('')}</div>`;
-  const pr = dialog({ title: `Pôr ${uris.length} sticker${uris.length > 1 ? 's' : ''} em…`, html, buttons: [{ label: 'Cancelar', cls: 'ghost', value: null }, { label: 'Novo pack', cls: 'primary', value: 'new' }] });
+  const pr = dialog({ title, html, buttons: [{ label: 'Cancelar', cls: 'ghost', value: null }, { label: 'Novo pack', cls: 'primary', value: 'new' }] });
   setTimeout(() => $$('.dialog .pack[data-id]').forEach(b => b.onclick = () => { chosen = b.dataset.id; closeOverlay(); }), 0);
   const r = await pr;
   if (r === 'new') { const p = await newPack(true); if (p) chosen = p.id; }
+  return chosen;
+}
+
+async function folderToPack(uris) {
+  const chosen = await choosePack(`Pôr ${uris.length} sticker${uris.length > 1 ? 's' : ''} em…`);
   if (!chosen) return;
   busy('A importar…');
   A.importDocs(chosen, JSON.stringify(uris));
+}
+
+/* ---------- ver os stickers da pasta um a um ---------- */
+// "Não perguntar outra vez" só dura enquanto a app estiver aberta (não é guardado).
+let skipDeleteAsk = false;
+
+async function isAnimDoc(x) {
+  if (x.anim !== undefined) return x.anim;
+  const n = (x.name || '').toLowerCase(), m = (x.mime || '').toLowerCase();
+  if (m.includes('gif') || n.endsWith('.gif')) return (x.anim = true);
+  if (!(m.includes('webp') || n.endsWith('.webp'))) return (x.anim = false);
+  try {
+    const b = new Uint8Array(await (await fetch('d/' + encodeURIComponent(x.uri))).arrayBuffer());
+    const tag = String.fromCharCode(b[12], b[13], b[14], b[15]);
+    x.anim = tag === 'VP8X' && (b[20] & 2) === 2;
+  } catch (e) { x.anim = false; }
+  return x.anim;
+}
+
+function openFolderViewer(list, start) {
+  list = list.slice();
+  let i = Math.max(0, start), changed = false;
+  const inPack = x => S.data.packs.some(p => p.stickers.some(s => s.src === x.name + '|' + x.size));
+  const v = el(`<div class="fv">
+    <div class="fv-top"><button class="iconbtn" id="x">${ICON.close}</button><div class="fv-t"><b id="ct"></b><span id="nm"></span></div><span class="fv-tag hidden" id="an">🎞️ Animado</span><span class="fv-tag ok hidden" id="ok">✓ Num pack</span></div>
+    <div class="fv-stage" id="stage"><button class="fv-nav l" id="pv">‹</button><img id="im" alt=""><button class="fv-nav r" id="nx">›</button></div>
+    <div class="fv-bottom">
+      <button class="fv-pack" id="pk"><span class="muted">Pack:</span> <b id="pkn"></b> <span class="muted">▾</span></button>
+      <div class="fv-acts">
+        <button class="fv-b del" id="dl"><span>🗑️</span>Apagar</button>
+        <button class="fv-b" id="ed"><span>✏️</span>Editar</button>
+        <button class="fv-b add" id="ad"><span>➕</span>Pôr no pack</button>
+      </div>
+    </div></div>`);
+  const ov = openOverlay(v, { modal: true, onClose: () => { if (changed && S.folder) { S.ffiles = null; render(); } } });
+  ov.classList.add('fv-ov');
+  const im = $('#im', v);
+  const target = () => S.vPack && packOf(S.vPack) ? packOf(S.vPack) : null;
+  function drawPack() {
+    const p = target();
+    $('#pkn', v).textContent = p ? p.name : 'escolher…';
+    $('#ad', v).lastChild.textContent = p ? 'Pôr no pack' : 'Pôr num pack';
+  }
+  async function show(dir) {
+    if (!list.length) { closeOverlay(ov); toast('Já não há mais stickers aqui 👍'); return; }
+    if (i >= list.length) i = list.length - 1;
+    const x = list[i];
+    $('#ct', v).textContent = `${i + 1} de ${list.length}`;
+    $('#nm', v).textContent = x.name;
+    $('#ok', v).classList.toggle('hidden', !inPack(x));
+    $('#pv', v).style.visibility = i > 0 ? '' : 'hidden';
+    $('#nx', v).style.visibility = i < list.length - 1 ? '' : 'hidden';
+    im.classList.remove('in', 'fl', 'fr'); void im.offsetWidth;
+    im.classList.add(dir < 0 ? 'fl' : dir > 0 ? 'fr' : 'in');
+    im.src = 'd/' + encodeURIComponent(x.uri);
+    if (list[i + 1]) new Image().src = 'd/' + encodeURIComponent(list[i + 1].uri);
+    $('#an', v).classList.add('hidden');
+    const a = await isAnimDoc(x);
+    if (list[i] === x) $('#an', v).classList.toggle('hidden', !a);
+  }
+  function next() { if (i < list.length - 1) { i++; show(1); } }
+  function prev() { if (i > 0) { i--; show(-1); } }
+  // depois de apagar ou pôr num pack, passa logo para o seguinte
+  function done(remove) {
+    changed = true;
+    if (remove) { list.splice(i, 1); if (i >= list.length && list.length) { closeOverlay(ov); toast('Era o último 👍'); return; } show(1); }
+    else if (i < list.length - 1) { i++; show(1); }
+    else { closeOverlay(ov); toast('Era o último 👍'); }
+  }
+  async function pickTarget() {
+    const id = await choosePack('Para que pack vão?');
+    if (id) { S.vPack = id; drawPack(); }
+    return id;
+  }
+  $('#x', v).onclick = () => closeOverlay(ov);
+  $('#pv', v).onclick = prev;
+  $('#nx', v).onclick = next;
+  $('#pk', v).onclick = pickTarget;
+  // deslizar para o lado
+  let sx = null, sy = 0;
+  const stage = $('#stage', v);
+  stage.addEventListener('pointerdown', e => { if (e.target.closest('.fv-nav')) return; sx = e.clientX; sy = e.clientY; });
+  stage.addEventListener('pointerup', e => {
+    if (sx === null) return;
+    const dx = e.clientX - sx, dy = e.clientY - sy; sx = null;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) dx < 0 ? next() : prev();
+  });
+  $('#dl', v).onclick = async () => {
+    const x = list[i];
+    if (!skipDeleteAsk) {
+      const r = await dialog({ title: 'Apagar este sticker?', text: 'É apagado de vez desta pasta do telemóvel. Se já estiver num pack, continua na app.',
+        html: `<label class="chk"><input type="checkbox" id="dn"><span>Não perguntar outra vez até fechar a app</span></label>`,
+        buttons: [{ label: 'Cancelar', cls: 'ghost', value: null }, { label: 'Apagar', cls: 'danger', value: d => ({ skip: $('#dn', d).checked }) }] });
+      if (!r) return;
+      if (r.skip) skipDeleteAsk = true;
+    }
+    const n = A.deleteDocs(JSON.stringify([x.uri]));
+    if (!n) return toast('Não consegui apagar este ficheiro');
+    S.ffiles = S.ffiles && S.ffiles.filter(f => f.uri !== x.uri);
+    toast('Apagado 🗑️', 1100);
+    done(true);
+  };
+  $('#ad', v).onclick = async () => {
+    const x = list[i];
+    const pid = target() ? S.vPack : await pickTarget();
+    if (!pid) return;
+    const p = packOf(pid);
+    if (p.stickers.length >= maxOf(p)) { toast('Este pack já está cheio: escolhe outro'); return pickTarget(); }
+    S.vImp = (S.vImp || 0) + 1;
+    A.importDocs(pid, JSON.stringify([x.uri]));
+    done(S.fonlyNew);
+  };
+  $('#ed', v).onclick = async () => {
+    const x = list[i];
+    const pid = target() ? S.vPack : await pickTarget();
+    if (!pid) return;
+    const p = packOf(pid);
+    if (p.stickers.length >= maxOf(p)) { toast('Este pack já está cheio: escolhe outro'); return pickTarget(); }
+    const url = 'd/' + encodeURIComponent(x.uri);
+    const onSaved = () => { toast(`Guardado em «${p.name}» ✓`, 1600); done(S.fonlyNew); };
+    if (await isAnimDoc(x)) {
+      const mime = x.mime || ((x.name || '').toLowerCase().endsWith('.gif') ? 'image/gif' : 'image/webp');
+      openAnimCreator(pid, { url, mime }, { onSaved, edit: true });
+    } else openCreator(pid, url, { onSaved, edit: true });
+  };
+  drawPack();
+  show(0);
 }
 
 async function autoImportDialog(f, list) {
@@ -740,7 +882,7 @@ async function cutPerson(img) {
   return out;
 }
 
-function openAnimCreator(packId, media) {
+function openAnimCreator(packId, media, opts = {}) {
   const p = packOf(packId);
   if (!p) return;
   const isVideo = media.mime.startsWith('video');
@@ -798,7 +940,7 @@ function openAnimCreator(packId, media) {
       $('#ss', sheet).max = Math.max(0, st.dur - 0.3);
       $('#sl', sheet).max = Math.max(0.5, Math.min(8, st.dur));
       $('#sl', sheet).value = st.len;
-      $('#info', sheet).textContent = `${isVideo ? 'Vídeo' : 'GIF'} de ${fmt(st.dur)} s`;
+      $('#info', sheet).textContent = `${isVideo ? 'Vídeo' : media.mime.includes('webp') ? 'Animação' : 'GIF'} de ${fmt(st.dur)} s`;
       upd(); await showAt(st.start);
     } catch (e) {
       $('#info', sheet).textContent = 'Não consegui abrir: ' + (e.message || e);
@@ -861,6 +1003,7 @@ function openAnimCreator(packId, media) {
   $('#zm', sheet).oninput = e => { st.zoom = +e.target.value; redraw(); };
   $$('#sh button', sheet).forEach(b => b.onclick = () => { st.shape = b.dataset.s; $$('#sh button', sheet).forEach(x => x.classList.toggle('on', x === b)); redraw(); });
   $('#ol', sheet).onclick = e => { st.outline = !st.outline; e.currentTarget.classList.toggle('on', st.outline); redraw(); };
+  if (opts.edit) { st.shape = 'full'; st.outline = false; $$('#sh button', sheet).forEach(x => x.classList.toggle('on', x.dataset.s === 'full')); $('#ol', sheet).classList.remove('on'); }
   $('#tt', sheet).oninput = e => { st.top = e.target.value; redraw(); };
   $('#tb', sheet).oninput = e => { st.bottom = e.target.value; redraw(); };
   $('#ts', sheet).oninput = e => { st.size = +e.target.value; redraw(); };
@@ -914,6 +1057,7 @@ function openAnimCreator(packId, media) {
       if (r.error) return toast(r.error);
       S.data = r.data;
       closeOverlay(ov);
+      if (opts.onSaved) return opts.onSaved(r);
       toast(`Sticker animado criado ✓ (${Math.round(out.length / 1024)} KB)`);
       const pk = packOf(packId);
       if (pk) openEditor(packId, pk.stickers.findIndex(x => x.f === r.file));
@@ -926,7 +1070,7 @@ function openAnimCreator(packId, media) {
 }
 
 /* ---------- Criar sticker a partir de uma foto ---------- */
-function openCreator(packId, url) {
+function openCreator(packId, url, opts = {}) {
   const p = packOf(packId);
   if (!p) return;
   const textMode = !url;
@@ -1125,6 +1269,7 @@ function openCreator(packId, url) {
   $$('#bgs button', sheet).forEach(b => b.onclick = () => { st.bg = b.dataset.b; $$('#bgs button', sheet).forEach(x => x.style.borderColor = x === b ? 'var(--green)' : 'var(--line)'); draw(); });
   $$('#bgs button', sheet).forEach(x => x.style.borderColor = x.dataset.b === st.bg ? 'var(--green)' : 'var(--line)');
   $('#ol', sheet).onclick = e => { st.outline = !st.outline; e.currentTarget.classList.toggle('on', st.outline); draw(); };
+  if (opts.edit) { st.shape = 'full'; st.outline = false; $$('#sh button', sheet).forEach(x => x.classList.toggle('on', x.dataset.s === 'full')); $('#ol', sheet).classList.remove('on'); draw(); }
   $('#tt', sheet).oninput = e => { st.top = e.target.value; draw(); };
   $('#tb', sheet).oninput = e => { st.bottom = e.target.value; draw(); };
   $('#ts', sheet).oninput = e => { st.size = +e.target.value; draw(); };
@@ -1139,6 +1284,7 @@ function openCreator(packId, url) {
     if (r.error) { toast(r.error); return; }
     S.data = r.data;
     closeOverlay(ov);
+    if (opts.onSaved) return opts.onSaved(r);
     const pk = packOf(packId);
     toast('Sticker criado ✓ — agora dá-lhe um emoji');
     if (pk) openEditor(packId, pk.stickers.findIndex(x => x.f === r.file));
@@ -1479,6 +1625,14 @@ function viewHelp() {
 window.App = {
   onImportProgress(done, total) { busy(`A importar ${done} de ${total}…`); },
   onImported(r) {
+    if (S.vImp && r && !r.cancelled) {
+      S.vImp--;
+      reload();
+      const e = (r.errors || [])[0], p = packOf(r.packId);
+      if (e) toast('Não entrou no pack: ' + e.error, 3200);
+      else if (r.added && r.added.length) toast(`Adicionado a «${p ? p.name : 'pack'}» ✓`, 1300);
+      return;
+    }
     busy(null);
     if (!r || r.cancelled) return;
     reload();
