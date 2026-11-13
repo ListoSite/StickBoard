@@ -610,9 +610,21 @@ function viewPack() {
     b.querySelector('button').onclick = () => { S.reveal = S.reveal || {}; S.reveal[p.id] = !rv; render(); };
     v.appendChild(b);
   }
+  const secs = sectionsOf(p);
+  S.secOf = S.secOf || {};
+  const curSec = secs.includes(S.secOf[p.id]) ? S.secOf[p.id] : '';
+  if (secs.length || isKb(p)) {
+    const cnt = n => visible(p).filter(s => s.section === n).length;
+    const bar2 = el(`<div class="secbar">${secs.length ? `<button class="mchip ${curSec === '' ? 'on' : ''}" data-s="">Todos <small>${visible(p).length}</small></button>` : ''}${secs.map(n => `<button class="mchip ${curSec === n ? 'on' : ''}" data-s="${esc(n)}">${esc(n)} <small>${cnt(n)}</small></button>`).join('')}<button class="mchip add" data-new="1">＋ Secção</button></div>`);
+    $$('[data-s]', bar2).forEach(b => b.onclick = () => { const n = b.dataset.s; if (n && n === curSec) return sectionMenu(p, n); S.secOf[p.id] = n; render(); });
+    bar2.querySelector('[data-new]').onclick = async () => { const n = await newSectionDialog(p); if (n) { S.secOf[p.id] = n; render(); toast('Secção criada: escolhe stickers (☑) e toca em «Secção»', 3200); } };
+    v.appendChild(bar2);
+    if (curSec) v.appendChild(el(`<div class="hint" style="margin:-2px 2px 6px">Toca outra vez em «${esc(curSec)}» para mudar o nome, mover ou apagar.</div>`));
+  }
   const grid = el('<div class="grid"></div>');
   p.stickers.forEach((s, i) => {
     if (s.hidden) return; // só existe dentro de um especial
+    if (curSec && s.section !== curSec) return;
     const spN = specialsOf(p.id, s.f);
     const subN = spN.reduce((a, x) => a + subRefs(x).length, 0);
     const em = s.emojis && s.emojis.length ? `<div class="em emo">${s.emojis.map(esc).join('')}</div>` : '<div class="em none">sem emoji</div>';
@@ -626,10 +638,11 @@ function viewPack() {
   });
   v.appendChild(grid);
   if (S.sel) {
-    const bar = el(`<div class="selbar"><span class="n" id="sn"></span><button class="btn sm" id="sa">Tudo</button><button class="btn sm primary" id="se">+ Emoji</button><button class="btn sm" id="sm">Mover</button><button class="btn sm danger" id="sd">Apagar</button></div>`);
+    const bar = el(`<div class="selbar"><span class="n" id="sn"></span><button class="btn sm" id="sa">Tudo</button><button class="btn sm primary" id="se">+ Emoji</button><button class="btn sm" id="sm">Mover</button><button class="btn sm" id="ss">Secção</button><button class="btn sm danger" id="sd">Apagar</button></div>`);
     bar.querySelector('#sa').onclick = () => { if (S.sel.size === p.stickers.length) S.sel.clear(); else p.stickers.forEach(s => S.sel.add(s.f)); render(); };
     bar.querySelector('#se').onclick = () => { if (!S.sel.size) return toast('Escolhe primeiro os stickers'); bulkEmoji(p); };
     bar.querySelector('#sm').onclick = () => { if (!S.sel.size) return toast('Escolhe primeiro os stickers'); moveStickers(p, Array.from(S.sel)); };
+    bar.querySelector('#ss').onclick = async () => { if (!S.sel.size) return toast('Escolhe primeiro os stickers'); await chooseSection(p, Array.from(S.sel)); S.sel = null; render(); };
     bar.querySelector('#sd').onclick = async () => {
       if (!S.sel.size) return toast('Escolhe primeiro os stickers');
       if (!await confirmBox(`Apagar ${S.sel.size} sticker${S.sel.size > 1 ? 's' : ''}?`, 'Saem deste pack (e do WhatsApp, se o pack lá estiver).')) return;
@@ -645,7 +658,9 @@ function viewPack() {
 function updSelBar() { const n = $('#sn'); if (n && S.sel) n.textContent = `${S.sel.size} selec.`; }
 
 async function packMenu(p) {
-  const r = await dialog({ title: p.name, html: '<div style="height:4px"></div>', buttons: [{ label: 'Editar nome', value: 'edit' }, { label: p.adult ? 'Tirar o 🔞' : 'Marcar como 🔞 +18', value: 'adult' }, { label: 'Apagar pack', cls: 'danger', value: 'del' }] });
+  const r = await dialog({ title: p.name, html: '<div style="height:4px"></div>', buttons: [{ label: '✨ Tags automáticas (ler o texto)', value: 'ocr' }, { label: '＋ Nova secção', value: 'sec' }, { label: 'Editar nome', value: 'edit' }, { label: p.adult ? 'Tirar o 🔞' : 'Marcar como 🔞 +18', value: 'adult' }, { label: 'Apagar pack', cls: 'danger', value: 'del' }] });
+  if (r === 'ocr') { bulkOcr(p); return; }
+  if (r === 'sec') { const n = await newSectionDialog(p); if (n) { S.secOf = Object.assign(S.secOf || {}, { [p.id]: n }); render(); } return; }
   if (r === 'adult') {
     try { S.data = JSON.parse(A.setPackFlag(p.id, 'adult', !p.adult)); } catch (e) {}
     toast(!p.adult ? 'Pack +18 🔞: só aparece no teclado no modo +18' : 'Já não é +18');
@@ -831,7 +846,7 @@ function openEditor(packId, idx) {
     s.emojis = s.emojis || []; s.words = s.words || [];
     const bd = $('.bd', sheet);
     bd.innerHTML = `<div class="ed-top-wrap"></div><div class="pk-holder"></div>
-      <div class="sec" style="margin-top:18px">Palavras para este sticker</div>
+      <div class="row" style="margin-top:18px;justify-content:space-between"><div class="sec" style="margin:0">Palavras para este sticker</div><button class="btn sm" id="ocr">✨ Ler o texto</button></div>
       <div class="words"></div>
       <div class="hint" style="margin-top:6px">Quando escreveres uma destas palavras, o teclado de stickers sugere este sticker. As palavras dos emojis também contam.</div>
       ${Object.keys(s.learn || {}).length ? `<div class="sec" style="margin-top:16px">Aprendidas pelo teclado</div><div class="words" id="lw"></div><div class="hint" style="margin-top:6px">Palavras que escreveste antes de escolher este sticker. Toca no × para esquecer.</div>` : ''}
@@ -845,6 +860,20 @@ function openEditor(packId, idx) {
     $('#fv', bd).onclick = () => { const c = cur(); c.fav = !c.fav; commit(); drawAll(); toast(c.fav ? 'Nos favoritos do teclado ⭐' : 'Tirado dos favoritos'); };
     $('#gl', bd).onclick = () => { const r = JSON.parse(A.saveToGallery(p.id, s.f)); toast(r.error ? 'Não guardei: ' + r.error : 'Guardado em Imagens/StickTag ✓'); };
     drawTop(); drawWords(); redrawPicker();
+    $('#ocr', bd).onclick = async () => {
+      const b = $('#ocr', bd); b.disabled = true; b.textContent = 'A ler…';
+      const w = await ocrWords(imgUrl(p, cur().f));
+      b.disabled = false; b.textContent = '✨ Ler o texto';
+      if (!w) return;
+      const c = cur(); const add = w.filter(x => !c.words.some(y => norm(y) === norm(x)));
+      if (!add.length) return toast(w.length ? 'Essas palavras já cá estão' : 'Não encontrei texto neste sticker');
+      c.words.push(...add); commit(); drawWords(); toast('Juntei: ' + add.join(', '));
+    };
+    if (sectionsOf(p).length || isKb(p)) {
+      const sw = el(`<div class="row" style="margin-top:14px;gap:8px;flex-wrap:wrap"><span class="small muted">Secção:</span><button class="mchip ${s.section ? 'on' : ''}" id="sec">${esc(s.section || 'nenhuma')} ▾</button></div>`);
+      $('#sec', sw).onclick = async () => { await chooseSection(p, [cur().f]); p = packOf(packId); drawAll(); };
+      bd.appendChild(sw);
+    }
     const spw = el('<div></div>'); bd.appendChild(spw);
     if (!s.hidden) specialSection(() => ({ p: p.id, f: cur().f }), () => p.id, spw);
     $('#cv', bd).onclick = () => { p.cover = s.f; commit(); drawAll(); toast('Capa do pack atualizada'); };
@@ -1120,9 +1149,21 @@ function openAnimCreator(packId, media, opts = {}) {
  */
 function creatorExtras(sheet, packId) {
   const emojis = [];
-  const box = el(`<div class="cx"><div class="field"><span>Emojis (tags) — 1 a 3</span><div class="emq"></div></div><div class="cx-pk hidden"></div><div class="cx-sp"></div></div>`);
+  const box = el(`<div class="cx"><button class="btn sm block" id="cx-ocr" style="margin:-4px 0 14px">✨ Ler o texto do sticker para as palavras</button><div class="field"><span>Emojis (tags) — 1 a 3</span><div class="emq"></div></div><div class="cx-pk hidden"></div><div class="cx-sp"></div></div>`);
   const anchor = $('#wd', sheet).closest('.field');
   anchor.after(box);
+  $('#cx-ocr', box).onclick = async () => {
+    const b = $('#cx-ocr', box); b.disabled = true; b.textContent = 'A ler o texto…';
+    const w = await ocrWords($('#cv', sheet).toDataURL('image/png'));
+    b.disabled = false; b.textContent = '✨ Ler o texto do sticker para as palavras';
+    if (!w) return;
+    const inp = $('#wd', sheet);
+    const cur = inp.value.split(',').map(x => x.trim()).filter(Boolean);
+    const add = w.filter(x => !cur.some(y => norm(y) === norm(x)));
+    if (!add.length) return toast(w.length ? 'Essas palavras já lá estão' : 'Não encontrei texto');
+    inp.value = cur.concat(add).join(', ');
+    toast('Juntei: ' + add.join(', '));
+  };
   const emq = $('.emq', box), pkh = $('.cx-pk', box);
   let picker = null;
   function drawEm() {
@@ -1694,6 +1735,7 @@ function viewHelp() {
     A.importBackup();
   };
   v.appendChild(bk);
+  v.appendChild(autoBackupCard());
   v.appendChild(el(`<div class="sec">Atalhos para o Gboard</div>`));
   const ab = el(`<div class="card"><div class="hint" style="margin-bottom:10px">Se usares o Gboard ou o Teclado Samsung: transforma as palavras dos teus stickers em atalhos que sugerem o emoji certo.</div><button class="btn block">Abrir atalhos</button></div>`);
   ab.querySelector('button').onclick = () => go('shortcuts');
@@ -1826,6 +1868,131 @@ async function openSmooth(p, s) {
   };
 }
 
+
+/* ---------- cópia de segurança automática ---------- */
+function autoBackupCard() {
+  const ab = S.data.autoBackup || {};
+  const has = !!ab.uri;
+  const on = has && ab.on !== false;
+  const when = ab.last ? new Date(ab.last).toLocaleString('pt-PT', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'ainda nenhuma';
+  const EV = [[1, 'Todos os dias'], [3, 'De 3 em 3 dias'], [7, 'Todas as semanas'], [30, 'Todos os meses']];
+  const KP = [2, 4, 8];
+  const c = el(`<div class="card" style="margin-top:10px">
+    <div class="opt" style="padding:0;border:0"><div class="t"><b>🔄 Cópia automática</b><div class="small muted">${has ? `Guarda sozinha um .zip na pasta <b>${esc(ab.folder || 'escolhida')}</b>.` : 'Escolhe uma pasta e o StickTag guarda lá cópias sozinho, sem teres de te lembrar.'}</div></div>${has ? `<button class="sw ${on ? 'on' : ''}" id="abo"></button>` : ''}</div>
+    ${has ? `<div class="row" style="margin-top:12px;gap:8px"><select class="dsel big" id="abe" style="flex:1">${EV.map(([d, l]) => `<option value="${d}" ${(ab.every || 7) === d ? 'selected' : ''}>${l}</option>`).join('')}</select><select class="dsel big" id="abk" style="flex:1">${KP.map(k => `<option value="${k}" ${(ab.keep || 4) === k ? 'selected' : ''}>Guardar as últimas ${k}</option>`).join('')}</select></div>
+    <div class="hint" style="margin-top:10px">Última: <b>${esc(when)}</b>${ab.lastError ? ` · <span style="color:var(--red)">${esc(ab.lastError)}</span>` : ''}. Dica: escolhe uma pasta que o Google Drive ou outra app sincronize, e ficas com a cópia também na nuvem.</div>
+    <div class="row" style="margin-top:12px"><button class="btn sm" id="abf">Mudar de pasta</button><button class="btn sm primary" id="abn">Fazer agora</button></div>`
+    : `<button class="btn primary block" id="abf" style="margin-top:12px">Escolher pasta e ligar</button>`}
+  </div>`);
+  const save = () => { try { S.data = JSON.parse(A.setAutoBackup($('#abo', c).classList.contains('on'), +$('#abe', c).value, +$('#abk', c).value)); } catch (e) {} };
+  $('#abf', c).onclick = () => { busy('A preparar…'); A.pickBackupFolder(); setTimeout(() => busy(null), 1500); };
+  if (has) {
+    $('#abo', c).onclick = e => { e.currentTarget.classList.toggle('on'); save(); toast(e.currentTarget.classList.contains('on') ? 'Cópia automática ligada' : 'Cópia automática desligada'); };
+    $('#abe', c).onchange = save; $('#abk', c).onchange = save;
+    $('#abn', c).onclick = () => { busy('A fazer a cópia…'); A.backupNow(); };
+  }
+  return c;
+}
+
+/* ---------- secções dentro de um pack ---------- */
+const sectionsOf = p => (p.sections || []).filter(Boolean);
+function saveSections(p, list) {
+  try { const d = JSON.parse(A.setSections(p.id, JSON.stringify(list))); if (!d.error) S.data = d; } catch (e) {}
+}
+function setSection(p, files, name) {
+  try { const d = JSON.parse(A.setStickerSection(p.id, JSON.stringify(files), name || '')); if (!d.error) S.data = d; } catch (e) {}
+}
+async function newSectionDialog(p) {
+  const name = await dialog({ title: 'Nova secção', html: `<label class="field"><span>Nome</span><input class="input" id="sn" maxlength="30" placeholder="Ex.: Reações, Bom dia, Memes"></label>`, buttons: [{ label: 'Cancelar', cls: 'ghost', value: null }, { label: 'Criar', cls: 'primary', value: d => $('#sn', d).value.trim() }] });
+  if (!name) return null;
+  const list = sectionsOf(packOf(p.id));
+  if (list.some(x => x.toLowerCase() === name.toLowerCase())) return name;
+  saveSections(p, list.concat([name]));
+  return name;
+}
+/* escolher a secção de um ou mais stickers */
+async function chooseSection(p, files) {
+  const list = sectionsOf(p);
+  const html = `<div class="chips" style="margin-bottom:14px">${list.map(n => `<button class="mchip" data-n="${esc(n)}">${esc(n)}</button>`).join('')}<button class="mchip" data-n="">Sem secção</button><button class="mchip" data-new="1">＋ Nova</button></div>`;
+  let chosen;
+  const pr = dialog({ title: files.length > 1 ? `Secção dos ${files.length} stickers` : 'Secção do sticker', html, buttons: [{ label: 'Cancelar', cls: 'ghost', value: null }] });
+  setTimeout(() => $$('.dialog [data-n], .dialog [data-new]').forEach(b => b.onclick = async () => {
+    if (b.dataset.new) { closeOverlay(); const n = await newSectionDialog(p); if (n) { setSection(p, files, n); toast(`Em «${n}»`); render(); } return; }
+    chosen = b.dataset.n; closeOverlay();
+  }), 0);
+  await pr;
+  if (chosen === undefined) return;
+  setSection(p, files, chosen);
+  toast(chosen ? `Em «${chosen}»` : 'Sem secção');
+  render();
+}
+async function sectionMenu(p, name) {
+  const r = await dialog({ title: `Secção «${name}»`, html: '<div style="height:4px"></div>', buttons: [{ label: 'Mudar o nome', value: 'ren' }, { label: '‹ Mover para a esquerda', value: 'left' }, { label: 'Apagar a secção', cls: 'danger', value: 'del' }] });
+  const list = sectionsOf(p);
+  const i = list.indexOf(name);
+  if (r === 'ren') {
+    const n = await dialog({ title: 'Mudar o nome', html: `<label class="field"><input class="input" id="sn" maxlength="30" value="${esc(name)}"></label>`, buttons: [{ label: 'Cancelar', cls: 'ghost', value: null }, { label: 'Guardar', cls: 'primary', value: d => $('#sn', d).value.trim() }] });
+    if (!n || n === name) return;
+    const files = p.stickers.filter(s => s.section === name).map(s => s.f);
+    list[i] = n; saveSections(p, list); setSection(packOf(p.id), files, n);
+    S.secOf = Object.assign(S.secOf || {}, { [p.id]: n });
+  } else if (r === 'left' && i > 0) {
+    [list[i - 1], list[i]] = [list[i], list[i - 1]]; saveSections(p, list);
+  } else if (r === 'del') {
+    if (!await confirmBox('Apagar a secção?', 'Os stickers não são apagados: só ficam sem secção.', 'Apagar')) return;
+    saveSections(p, list.filter(x => x !== name));
+    if (S.secOf) delete S.secOf[p.id];
+  }
+  render();
+}
+
+/* ---------- tags automáticas pelo texto do sticker ---------- */
+async function ocrWords(url) {
+  try { return await OCR.read(url); } catch (e) { toast('Não consegui ler o texto: ' + (e.message || e)); return null; }
+}
+async function bulkOcr(p) {
+  const list = visible(p).filter(s => !(s.words && s.words.length));
+  const all = list.length ? list : visible(p);
+  if (!all.length) return toast('Este pack não tem stickers');
+  if (!list.length && !await confirmBox('Todos já têm palavras', 'Queres ler o texto de todos à mesma (só junta palavras novas)?', 'Ler todos')) return;
+  const found = [];
+  try {
+    busy('A preparar a leitura…');
+    await OCR.init();
+    for (let i = 0; i < all.length; i++) {
+      busy(`A ler o texto ${i + 1} de ${all.length}…`);
+      const s = all[i];
+      const w = await OCR.read(imgUrl(p, s.f));
+      const fresh = (w || []).filter(x => !(s.words || []).some(y => norm(y) === norm(x)));
+      if (fresh.length) found.push({ s, words: fresh, on: fresh.map(() => true) });
+    }
+  } catch (e) { busy(null); return toast('Não consegui ler: ' + (e.message || e)); }
+  busy(null);
+  if (!found.length) return toast(`Não encontrei texto em ${all.length} sticker${all.length === 1 ? '' : 's'}`, 3000);
+  const sheet = el(`<div class="sheet"><div class="hd"><h3>✨ Tags automáticas</h3><button class="iconbtn" id="x">${ICON.close}</button></div><div class="bd"><div class="hint" style="margin-bottom:12px">Encontrei texto em ${found.length} sticker${found.length === 1 ? '' : 's'}. Toca numa palavra para a tirar.</div><div id="ol"></div></div><div class="row" style="padding:10px 16px 14px"><button class="btn primary" id="ap">Juntar as palavras</button></div></div>`);
+  const ov = openOverlay(sheet, { modal: true });
+  $('#x', sheet).onclick = () => closeOverlay(ov);
+  const ol = $('#ol', sheet);
+  found.forEach(fx => {
+    const row = el(`<div class="ocr-r"><div class="dim sm"><img src="${imgUrl(p, fx.s.f)}"></div><div class="chips" style="flex:1"></div></div>`);
+    const ch = $('.chips', row);
+    const draw = () => { ch.innerHTML = fx.words.map((w, i) => `<button class="mchip ${fx.on[i] ? 'on' : ''}" data-i="${i}">${esc(w)}</button>`).join(''); $$('.mchip', ch).forEach(b => b.onclick = () => { fx.on[+b.dataset.i] = !fx.on[+b.dataset.i]; draw(); }); };
+    draw();
+    ol.appendChild(row);
+  });
+  $('#ap', sheet).onclick = () => {
+    let n = 0;
+    const pk = packOf(p.id);
+    for (const fx of found) {
+      const s = pk.stickers.find(x => x.f === fx.s.f); if (!s) continue;
+      s.words = s.words || [];
+      fx.words.forEach((w, i) => { if (fx.on[i] && !s.words.some(y => norm(y) === norm(w))) { s.words.push(w); n++; } });
+    }
+    savePack(pk);
+    closeOverlay(ov); render();
+    toast(`${n} palavra${n === 1 ? '' : 's'} juntada${n === 1 ? '' : 's'} ✓`);
+  };
+}
 /* ---------- stickers repetidos ---------- */
 function ignoredDupes() { try { return new Set(JSON.parse(localStorage.getItem('dupIgnore') || '[]')); } catch (e) { return new Set(); } }
 function ignoreDupe(sig) { try { const s = ignoredDupes(); s.add(sig); localStorage.setItem('dupIgnore', JSON.stringify([...s].slice(-500))); } catch (e) {} }
@@ -2721,6 +2888,12 @@ window.App = {
     dialog({ title: `${r.added} sticker${r.added === 1 ? '' : 's'} importado${r.added === 1 ? '' : 's'}`,
       html: `<ul class="list-err">${r.created ? `<li>${r.created} pack${r.created > 1 ? 's' : ''} novo${r.created > 1 ? 's' : ''}</li>` : ''}${r.dup ? `<li>${r.dup} já estavam na app (ignorados)</li>` : ''}${r.fail ? `<li>${r.fail} não deram para converter</li>` : ''}${r.stop ? `<li>${esc(r.stop)}</li>` : ''}</ul>`,
       buttons: [{ label: 'OK', cls: 'primary' }] });
+  },
+  onAutoBackup(r) {
+    busy(null); reload();
+    if (!r || r.cancelled) return;
+    if (r.ok) toast('Cópia automática feita ✓', 2600); else toast('A cópia falhou: ' + (r.error || 'erro'), 3600);
+    if (S.tab === 'help') render();
   },
   onBackup(r) {
     busy(null);

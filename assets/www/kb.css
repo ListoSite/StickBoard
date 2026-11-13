@@ -97,3 +97,7 @@ body.adult .tab.on{background:rgba(255,77,94,.16)}
 .flash{background:rgba(40,46,56,.95);border:1px solid rgba(255,255,255,.08);box-shadow:0 8px 24px rgba(0,0,0,.4);border-radius:14px}
 .pv{background:rgba(11,13,17,.985)}
 .pv .acts button.pri{background:linear-gradient(180deg,#3BE584,#20C25D)}
+.secs{grid-column:1/-1;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:2px 2px 4px;position:sticky;top:-8px;background:#0B0D11;z-index:2}
+.secs::-webkit-scrollbar{display:none}
+.secs button{flex:none;height:30px;padding:0 12px;border-radius:15px;background:#1A1F27;color:#9AA3B0;font-size:12.5px;font-weight:600}
+.secs button.on{background:rgba(43,217,110,.16);color:#2BD96E}

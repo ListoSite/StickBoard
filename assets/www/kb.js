@@ -8,6 +8,7 @@ const EM = new Map();
 let DATA = { packs: [] }, IDX = [], text = '', tab = 'sug', direct = true;
 let shufKey = null, shufOrder = [];
 let searching = false, sq = '', multi = null;
+const secOf = {};
 
 /* palavras para a hora do dia */
 function timeWords() {
@@ -209,7 +210,19 @@ function renderGrid() {
     if (!renderRecent(g, false)) addMsg(g, 'Os stickers que enviares aparecem aqui.');
   } else {
     const p = DATA.packs.find(x => x.id === tab);
-    if (p) p.stickers.forEach(s => g.appendChild(tile(p, s)));
+    if (p) {
+      // secções do pack (só as que têm stickers neste modo)
+      const secs = (p.sections || []).filter(n => p.stickers.some(s => s.section === n));
+      const cur = secs.includes(secOf[p.id]) ? secOf[p.id] : '';
+      if (secs.length) {
+        const bar = document.createElement('div');
+        bar.className = 'secs';
+        bar.innerHTML = [['', 'Todos']].concat(secs.map(n => [n, n])).map(([v, l]) => `<button class="${v === cur ? 'on' : ''}" data-s="${esc(v)}">${esc(l)}</button>`).join('');
+        bar.querySelectorAll('button').forEach(b => b.onclick = () => { secOf[p.id] = b.dataset.s; renderGrid(); $('#grid').scrollTop = 0; });
+        g.appendChild(bar);
+      }
+      p.stickers.forEach(s => { if (!cur || s.section === cur) g.appendChild(tile(p, s)); });
+    }
   }
 }
 

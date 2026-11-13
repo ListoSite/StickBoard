@@ -46,7 +46,7 @@ import java.util.zip.ZipOutputStream;
 
 public class MainActivity extends Activity {
     static final String HOST = Web.HOST;
-    static final int REQ_PICK = 11, REQ_WA = 12, REQ_EXPORT = 13, REQ_BACKUP = 14, REQ_RESTORE = 15, REQ_CREATE = 16, REQ_FOLDER = 17, REQ_ANIM = 18;
+    static final int REQ_PICK = 11, REQ_WA = 12, REQ_EXPORT = 13, REQ_BACKUP = 14, REQ_RESTORE = 15, REQ_CREATE = 16, REQ_FOLDER = 17, REQ_ANIM = 18, REQ_BKDIR = 19;
     static final String WA = "com.whatsapp", WA_B = "com.whatsapp.w4b";
 
     WebView web;
@@ -107,6 +107,12 @@ public class MainActivity extends Activity {
             if (l != null) for (Parcelable p : l) if (p instanceof Uri) { shared.add((Uri) p); got = true; }
         }
         return got;
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        AutoBackup.maybeRun(this);
     }
 
     @Override
@@ -363,6 +369,22 @@ public class MainActivity extends Activity {
                 }
             } catch (JSONException ignored) {}
             js("onWa", o.toString());
+        } else if (req == REQ_BKDIR) {
+            Uri tree = res == RESULT_OK && data != null ? data.getData() : null;
+            if (tree == null) { js("onAutoBackup", "{\"cancelled\":true}"); return; }
+            try { getContentResolver().takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION); } catch (Exception ignored) {}
+            synchronized (Store.LOCK) {
+                try {
+                    JSONObject d = Store.load(this);
+                    JSONObject ab = d.optJSONObject("autoBackup");
+                    if (ab == null) { ab = new JSONObject(); ab.put("every", 7); ab.put("keep", 4); }
+                    ab.put("uri", tree.toString()); ab.put("on", true); ab.put("folder", Folders.name(this, tree)); ab.put("last", 0);
+                    d.put("autoBackup", ab);
+                    Store.save(this, d);
+                } catch (JSONException ignored) {}
+            }
+            AutoBackup.schedule(this, true);
+            exec.execute(new Runnable() { @Override public void run() { js("onAutoBackup", AutoBackup.runNow(MainActivity.this)); } });
         } else if (req == REQ_BACKUP || req == REQ_RESTORE) {
             final Uri u = (res == RESULT_OK && data != null) ? data.getData() : null;
             final boolean isRestore = req == REQ_RESTORE;
@@ -995,6 +1017,81 @@ public class MainActivity extends Activity {
                     return data.toString();
                 }
             } catch (Exception e) { return err("não consegui guardar"); }
+        }
+
+        /** Cópia automática: escolher a pasta. */
+        @JavascriptInterface
+        public void pickBackupFolder() {
+            ui.post(new Runnable() {
+                @Override public void run() {
+                    Intent it = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                    it.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                    try { startActivityForResult(it, REQ_BKDIR); } catch (Exception e) { js("onAutoBackup", "{\"cancelled\":true}"); }
+                }
+            });
+        }
+
+        /** Cópia automática: ligar/desligar, de quantos em quantos dias e quantas guardar. */
+        @JavascriptInterface
+        public String setAutoBackup(boolean on, int every, int keep) {
+            synchronized (Store.LOCK) {
+                try {
+                    JSONObject d = Store.load(MainActivity.this);
+                    JSONObject ab = d.optJSONObject("autoBackup");
+                    if (ab == null) ab = new JSONObject();
+                    ab.put("on", on); ab.put("every", Math.max(1, every)); ab.put("keep", Math.max(1, keep));
+                    d.put("autoBackup", ab);
+                    Store.save(MainActivity.this, d);
+                    AutoBackup.schedule(MainActivity.this, on && ab.optString("uri").length() > 0);
+                    return d.toString();
+                } catch (JSONException e) { return err("erro"); }
+            }
+        }
+
+        @JavascriptInterface
+        public void backupNow() {
+            exec.execute(new Runnable() { @Override public void run() { js("onAutoBackup", AutoBackup.runNow(MainActivity.this)); } });
+        }
+
+        /** Secções de um pack (ordem e nomes). */
+        @JavascriptInterface
+        public String setSections(String packId, String sectionsJson) {
+            synchronized (Store.LOCK) {
+                try {
+                    JSONObject d = Store.load(MainActivity.this);
+                    JSONObject p = Store.findPack(d, packId);
+                    if (p == null) return err("pack não encontrado");
+                    JSONArray sec = new JSONArray(sectionsJson);
+                    p.put("sections", sec);
+                    // os stickers de secções que deixaram de existir ficam sem secção
+                    java.util.HashSet<String> ok = new java.util.HashSet<String>();
+                    for (int i = 0; i < sec.length(); i++) ok.add(sec.optString(i));
+                    JSONArray a = p.getJSONArray("stickers");
+                    for (int i = 0; i < a.length(); i++) { JSONObject st = a.getJSONObject(i); if (st.has("section") && !ok.contains(st.optString("section"))) st.remove("section"); }
+                    Store.save(MainActivity.this, d);
+                    return d.toString();
+                } catch (JSONException e) { return err("erro"); }
+            }
+        }
+
+        /** Põe vários stickers numa secção ("" = sem secção). */
+        @JavascriptInterface
+        public String setStickerSection(String packId, String filesJson, String section) {
+            synchronized (Store.LOCK) {
+                try {
+                    JSONObject d = Store.load(MainActivity.this);
+                    JSONObject p = Store.findPack(d, packId);
+                    if (p == null) return err("pack não encontrado");
+                    JSONArray f = new JSONArray(filesJson);
+                    for (int i = 0; i < f.length(); i++) {
+                        JSONObject st = Store.findSticker(p, f.optString(i));
+                        if (st == null) continue;
+                        if (section == null || section.length() == 0) st.remove("section"); else st.put("section", section);
+                    }
+                    Store.save(MainActivity.this, d);
+                    return d.toString();
+                } catch (JSONException e) { return err("erro"); }
+            }
         }
 
         /** Guarda o Eco (respostas automáticas a palavras). */

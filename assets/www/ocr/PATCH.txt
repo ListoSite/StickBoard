@@ -1,0 +1,2 @@
+patched: initialize usa lang.code (correção para passar os dados da língua diretamente)
+Nota: o ficheiro da língua chama-se por-traineddata.bin (é o por.traineddata.gz) porque o aapt descomprime ficheiros .gz ao empacotar.

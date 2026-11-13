@@ -418,3 +418,14 @@ html,body{background:var(--bg);-webkit-font-smoothing:antialiased}
 .empty h2{font-weight:800;letter-spacing:-.2px}
 .fv-b svg{width:22px;height:22px}
 .fv-b.add{background:var(--grad);box-shadow:0 8px 20px rgba(43,217,110,.25)}
+
+/* secções */
+.secbar{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:12px -16px 4px;padding:0 16px}
+.secbar::-webkit-scrollbar{display:none}
+.secbar .mchip{flex:none}
+.secbar .mchip small{opacity:.6;font-weight:600;margin-left:2px}
+.secbar .mchip.add{border-style:dashed;background:transparent}
+.ocr-r{display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.selbar{overflow-x:auto;scrollbar-width:none}
+.selbar::-webkit-scrollbar{display:none}
+.selbar .btn{flex:none}

@@ -52,7 +52,7 @@ public class KeyboardService extends InputMethodService {
         @Override public void run() { js("onText", JSONObject.quote(currentText())); }
     };
 
-    @Override public void onCreate() { super.onCreate(); inst = this; }
+    @Override public void onCreate() { super.onCreate(); inst = this; AutoBackup.maybeRun(this); }
 
     @Override public void onDestroy() { if (inst == this) inst = null; super.onDestroy(); }
 

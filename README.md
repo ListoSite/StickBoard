@@ -15,3 +15,6 @@ Cada alteração no ramo `main` é compilada pelo GitHub Actions. O APK mais rec
 - `assets/www/webp/` — [wasm-webp](https://github.com/nieyuyao/webp-wasm) (libwebp em WebAssembly, licença MIT) para criar stickers animados.
 - `assets/www/mp/` — MediaPipe Selfie Segmentation (Google, licença Apache-2.0) para remover o fundo de fotos com pessoas.
 - `assets/www/emoji.json` — dados de emojis do Unicode CLDR e emojibase (licenças Unicode e MIT).
+
+### Leitura de texto (tags automáticas)
+Usa o [Tesseract.js](https://github.com/naptha/tesseract.js) e o tesseract.js-core (Apache-2.0), com os dados de português `@tesseract.js-data/por` (4.0.0_best_int). Tudo corre offline dentro da app (`assets/www/ocr`). O `worker.min.js` tem uma pequena correção (ver `ocr/PATCH.txt`).
