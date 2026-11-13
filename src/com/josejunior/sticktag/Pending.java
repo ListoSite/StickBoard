@@ -21,21 +21,23 @@ public final class Pending {
         String special;   // id do especial a começar depois do 1.º envio
         boolean engine;   // enviado pelo motor (não cancela nada, sem partilha)
         int gen;          // geração do motor (para ignorar respostas antigas)
+        int height;       // altura do teclado anterior (px) para o teclado de stickers não saltar
+        String label;     // texto a mostrar enquanto envia
     }
 
     static Req req;
     static long time;
 
-    static synchronized void set(String p, String f) {
-        Req r = new Req(); r.items.add(new Item(p, f, 0)); req = r; time = System.currentTimeMillis();
+    static synchronized void set(String p, String f, int height) {
+        Req r = new Req(); r.items.add(new Item(p, f, 0)); r.height = height; r.label = "A enviar…"; req = r; time = System.currentTimeMillis();
     }
 
-    static synchronized void setSpecial(String id, String p, String f) {
-        Req r = new Req(); r.items.add(new Item(p, f, 0)); r.special = id; req = r; time = System.currentTimeMillis();
+    static synchronized void setSpecial(String id, String p, String f, int height, String label) {
+        Req r = new Req(); r.items.add(new Item(p, f, 0)); r.special = id; r.height = height; r.label = label; req = r; time = System.currentTimeMillis();
     }
 
-    static synchronized void setBatch(List<Item> items, int gen) {
-        Req r = new Req(); r.items.addAll(items); r.engine = true; r.gen = gen; req = r; time = System.currentTimeMillis();
+    static synchronized void setBatch(List<Item> items, int gen, int height, String label) {
+        Req r = new Req(); r.items.addAll(items); r.engine = true; r.gen = gen; r.height = height; r.label = label; req = r; time = System.currentTimeMillis();
     }
 
     static synchronized void clear() { req = null; time = 0; }

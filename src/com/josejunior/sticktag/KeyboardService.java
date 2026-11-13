@@ -37,6 +37,11 @@ import java.lang.reflect.Method;
 public class KeyboardService extends InputMethodService {
     static KeyboardService inst;
     boolean inputOn = false;
+    /** O motor dos especiais deixou este teclado aberto entre envios seguidos. */
+    boolean engineHolding = false;
+    /** Altura do ecrã "A enviar…" (a do teclado anterior); 0 = teclado normal. */
+    int busyH = 0;
+    String busyLabel = null;
     WebView web;
     FrameLayout box;
     final Handler ui = new Handler(Looper.getMainLooper());
@@ -78,6 +83,10 @@ public class KeyboardService extends InputMethodService {
     void handlePending() {
         final Pending.Req r = Pending.take();
         if (r == null) return;
+        // ecrã "A enviar…" com a altura do teclado anterior, para a conversa não saltar
+        busyH = r.height; busyLabel = r.label == null ? "A enviar…" : r.label;
+        applyHeight();
+        js("onBusy", JSONObject.quote(busyLabel));
         ui.postDelayed(new Runnable() {
             @Override public void run() {
                 if (r.engine) { runBatch(r.items, true, r.gen); return; }
@@ -109,7 +118,12 @@ public class KeyboardService extends InputMethodService {
                     }
                     if (last) {
                         Specials.batchDone(gen, true);
-                        if (back) ui.postDelayed(new Runnable() { @Override public void run() { switchBack(); } }, 450);
+                        if (!back) return;
+                        // se o próximo sticker vem já a seguir, fica aberto (sem piscar)
+                        Specials.Run run = Specials.run;
+                        if (run != null && run.gen == gen && run.busy && run.nextGap <= 8000) { engineHolding = true; return; }
+                        engineHolding = false;
+                        ui.postDelayed(new Runnable() { @Override public void run() { switchBack(); } }, 450);
                     }
                 }
             }, t);
@@ -121,10 +135,17 @@ public class KeyboardService extends InputMethodService {
         JSONObject d = Specials.find(this, id);
         JSONObject f = d == null ? null : d.optJSONObject("first");
         if (f == null) { js("onSent", "{\"ok\":false,\"error\":\"especial não encontrado\"}"); return; }
-        int m = sendSticker(f.optString("p"), f.optString("f"), false);
-        EditorInfo info = getCurrentInputEditorInfo();
-        if (m == 1) Specials.start(this, id, info != null ? info.packageName : "");
-        else if (m == 2) android.widget.Toast.makeText(this, "⚡ Os especiais só funcionam em apps que aceitam stickers do teclado (ex.: WhatsApp)", android.widget.Toast.LENGTH_LONG).show();
+        int m = sendSticker(f.optString("p"), f.optString("f"), false, id);
+        if (m == 2) android.widget.Toast.makeText(this, "⚡ Os especiais só funcionam em apps que aceitam stickers do teclado (ex.: WhatsApp)", android.widget.Toast.LENGTH_LONG).show();
+    }
+
+    int targetHeight() { return busyH > 0 ? busyH : dp(heightDp()); }
+
+    void applyHeight() {
+        if (web == null) return;
+        ViewGroup.LayoutParams lp = web.getLayoutParams();
+        int h = targetHeight();
+        if (lp != null && lp.height != h) { lp.height = h; web.setLayoutParams(lp); }
     }
 
     int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
@@ -164,24 +185,22 @@ public class KeyboardService extends InputMethodService {
         }
         if (web.getParent() != null) ((ViewGroup) web.getParent()).removeView(web);
         box.removeAllViews();
-        box.addView(web, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(heightDp())));
+        box.addView(web, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, targetHeight()));
         return box;
     }
 
     @Override
     public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
-        if (box != null && web != null) {
-            ViewGroup.LayoutParams lp = web.getLayoutParams();
-            if (lp != null && lp.height != dp(heightDp())) { lp.height = dp(heightDp()); web.setLayoutParams(lp); }
-        }
         // pedido vindo da bolha: envia já e volta ao teclado anterior
         handlePending();
+        applyHeight();
         try {
             JSONObject o = new JSONObject();
             o.put("text", currentText());
             o.put("app", info != null && info.packageName != null ? info.packageName : "");
             o.put("direct", chooseMime(info) != null);
+            if (busyLabel != null) o.put("busy", busyLabel);
             String payload = o.toString();
             if (pageReady) js("onOpen", payload); else pendingOpen = payload;
         } catch (Exception ignored) {}
@@ -228,7 +247,10 @@ public class KeyboardService extends InputMethodService {
     }
 
     /** Envia um sticker. Devolve 1 = enviado direto, 2 = pela partilha, 0 = falhou. engine = enviado pelo motor dos especiais. */
-    int sendSticker(String packId, String file, boolean engine) {
+    int sendSticker(String packId, String file, boolean engine) { return sendSticker(packId, file, engine, null); }
+
+    /** special = id do especial a começar; null = começa sozinho se este sticker for o 1.º de algum especial. */
+    int sendSticker(String packId, String file, boolean engine, String special) {
         String result;
         int mode = 0;
         try {
@@ -287,6 +309,10 @@ public class KeyboardService extends InputMethodService {
                 mode = 2;
             }
             Specials.onUserSent();
+            if (mode == 1) {
+                String sp = special != null ? special : Specials.findByFirst(this, packId, file);
+                if (sp != null) Specials.start(this, sp, info != null ? info.packageName : "");
+            }
         } catch (Exception e) {
             result = "{\"ok\":false,\"error\":\"não consegui enviar\"}";
             if (engine) return 0;
@@ -303,6 +329,9 @@ public class KeyboardService extends InputMethodService {
     }
 
     void switchBack() {
+        engineHolding = false;
+        busyH = 0; busyLabel = null;
+        js("onBusy", "null");
         try {
             if (Build.VERSION.SDK_INT >= 28) {
                 Method m = InputMethodService.class.getMethod("switchToPreviousInputMethod");
@@ -339,6 +368,11 @@ public class KeyboardService extends InputMethodService {
         }
 
         @JavascriptInterface public String specialState() { return Specials.state(); }
+
+        /** Toque no ecrã "A enviar…": cancela o especial e volta ao teclado anterior. */
+        @JavascriptInterface public void busyTap() {
+            ui.post(new Runnable() { @Override public void run() { if (Specials.run != null) Specials.cancel("cancelaste"); switchBack(); } });
+        }
 
         @JavascriptInterface public void back() {
             ui.post(new Runnable() { @Override public void run() { switchBack(); } });

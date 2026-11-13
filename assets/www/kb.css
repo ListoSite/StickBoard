@@ -64,3 +64,8 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0}
 .spbar{grid-column:1/-1;display:flex;align-items:center;gap:8px;background:rgba(37,211,102,.12);color:#CFEFDC;border-radius:12px;padding:6px 6px 6px 10px;font-size:12.5px}
 .spbar span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .spbar button{background:#2C323C;color:#fff;border-radius:9px;padding:6px 10px;font-size:12px;font-weight:700}
+
+#busy{position:fixed;inset:0;z-index:50;background:#0E1014;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
+#busy .bz-t{font-size:16px;font-weight:700;color:#25D366;animation:bz 1s ease-in-out infinite alternate}
+#busy .bz-s{font-size:12px;color:#6B7482}
+@keyframes bz{from{opacity:.55}}

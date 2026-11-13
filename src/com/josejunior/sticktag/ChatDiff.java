@@ -14,8 +14,11 @@ public final class ChatDiff {
 
     /** Uma linha da conversa: dir 1 = recebida, -1 = enviada por mim, 0 = aviso/data. */
     public static final class Row {
-        public final int dir; public final String sig, text;
-        public Row(int dir, String sig, String text) { this.dir = dir; this.sig = sig; this.text = text; }
+        public final int dir; public final String sig, text, alt;
+        public Row(int dir, String sig, String text) { this(dir, sig, text, ""); }
+        public Row(int dir, String sig, String text, String alt) { this.dir = dir; this.sig = sig; this.text = text; this.alt = alt == null ? "" : alt; }
+        /** Texto para comparar com as respostas (o da mensagem e, se não houver, a descrição). */
+        public String readable() { return text.trim().length() > 0 ? text : alt; }
         boolean same(Row o) { return o != null && dir == o.dir && sig.equals(o.sig); }
         @Override public String toString() { return (dir > 0 ? "IN " : dir < 0 ? "OUT " : "-- ") + sig; }
     }

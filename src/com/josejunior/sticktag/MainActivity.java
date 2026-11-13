@@ -736,6 +736,10 @@ public class MainActivity extends Activity {
             });
         }
 
+        /** O que o motor dos especiais viu ultimamente (para perceber falhas). */
+        @JavascriptInterface
+        public String specialLog() { return Specials.logJson(); }
+
         /** Guarda a lista de stickers especiais. */
         @JavascriptInterface
         public String setSpecials(String json) {

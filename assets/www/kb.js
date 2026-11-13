@@ -306,8 +306,22 @@ $('#shuf').onclick = () => {
 $('#del').onclick = () => K.backspace();
 $('#del').oncontextmenu = e => { e.preventDefault(); K.clearText(); };
 
+function setBusy(label) {
+  let b = document.getElementById('busy');
+  if (!label) { if (b) b.remove(); return; }
+  if (!b) {
+    b = document.createElement('div'); b.id = 'busy';
+    b.innerHTML = '<div class="bz-t"></div><div class="bz-s">toca para cancelar</div>';
+    b.onclick = () => { try { K.busyTap(); } catch (e) {} };
+    document.body.appendChild(b);
+  }
+  b.querySelector('.bz-t').textContent = label;
+}
+
 window.KBApp = {
+  onBusy(label) { setBusy(label); },
   onOpen(o) {
+    setBusy(o.busy || null);
     text = o.text || ''; direct = !!o.direct; tab = 'sug'; shufKey = null; multi = null;
     $('#multi').classList.remove('on'); drawSend();
     if (searching) setSearch(false);

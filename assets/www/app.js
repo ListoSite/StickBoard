@@ -1675,6 +1675,11 @@ function viewSpecials() {
     c.onclick = () => editSecret({ p: p.id, f: s.f });
     v.appendChild(c);
   });
+  if (list.length) {
+    const lg = el(`<button class="btn sm ghost block" style="margin-top:14px">🔍 Ver o registo (o que o StickTag leu da conversa)</button>`);
+    lg.onclick = showSpecialLog;
+    v.appendChild(lg);
+  }
   v.appendChild(el(`<div class="note">Como funciona: no teclado de stickers e na bolha aparece o separador ⚡. Tocas num especial e ele manda o 1.º sticker. Se escreveres, enviares outro sticker ou mudares de conversa, o especial é cancelado. Só funciona com o WhatsApp (e apps que aceitam stickers do teclado) aberto na conversa.</div>`));
   v.appendChild(el('<div style="height:84px"></div>'));
   const fab = el(`<button class="fab">${ICON.plus}Novo especial</button>`);
@@ -1839,6 +1844,13 @@ function editSpecial(sp, isNew) {
   };
 }
 
+function showSpecialLog() {
+  let lines = [];
+  try { lines = JSON.parse(A.specialLog()); } catch (e) {}
+  const html = `<div class="hint" style="margin-bottom:8px">O mais recente aparece em cima. Se um especial não funcionar, tira um print disto e manda-me.</div><pre class="splog">${lines.length ? lines.map(esc).join('\n') : 'Ainda não há nada. Usa um especial no WhatsApp e volta aqui.'}</pre>`;
+  dialog({ title: 'Registo dos especiais', html, buttons: [{ label: 'Copiar', cls: 'ghost', value: () => { try { A.copy(lines.join('\n')); toast('Copiado'); } catch (e) {} } }, { label: 'Fechar', cls: 'primary' }] });
+}
+
 function editSecret(x) {
   const r = stRef(x);
   if (!r) return;
@@ -1848,7 +1860,7 @@ function editSecret(x) {
     <div class="wa-prev"><img src="${imgUrl(p, s.f)}"><div><b id="pn">${esc(s.secretName || 'Eu disse para não clicares 😂')}</b><span id="pp">${esc(s.secretPub || 'Agora tens de me pagar um café ☕')}</span></div></div>
     <label class="field"><span>Linha de cima (nome do pack)</span><input class="input" id="sn" maxlength="120" value="${esc(s.secretName || '')}" placeholder="Eu disse para não clicares 😂"></label>
     <label class="field"><span>Linha de baixo (autor)</span><input class="input" id="sp" maxlength="120" value="${esc(s.secretPub || '')}" placeholder="Agora tens de me pagar um café ☕"></label>
-    <div class="note" style="margin-top:4px">Para a mensagem chegar, envia este sticker pelo teclado de stickers ou pela bolha. Se o mandares pelo pack instalado no WhatsApp, pode aparecer o nome normal do pack.</div>
+    <div class="note" style="margin-top:4px">Para a mensagem chegar, envia este sticker pelo teclado de stickers ou pela bolha. Se o mandares pelo pack instalado no WhatsApp, pode aparecer o nome normal do pack. Nas versões mais recentes do WhatsApp esta informação pode nem aparecer.</div>
     </div><div class="ft row" style="padding:10px 16px 14px">${s.secretName || s.secretPub ? '<button class="btn danger" id="rm" style="flex:none">Tirar</button>' : ''}<button class="btn primary" id="sv">Guardar</button></div></div>`);
   const ov = openOverlay(sheet, { modal: true });
   $('#x', sheet).onclick = () => closeOverlay(ov);

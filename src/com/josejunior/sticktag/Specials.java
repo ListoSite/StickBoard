@@ -31,8 +31,32 @@ public final class Specials {
     static int GEN = 0;
     static boolean scanQueued = false;
 
+    /* registo para perceber o que o motor viu (aparece na app, separador Especiais) */
+    static final java.util.LinkedList<String> LOG = new java.util.LinkedList<String>();
+
+    static void log(String m) {
+        synchronized (LOG) {
+            java.text.SimpleDateFormat f = new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT);
+            LOG.addFirst(f.format(new java.util.Date()) + "  " + m);
+            while (LOG.size() > 60) LOG.removeLast();
+        }
+    }
+
+    static String logJson() {
+        JSONArray a = new JSONArray();
+        synchronized (LOG) { for (String x : LOG) a.put(x); }
+        return a.toString();
+    }
+
+    static String rowStr(ChatDiff.Row x) {
+        String t = x.readable();
+        if (t.length() > 60) t = t.substring(0, 60) + "…";
+        return (x.dir > 0 ? "recebida" : x.dir < 0 ? "minha" : "aviso") + " «" + t + "»";
+    }
+
     static final class Run {
         int gen; String id, name, type, pkg, chat;
+        long nextGap;
         JSONObject def;
         boolean waiting, busy;
         long started, waitUntil, ignoreOut;
@@ -47,6 +71,17 @@ public final class Specials {
         if (a != null) for (int i = 0; i < a.length(); i++) {
             JSONObject o = a.optJSONObject(i);
             if (o != null && id.equals(o.optString("id"))) return o;
+        }
+        return null;
+    }
+
+    /** O especial que começa com este sticker (o 1.º da lista), ou null. */
+    static String findByFirst(Context c, String pack, String file) {
+        JSONArray a = Store.load(c).optJSONArray("specials");
+        if (a != null) for (int i = 0; i < a.length(); i++) {
+            JSONObject o = a.optJSONObject(i);
+            JSONObject f = o == null ? null : o.optJSONObject("first");
+            if (f != null && pack.equals(f.optString("p")) && file.equals(f.optString("f")) && !"secret".equals(o.optString("type"))) return o.optString("id");
         }
         return null;
     }
@@ -99,6 +134,7 @@ public final class Specials {
         BubbleService b = BubbleService.inst;
         r.chat = b != null ? b.chatTitle(r.pkg) : null;
         run = r;
+        log("▶ «" + r.name + "» (" + r.type + ") em " + r.pkg + (r.chat != null ? " · conversa «" + r.chat + "»" : "") + (b == null ? " · bolha desligada" : ""));
         if (r.type.equals("seq")) {
             r.queue.addAll(items(d.optJSONArray("steps"), 2000, 2000));
         } else if (r.type.equals("random")) {
@@ -133,6 +169,7 @@ public final class Specials {
                 @Override public void run() {
                     if (run == null || run.gen != gen || !run.waiting) return;
                     String n = run.name;
+                    log("■ sem resposta a tempo");
                     end();
                     toast("⚡ «" + n + "» terminou: não chegou resposta");
                 }
@@ -146,6 +183,16 @@ public final class Specials {
     static void end() {
         run = null;
         notifyState();
+        releaseKeyboard();
+    }
+
+    /** Se o motor deixou o teclado de stickers aberto entre envios, volta ao teclado anterior. */
+    static void releaseKeyboard() {
+        final KeyboardService k = KeyboardService.inst;
+        if (k != null && k.engineHolding) {
+            k.engineHolding = false;
+            H.postDelayed(new Runnable() { @Override public void run() { k.switchBack(); } }, 300);
+        }
     }
 
     /** Pára o especial ativo. reason = null → sem aviso. */
@@ -154,6 +201,8 @@ public final class Specials {
         String n = run.name;
         run = null;
         notifyState();
+        releaseKeyboard();
+        log("✕ cancelado" + (reason != null ? ": " + reason : ""));
         if (reason != null) toast("⚡ «" + n + "» cancelado: " + reason);
     }
 
@@ -166,7 +215,12 @@ public final class Specials {
         final Run r = run;
         if (r == null || r.busy) return;
         if (r.queue.isEmpty()) {
-            if (!r.waiting) end();
+            if (!r.waiting) {
+                String n = r.name;
+                log("■ terminado");
+                end();
+                toast("⚡ «" + n + "» terminado ✓");
+            }
             return;
         }
         Pending.Item head = r.queue.remove(0);
@@ -175,6 +229,7 @@ public final class Specials {
         // os seguintes com pouca espera vão juntos (sem trocar de teclado entre eles)
         while (!r.queue.isEmpty() && r.queue.get(0).gap <= 1500) batch.add(r.queue.remove(0));
         r.busy = true;
+        r.nextGap = head.gap;
         final int gen = r.gen;
         H.postDelayed(new Runnable() { @Override public void run() { dispatch(gen, batch); } }, head.gap);
     }
@@ -193,10 +248,11 @@ public final class Specials {
         for (Pending.Item x : batch) total += x.gap;
         r.ignoreOut = System.currentTimeMillis() + 3500 + total;
         KeyboardService k = KeyboardService.inst;
+        log("➤ a enviar " + batch.size() + " sticker" + (batch.size() > 1 ? "s" : "") + (k != null && k.canDirect(r.pkg) ? " (teclado aberto)" : " (pela bolha)"));
         if (k != null && k.canDirect(r.pkg)) {
-            k.runBatch(batch, false, gen);
+            k.runBatch(batch, k.engineHolding, gen);
         } else if (b != null) {
-            Pending.setBatch(batch, gen);
+            Pending.setBatch(batch, gen, b.imeHeight(), "⚡ " + r.name);
             if (!b.switchToStickers()) { Pending.clear(); cancel("não consegui abrir o teclado de stickers"); return; }
             H.postDelayed(new Runnable() {
                 @Override public void run() {
@@ -226,7 +282,7 @@ public final class Specials {
         if (ctx == null) ctx = b.getApplicationContext();
         if (!pkg.equals(r.pkg)) return;
         int type = e.getEventType();
-        if (type == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
+        if (type == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED && isEditable(e)) {
             String t = b.readText(e);
             if (t != null && t.trim().length() > 0 && System.currentTimeMillis() - r.started > 1500) { cancel("começaste a escrever"); return; }
         }
@@ -234,6 +290,11 @@ public final class Specials {
             scanQueued = true;
             H.postDelayed(new Runnable() { @Override public void run() { scanQueued = false; scan(); } }, 450);
         }
+    }
+
+    /** Só conta o que escreves na caixa de texto (não outras partes do ecrã que mudam). */
+    static boolean isEditable(AccessibilityEvent e) {
+        try { AccessibilityNodeInfo n = e.getSource(); return n != null && n.isEditable(); } catch (Exception x) { return false; }
     }
 
     static void scan() {
@@ -252,7 +313,7 @@ public final class Specials {
         float dens = b.getResources().getDisplayMetrics().density;
         List<ChatDiff.Row> rows = snapshot(root, Math.round(24 * dens));
         if (rows.isEmpty()) return;
-        if (r.base == null) { r.base = rows; return; }
+        if (r.base == null) { r.base = rows; log("conversa lida: " + rows.size() + " linhas, última " + rowStr(rows.get(rows.size() - 1))); return; }
         List<ChatDiff.Row> nw = ChatDiff.newRows(r.base, rows);
         if (nw == null) {
             // não deu para comparar: se a conversa ficou parada no fim, recomeça a partir daqui
@@ -263,16 +324,18 @@ public final class Specials {
             return;
         }
         boolean ignoring = System.currentTimeMillis() < r.ignoreOut;
-        for (ChatDiff.Row x : nw) {
-            if (x.dir < 0 && !ignoring) { cancel("respondeste na conversa"); return; }
-            if (x.dir > 0 && r.waiting) { r.base = rows; onReply(x); return; }
-        }
         r.base = rows;
+        for (ChatDiff.Row x : nw) {
+            log("nova: " + rowStr(x) + (x.dir < 0 && ignoring ? " (enviada pelo StickTag)" : ""));
+            if (x.dir < 0 && !ignoring) { cancel("respondeste na conversa"); return; }
+            if (x.dir > 0 && r.waiting && onReply(x)) return;
+        }
     }
 
-    static void onReply(ChatDiff.Row row) {
+    /** Chegou uma mensagem. Devolve true se o especial avançou. */
+    static boolean onReply(ChatDiff.Row row) {
         Run r = run;
-        if (r == null) return;
+        if (r == null) return false;
         JSONObject d = r.def;
         long first = Math.round(d.optDouble("replyDelay", 1) * 1000);
         if (r.type.equals("choice")) {
@@ -280,11 +343,15 @@ public final class Specials {
             List<Pending.Item> got = null;
             if (ops != null) for (int i = 0; i < ops.length() && got == null; i++) {
                 JSONObject o = ops.optJSONObject(i);
-                if (o != null && ChatDiff.matches(row.text, o.optString("answers"))) got = items(o.optJSONArray("stickers"), first, 1500);
+                if (o != null && (ChatDiff.matches(row.text, o.optString("answers")) || ChatDiff.matches(row.alt, o.optString("answers")))) {
+                    got = items(o.optJSONArray("stickers"), first, 1500);
+                    log("✓ corresponde à opção " + (i + 1) + " («" + o.optString("answers") + "»)");
+                }
             }
             if (got == null || got.isEmpty()) {
                 got = items(d.optJSONArray("other"), first, 1500);
-                if (got.isEmpty()) return; // resposta que não conta: continua à espera
+                if (got.isEmpty()) { log("· não corresponde a nenhuma opção: continua à espera"); return false; }
+                log("· outra resposta");
             }
             r.waiting = false;
             r.queue.addAll(got);
@@ -294,6 +361,7 @@ public final class Specials {
         }
         notifyState();
         pump();
+        return true;
     }
 
     /** Nome da conversa aberta (só no WhatsApp; nas outras apps devolve null). */
@@ -333,15 +401,20 @@ public final class Specials {
         Rect lb = new Rect();
         list.getBoundsInScreen(lb);
         final List<int[]> tops = new ArrayList<int[]>();
+        List<int[]> dirs = new ArrayList<int[]>();
+        boolean anyStatus = false;
         for (int i = 0; i < list.getChildCount(); i++) {
             AccessibilityNodeInfo row = list.getChild(i);
             if (row == null) continue;
             Rect u = new Rect();
-            List<String> texts = new ArrayList<String>();
-            collect(row, lb, u, texts, 0, new int[]{0});
+            List<String> texts = new ArrayList<String>(), descs = new ArrayList<String>();
+            boolean[] status = {false};
+            collect(row, lb, u, texts, descs, status, 0, new int[]{0});
             if (u.isEmpty()) continue;
             int lg = u.left - lb.left, rg = lb.right - u.right;
             int dir = Math.abs(lg - rg) < minGap ? 0 : (lg < rg ? 1 : -1);
+            if (status[0]) { dir = -1; anyStatus = true; }
+            dirs.add(new int[]{dir, status[0] ? 1 : 0});
             StringBuilder sig = new StringBuilder(), txt = new StringBuilder();
             for (String s : texts) {
                 if (sig.length() > 0) sig.append('¦');
@@ -349,8 +422,15 @@ public final class Specials {
                 if (!ChatDiff.isTime(s)) { if (txt.length() > 0) txt.append(' '); txt.append(s); }
             }
             String sg = sig.length() > 300 ? sig.substring(0, 300) : sig.toString();
-            out.add(new ChatDiff.Row(dir, sg, txt.toString()));
+            StringBuilder alt = new StringBuilder();
+            for (String s : descs) { if (alt.length() > 0) alt.append(' '); alt.append(s); }
+            out.add(new ChatDiff.Row(dir, sg, txt.toString(), alt.toString()));
             tops.add(new int[]{u.top, out.size() - 1});
+        }
+        // no WhatsApp as minhas mensagens têm o ícone de estado (✓✓): as outras (fora dos avisos) são recebidas
+        if (anyStatus) for (int i = 0; i < out.size(); i++) {
+            ChatDiff.Row x = out.get(i);
+            if (dirs.get(i)[1] == 0 && x.dir < 0) out.set(i, new ChatDiff.Row(1, x.sig.length() > 0 ? x.sig : "", x.text, x.alt));
         }
         // por ordem de cima para baixo
         Collections.sort(tops, new Comparator<int[]>() { @Override public int compare(int[] a, int[] b) { return a[0] - b[0]; } });
@@ -359,9 +439,14 @@ public final class Specials {
         return sorted;
     }
 
-    static void collect(AccessibilityNodeInfo n, Rect lb, Rect u, List<String> texts, int depth, int[] count) {
+    static void collect(AccessibilityNodeInfo n, Rect lb, Rect u, List<String> texts, List<String> descs, boolean[] status, int depth, int[] count) {
         if (n == null || depth > 12 || count[0] > 150) return;
         count[0]++;
+        if (!n.isVisibleToUser()) return;
+        String vid = n.getViewIdResourceName();
+        if (vid != null && vid.endsWith(":id/status")) status[0] = true;
+        CharSequence cd = n.getContentDescription();
+        if (cd != null && cd.toString().trim().length() > 0) descs.add(cd.toString().trim());
         Rect b = new Rect();
         n.getBoundsInScreen(b);
         CharSequence t = n.getText();
@@ -372,6 +457,6 @@ public final class Specials {
             if (u.isEmpty()) u.set(b); else u.union(b);
         }
         if (hasText) texts.add(t.toString().trim());
-        for (int k = 0; k < n.getChildCount(); k++) collect(n.getChild(k), lb, u, texts, depth + 1, count);
+        for (int k = 0; k < n.getChildCount(); k++) collect(n.getChild(k), lb, u, texts, descs, status, depth + 1, count);
     }
 }

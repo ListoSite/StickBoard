@@ -67,6 +67,26 @@ public class BubbleService extends AccessibilityService {
         } catch (Exception e) { return null; }
     }
 
+    /** Altura do teclado que está à vista agora (0 se estiver escondido). */
+    int imeHeight() {
+        try {
+            for (AccessibilityWindowInfo w : getWindows()) {
+                if (w.getType() != AccessibilityWindowInfo.TYPE_INPUT_METHOD) continue;
+                Rect r = new Rect();
+                w.getBoundsInScreen(r);
+                int h = r.height();
+                android.util.DisplayMetrics dm = new android.util.DisplayMetrics();
+                wm.getDefaultDisplay().getRealMetrics(dm);
+                if (r.bottom >= dm.heightPixels - 2) {
+                    int id = getResources().getIdentifier("navigation_bar_height", "dimen", "android");
+                    if (id > 0) h -= getResources().getDimensionPixelSize(id);
+                }
+                return h > dp(120) ? h : 0;
+            }
+        } catch (Exception ignored) {}
+        return 0;
+    }
+
     String chatTitle(String pkg) {
         try { return Specials.chatTitle(getRootInActiveWindow(), pkg); } catch (Exception e) { return null; }
     }
@@ -303,7 +323,7 @@ public class BubbleService extends AccessibilityService {
 
         /** Envia: passa para o teclado de stickers, que envia e volta ao teclado anterior. */
         @JavascriptInterface public String send(final String packId, final String file) {
-            Pending.set(packId, file);
+            Pending.set(packId, file, imeHeight());
             final boolean[] ok = {false};
             ui.post(new Runnable() {
                 @Override public void run() {
@@ -320,7 +340,7 @@ public class BubbleService extends AccessibilityService {
             JSONObject d = Specials.find(BubbleService.this, id);
             JSONObject f = d == null ? null : d.optJSONObject("first");
             if (f == null) return;
-            Pending.setSpecial(id, f.optString("p"), f.optString("f"));
+            Pending.setSpecial(id, f.optString("p"), f.optString("f"), imeHeight(), "⚡ " + d.optString("name", "Especial"));
             ui.post(new Runnable() {
                 @Override public void run() {
                     if (!switchToStickers()) { Pending.clear(); js("onSendFailed", Build.VERSION.SDK_INT < 30 ? "'old'" : "'disabled'"); }
