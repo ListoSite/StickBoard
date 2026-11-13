@@ -204,17 +204,23 @@ public final class Dupes {
     }
 
     /** Junta os itens em grupos de repetidos. Só devolve grupos onde há pelo menos um item de "focus" (ou todos se focus = null). */
-    static JSONArray groups(List<Item> items, java.util.Set<Item> focus) {
+    static JSONArray groups(List<Item> items, java.util.Set<Item> focus) { return groups(items, focus, null); }
+
+    static JSONArray groups(List<Item> items, java.util.Set<Item> focus, Progress pr) {
         int n = items.size();
         int[] parent = new int[n];
         int[] lvl = new int[n];
         for (int i = 0; i < n; i++) { parent[i] = i; lvl[i] = 2; }
-        for (int i = 0; i < n; i++) for (int j = i + 1; j < n; j++) {
+        long last = 0;
+        for (int i = 0; i < n; i++) {
+          if (pr != null && System.currentTimeMillis() - last > 200) { pr.on(i, n); last = System.currentTimeMillis(); }
+          for (int j = i + 1; j < n; j++) {
             int l = level(items.get(i).h, items.get(j).h);
             if (l == 0) continue;
             int a = find(parent, i), b = find(parent, j);
             if (a != b) { parent[b] = a; lvl[a] = Math.min(Math.min(lvl[a], lvl[b]), l); }
             else lvl[a] = Math.min(lvl[a], l);
+          }
         }
         java.util.LinkedHashMap<Integer, List<Integer>> g = new java.util.LinkedHashMap<Integer, List<Integer>>();
         for (int i = 0; i < n; i++) {
@@ -245,6 +251,13 @@ public final class Dupes {
             if (level(h, it.h) == 2) return it;
         }
         return null;
+    }
+
+    static void rememberAll(Context c, java.util.Map<String, String> m) {
+        if (m == null || m.isEmpty()) return;
+        JSONObject cache = loadCache(c);
+        for (java.util.Map.Entry<String, String> e : m.entrySet()) try { cache.put(e.getKey(), e.getValue()); } catch (Exception ignored) {}
+        saveCache(c, cache);
     }
 
     static void remember(Context c, String key, String hs) {

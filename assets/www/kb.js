@@ -166,6 +166,7 @@ function renderRecent(g, label) {
 
 function renderGrid() {
   const g = $('#grid');
+  if (g._unbind) { g._unbind(); g._unbind = null; }
   g.innerHTML = '';
   g.classList.toggle('strip', searching);
   if (searching) {
@@ -221,7 +222,8 @@ function renderGrid() {
         bar.querySelectorAll('button').forEach(b => b.onclick = () => { secOf[p.id] = b.dataset.s; renderGrid(); $('#grid').scrollTop = 0; });
         g.appendChild(bar);
       }
-      p.stickers.forEach(s => { if (!cur || s.section === cur) g.appendChild(tile(p, s)); });
+      const list = cur ? p.stickers.filter(s => s.section === cur) : p.stickers;
+      chunked(g, list, s => tile(p, s));
     }
   }
 }
@@ -259,6 +261,19 @@ function renderSpecials(g) {
   if (!shown) addMsg(g, DATA.adultMode ? 'Não tens especiais com stickers +18.' : 'Cria especiais no StickTag, no separador ⚡ Especiais.');
 }
 setInterval(() => { if (tab === 'spc' && !searching && document.visibilityState === 'visible') renderGrid(); }, 2000);
+
+/* packs com milhares de stickers: desenha aos bocados à medida que fazes scroll */
+function chunked(g, list, make) {
+  let i = 0;
+  const more = n => { const end = Math.min(list.length, i + n); const f = document.createDocumentFragment(); for (; i < end; i++) f.appendChild(make(list[i])); g.appendChild(f); };
+  more(90);
+  if (i < list.length) {
+    const onScroll = () => { if (g.scrollTop + g.clientHeight > g.scrollHeight - 400) { more(90); if (i >= list.length) g.removeEventListener('scroll', onScroll); } };
+    g.addEventListener('scroll', onScroll);
+    g._unbind && g._unbind();
+    g._unbind = () => g.removeEventListener('scroll', onScroll);
+  }
+}
 
 let flashT = null;
 function flash(t) {

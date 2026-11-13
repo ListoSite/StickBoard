@@ -192,51 +192,55 @@ public class MainActivity extends Activity {
         exec.execute(new Runnable() {
             @Override public void run() {
                 JSONArray added = new JSONArray(), errors = new JSONArray(), notes = new JSONArray();
-                int done = 0;
                 List<Dupes.Item> app = null;
+                java.util.HashMap<String, String> hashes = new java.util.HashMap<String, String>();
+                // os novos stickers guardam-se aos lotes (bem mais rápido com centenas de ficheiros)
+                List<JSONObject> pending = new ArrayList<JSONObject>();
+                JSONObject d0 = Store.load(MainActivity.this);
+                JSONObject p0 = Store.findPack(d0, packId);
+                if (p0 == null) { js("onImported", "{\"cancelled\":true}"); return; }
+                int count = Store.visibleCount(p0), max = Store.maxStickers(p0);
+                boolean anim = p0.optBoolean("animated"), fill = d0.optBoolean("fill"), mixed = Store.isKb(p0) || hidden;
+                boolean kbPack = Store.isKb(p0);
+                long lastFlush = System.currentTimeMillis();
+                int done = 0;
                 for (Uri u : uris) {
                     done++;
                     js("onImportProgress", done + "," + uris.size());
                     try {
-                        JSONObject data = Store.load(MainActivity.this);
-                        JSONObject p = Store.findPack(data, packId);
-                        if (p == null) break;
-                        if (!hidden && Store.visibleCount(p) >= Store.maxStickers(p)) {
+                        if (!hidden && count >= max) {
                             errors.put(new JSONObject().put("name", Importer.displayName(MainActivity.this, u))
-                                    .put("error", Store.isKb(p) ? "o pack já está cheio (" + Store.maxStickers(p) + ")" : "o pack já tem 30 stickers (o máximo do WhatsApp)"));
+                                    .put("error", kbPack ? "o pack já está cheio (" + max + ")" : "o pack já tem 30 stickers (o máximo do WhatsApp)"));
                             continue;
                         }
-                        Importer.Result r = Importer.importUri(MainActivity.this, u, packId, p.optBoolean("animated"), data.optBoolean("fill"), Store.isKb(p) || hidden);
+                        Importer.Result r = Importer.importUri(MainActivity.this, u, packId, anim, fill, mixed);
                         if (r.error != null) {
                             errors.put(new JSONObject().put("name", r.name).put("error", r.error));
                             continue;
                         }
                         if (r.note != null) notes.put(r.name + ": " + r.note);
-                        synchronized (Store.LOCK) {
-                            data = Store.load(MainActivity.this);
-                            p = Store.findPack(data, packId);
-                            if (p == null) break;
-                            JSONObject st = new JSONObject();
-                            st.put("f", r.file);
-                            st.put("emojis", r.emojis);
-                            st.put("words", new JSONArray());
-                            if (r.animated) st.put("anim", true);
-                            st.put("src", Importer.srcKey(MainActivity.this, u));
-                            if (hidden) st.put("hidden", true);
-                            p.getJSONArray("stickers").put(st);
-                            Store.sync(MainActivity.this, data, p);
-                            Store.save(MainActivity.this, data);
-                        }
+                        JSONObject st = new JSONObject();
+                        st.put("f", r.file);
+                        st.put("emojis", r.emojis);
+                        st.put("words", new JSONArray());
+                        if (r.animated) st.put("anim", true);
+                        st.put("src", Importer.srcKey(MainActivity.this, u));
+                        if (hidden) st.put("hidden", true);
+                        pending.add(st);
+                        if (!hidden) count++;
                         added.put(r.file);
+                        if (pending.size() >= 25 || System.currentTimeMillis() - lastFlush > 4000) {
+                            flushStickers(packId, pending); lastFlush = System.currentTimeMillis();
+                        }
                         if (hidden) continue;
                         // já tinhas um igual?
                         try {
                             if (app == null) app = Dupes.appItems(MainActivity.this, null);
                             String hs = Dupes.hashFile(new File(Store.packDir(MainActivity.this, packId), r.file));
-                            Dupes.remember(MainActivity.this, packId + "/" + r.file, hs);
+                            if (hs != null) hashes.put(packId + "/" + r.file, hs);
                             Dupes.Item twin = hs == null ? null : Dupes.sameAs(app, hs, packId, r.file);
-                            if (twin != null) {
-                                JSONObject tp = Store.findPack(Store.load(MainActivity.this), twin.pack);
+                            if (twin != null && notes.length() < 50) {
+                                JSONObject tp = Store.findPack(d0, twin.pack);
                                 notes.put(r.name + ": parece igual a um sticker que já tens" + (tp != null ? " (pack «" + tp.optString("name") + "»)" : "") + ". Vê em Packs › 👯 Repetidos.");
                             }
                             if (hs != null) { Dupes.Item me = new Dupes.Item(); me.pack = packId; me.file = r.file; me.h = Dupes.parse(hs); app.add(me); }
@@ -245,6 +249,8 @@ public class MainActivity extends Activity {
                         try { errors.put(new JSONObject().put("name", "?").put("error", "erro inesperado")); } catch (JSONException ignored) {}
                     }
                 }
+                flushStickers(packId, pending);
+                Dupes.rememberAll(MainActivity.this, hashes);
                 try {
                     JSONObject res = new JSONObject();
                     res.put("packId", packId); res.put("added", added); res.put("errors", errors); res.put("notes", notes);
@@ -253,6 +259,24 @@ public class MainActivity extends Activity {
                 } catch (JSONException ignored) {}
             }
         });
+    }
+
+    /** Junta de uma vez os stickers que estão à espera ao pack (um só load/sync/save). */
+    void flushStickers(String packId, List<JSONObject> pending) {
+        if (pending.isEmpty()) return;
+        synchronized (Store.LOCK) {
+            try {
+                JSONObject data = Store.load(this);
+                JSONObject p = Store.findPack(data, packId);
+                if (p != null) {
+                    JSONArray a = p.getJSONArray("stickers");
+                    for (JSONObject st : pending) a.put(st);
+                    Store.sync(this, data, p);
+                    Store.save(this, data);
+                }
+            } catch (JSONException ignored) {}
+        }
+        pending.clear();
     }
 
     /** Junta os ficheiros a packs novos, criados conforme for preciso. */
@@ -269,8 +293,15 @@ public class MainActivity extends Activity {
             JSONArray st = ps0.optJSONObject(i).optJSONArray("stickers");
             if (st != null) for (int k = 0; k < st.length(); k++) { String s = st.optJSONObject(k).optString("src", ""); if (s.length() > 0) have.add(s); }
         }
+        boolean fill = d0.optBoolean("fill");
         String curStatic = null, curAnim = null;
+        // contagens e lotes por pack, para guardar de 25 em 25 (e não a cada ficheiro)
+        java.util.HashMap<String, Integer> counts = new java.util.HashMap<String, Integer>();
+        java.util.HashMap<String, List<JSONObject>> pend = new java.util.HashMap<String, List<JSONObject>>();
+        java.util.HashMap<String, String> hashes = new java.util.HashMap<String, String>();
+        js("onImportProgress", "0," + a.length());
         List<Dupes.Item> app = Dupes.appItems(this, null);
+        int sincePending = 0;
         for (int i = 0; i < a.length(); i++) {
             js("onImportProgress", (i + 1) + "," + a.length());
             try {
@@ -285,18 +316,21 @@ public class MainActivity extends Activity {
                 if (hs != null && Dupes.sameAs(app, hs, "", "") != null) { dup++; have.add(src); continue; }
                 Webp.Info info = Webp.info(b);
                 boolean anim = info != null && info.animated && info.frames > 1;
-                String target;
-                synchronized (Store.LOCK) {
-                    JSONObject d = Store.load(this);
-                    String want = kb || !anim ? curStatic : curAnim;
-                    JSONObject p = want == null ? null : Store.findPack(d, want);
-                    if (p == null || Store.visibleCount(p) >= Store.maxStickers(p)) {
+                String want = kb || !anim ? curStatic : curAnim;
+                int wc = want == null ? 0 : (counts.containsKey(want) ? counts.get(want) : 0);
+                String target = want;
+                boolean targetAnim;
+                if (want == null || wc >= (kb ? Store.maxStickers(new JSONObject().put("kind", "kb")) : Store.MAX_STICKERS)) {
+                    // pack novo
+                    for (String id : new ArrayList<String>(pend.keySet())) flushStickers(id, pend.get(id));
+                    synchronized (Store.LOCK) {
+                        JSONObject d = Store.load(this);
                         JSONArray ps = d.getJSONArray("packs");
                         int wa = 0;
                         for (int k = 0; k < ps.length(); k++) if (!Store.isKb(ps.getJSONObject(k))) wa++;
                         if (!kb && wa >= Store.MAX_PACKS) { stop = "o WhatsApp só aceita 10 packs: o resto ficou de fora"; break; }
                         created++;
-                        p = new JSONObject();
+                        JSONObject p = new JSONObject();
                         String id = "p" + Long.toString(System.currentTimeMillis(), 36) + created;
                         p.put("id", id);
                         p.put("name", (baseName == null || baseName.length() == 0 ? "Importados" : baseName) + (kb ? "" : anim ? " (animados)" : "") + " " + created);
@@ -309,36 +343,35 @@ public class MainActivity extends Activity {
                         ps.put(p);
                         Store.packDir(this, id);
                         Store.save(this, d);
+                        target = id;
+                        counts.put(id, 0);
                         if (kb || !anim) curStatic = id; else curAnim = id;
                     }
-                    target = p.getString("id");
                 }
-                JSONObject dd = Store.load(this);
-                JSONObject tp = Store.findPack(dd, target);
-                Importer.Result r = Importer.importBytes(this, b, Importer.displayName(this, u), target, tp.optBoolean("animated"), dd.optBoolean("fill"), kb);
+                targetAnim = !kb && anim;
+                Importer.Result r = Importer.importBytes(this, b, Importer.displayName(this, u), target, targetAnim, fill, kb);
                 if (r.error != null) { fail++; continue; }
-                synchronized (Store.LOCK) {
-                    JSONObject d = Store.load(this);
-                    JSONObject p = Store.findPack(d, target);
-                    JSONObject st = new JSONObject();
-                    st.put("f", r.file);
-                    st.put("emojis", r.emojis);
-                    st.put("words", new JSONArray());
-                    if (r.animated) st.put("anim", true);
-                    st.put("src", src);
-                    p.getJSONArray("stickers").put(st);
-                    Store.sync(this, d, p);
-                    Store.save(this, d);
-                }
+                JSONObject st = new JSONObject();
+                st.put("f", r.file);
+                st.put("emojis", r.emojis);
+                st.put("words", new JSONArray());
+                if (r.animated) st.put("anim", true);
+                st.put("src", src);
+                if (!pend.containsKey(target)) pend.put(target, new ArrayList<JSONObject>());
+                pend.get(target).add(st);
+                counts.put(target, (counts.containsKey(target) ? counts.get(target) : 0) + 1);
+                if (++sincePending >= 25) { for (String id : new ArrayList<String>(pend.keySet())) flushStickers(id, pend.get(id)); sincePending = 0; }
                 if (hs != null) {
                     String nh = Dupes.hashFile(new File(Store.packDir(this, target), r.file));
-                    Dupes.remember(this, target + "/" + r.file, nh);
+                    if (nh != null) hashes.put(target + "/" + r.file, nh);
                     Dupes.Item me = new Dupes.Item(); me.pack = target; me.file = r.file; me.h = Dupes.parse(nh != null ? nh : hs); app.add(me);
                 }
                 have.add(src);
                 added++;
             } catch (Exception e) { fail++; }
         }
+        for (String id : new ArrayList<String>(pend.keySet())) flushStickers(id, pend.get(id));
+        Dupes.rememberAll(this, hashes);
         try {
             JSONObject res = new JSONObject().put("auto", true).put("added", added).put("dup", dup).put("fail", fail).put("created", created);
             if (stop != null) res.put("stop", stop);
@@ -391,7 +424,7 @@ public class MainActivity extends Activity {
             if (u == null) { js("onBackup", "{\"cancelled\":true}"); return; }
             exec.execute(new Runnable() {
                 @Override public void run() {
-                    String r = isRestore ? Backup.restore(MainActivity.this, u) : Backup.export(MainActivity.this, u);
+                    String r = isRestore ? Backup.restore(MainActivity.this, u) : Backup.export(MainActivity.this, u, new Dupes.Progress() { @Override public void on(int d, int t) { js("onBulkProgress", "{\"label\":\"A criar a cópia\",\"done\":" + d + ",\"total\":-1}"); } });
                     try { js("onBackup", new JSONObject(r).put("restore", isRestore).toString()); } catch (JSONException e) { js("onBackup", r); }
                 }
             });
@@ -621,7 +654,7 @@ public class MainActivity extends Activity {
                     JSONArray old = a.getJSONArray("stickers"), n = new JSONArray();
                     for (int i = 0; i < old.length(); i++) if (!file.equals(old.getJSONObject(i).optString("f"))) n.put(old.get(i));
                     a.put("stickers", n);
-                    s.remove("exif");
+                    Store.forceExif(s);
                     b.getJSONArray("stickers").put(s);
                     Store.sync(MainActivity.this, data, a);
                     Store.sync(MainActivity.this, data, b);
@@ -869,7 +902,7 @@ public class MainActivity extends Activity {
                     List<Dupes.Item> items = Dupes.appItems(MainActivity.this, new Dupes.Progress() {
                         @Override public void on(int d, int t) { js("onDupesProgress", d + "," + t); }
                     });
-                    try { js("onDupes", new JSONObject().put("groups", Dupes.groups(items, null)).put("total", items.size()).toString()); }
+                    try { js("onDupes", new JSONObject().put("groups", Dupes.groups(items, null, new Dupes.Progress() { @Override public void on(int d, int t) { js("onBulkProgress", "{\"label\":\"A comparar\",\"done\":" + d + ",\"total\":" + t + "}"); } })).put("total", items.size()).toString()); }
                     catch (JSONException e) { js("onDupes", "{\"groups\":[]}"); }
                 }
             });
@@ -905,7 +938,7 @@ public class MainActivity extends Activity {
                         if (changed) Dupes.saveCache(MainActivity.this, cache);
                     } catch (JSONException ignored) {}
                     items.addAll(Dupes.appItems(MainActivity.this, null));
-                    try { js("onDupes", new JSONObject().put("folder", true).put("groups", Dupes.groups(items, docs)).put("total", docs.size()).toString()); }
+                    try { js("onDupes", new JSONObject().put("folder", true).put("groups", Dupes.groups(items, docs, new Dupes.Progress() { @Override public void on(int d, int t) { js("onBulkProgress", "{\"label\":\"A comparar\",\"done\":" + d + ",\"total\":" + t + "}"); } })).put("total", docs.size()).toString()); }
                     catch (JSONException e) { js("onDupes", "{\"groups\":[]}"); }
                 }
             });
@@ -955,7 +988,7 @@ public class MainActivity extends Activity {
                         touched.add(op);
                         relinkSpecials(data, op, of, keepPack, keepFile);
                     }
-                    keep.remove("exif");
+                    Store.forceExif(keep);
                     for (String id : touched) { JSONObject p = Store.findPack(data, id); if (p != null) Store.sync(MainActivity.this, data, p); }
                     Store.save(MainActivity.this, data);
                     return data.toString();
@@ -1005,7 +1038,7 @@ public class MainActivity extends Activity {
                     JSONObject st = p == null ? null : Store.findSticker(p, file);
                     if (st == null) return err("sticker não encontrado");
                     Store.writeFile(new File(Store.packDir(MainActivity.this, packId), file), b);
-                    st.remove("exif");
+                    Store.forceExif(st);
                     st.put("anim", true);
                     p.put("version", p.optInt("version", 0) + 1);
                     if (file.equals(p.optString("trayFrom"))) p.remove("trayFrom");
@@ -1017,6 +1050,155 @@ public class MainActivity extends Activity {
                     return data.toString();
                 }
             } catch (Exception e) { return err("não consegui guardar"); }
+        }
+
+        /* ---------- operações grandes em segundo plano, com progresso ---------- */
+
+        /** Lista uma pasta sem bloquear o ecrã (com milhares de ficheiros pode demorar). */
+        @JavascriptInterface
+        public void listFolderAsync(final String uri) {
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    Uri tree = Uri.parse(uri);
+                    String r = !Folders.hasAccess(MainActivity.this, tree)
+                            ? "{\"ok\":false,\"error\":\"o acesso a esta pasta expirou: escolhe-a outra vez\"}"
+                            : Folders.list(MainActivity.this, tree);
+                    js("onFolderList", r);
+                }
+            }).start();
+        }
+
+        void progress(String label, int done, int total) {
+            try { js("onBulkProgress", new JSONObject().put("label", label).put("done", done).put("total", total).toString()); } catch (JSONException ignored) {}
+        }
+
+        void bulkDone(JSONObject r) { js("onBulkDone", r.toString()); }
+
+        /** Apaga muitos ficheiros de uma pasta, a mostrar o progresso. */
+        @JavascriptInterface
+        public void deleteDocsAsync(final String urisJson) {
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    int n = 0, t = 0;
+                    try {
+                        JSONArray a = new JSONArray(urisJson);
+                        t = a.length();
+                        long last = 0;
+                        for (int i = 0; i < a.length(); i++) {
+                            Uri u = Uri.parse(a.getString(i));
+                            if (Folders.allowed(MainActivity.this, u) && Folders.delete(MainActivity.this, u)) n++;
+                            if (System.currentTimeMillis() - last > 150 || i == a.length() - 1) { progress("A apagar", i + 1, t); last = System.currentTimeMillis(); }
+                        }
+                    } catch (JSONException ignored) {}
+                    try { bulkDone(new JSONObject().put("kind", "deleteDocs").put("n", n).put("total", t)); } catch (JSONException ignored) {}
+                }
+            }).start();
+        }
+
+        /** Apaga muitos stickers de um pack de uma vez (um só save). */
+        @JavascriptInterface
+        public void deleteStickersAsync(final String packId, final String filesJson) {
+            exec.execute(new Runnable() {
+                @Override public void run() {
+                    int n = 0, t = 0;
+                    synchronized (Store.LOCK) {
+                        try {
+                            JSONArray fs = new JSONArray(filesJson);
+                            t = fs.length();
+                            java.util.HashSet<String> del = new java.util.HashSet<String>();
+                            for (int i = 0; i < fs.length(); i++) del.add(fs.getString(i));
+                            JSONObject data = Store.load(MainActivity.this);
+                            JSONObject p = Store.findPack(data, packId);
+                            if (p != null) {
+                                JSONArray a = p.getJSONArray("stickers"), keep = new JSONArray();
+                                File dir = Store.packDir(MainActivity.this, packId);
+                                long last = 0;
+                                for (int i = 0; i < a.length(); i++) {
+                                    JSONObject st = a.getJSONObject(i);
+                                    if (del.contains(st.optString("f"))) {
+                                        new File(dir, st.optString("f")).delete(); n++;
+                                        if (System.currentTimeMillis() - last > 150) { progress("A apagar", n, t); last = System.currentTimeMillis(); }
+                                    } else keep.put(st);
+                                }
+                                p.put("stickers", keep);
+                                progress("A guardar", t, t);
+                                Store.sync(MainActivity.this, data, p);
+                                Store.save(MainActivity.this, data);
+                            }
+                        } catch (JSONException ignored) {}
+                    }
+                    try { bulkDone(new JSONObject().put("kind", "deleteStickers").put("n", n).put("total", t)); } catch (JSONException ignored) {}
+                }
+            });
+        }
+
+        /** Move muitos stickers para outro pack de uma vez. */
+        @JavascriptInterface
+        public void moveStickersAsync(final String from, final String filesJson, final String to) {
+            exec.execute(new Runnable() {
+                @Override public void run() {
+                    int n = 0, t = 0;
+                    String error = null;
+                    synchronized (Store.LOCK) {
+                        try {
+                            JSONArray fs = new JSONArray(filesJson);
+                            t = fs.length();
+                            JSONObject data = Store.load(MainActivity.this);
+                            JSONObject a = Store.findPack(data, from), b = Store.findPack(data, to);
+                            if (a == null || b == null) error = "pack não encontrado";
+                            else {
+                                java.util.HashSet<String> mv = new java.util.HashSet<String>();
+                                for (int i = 0; i < fs.length(); i++) mv.add(fs.getString(i));
+                                JSONArray old = a.getJSONArray("stickers"), keep = new JSONArray();
+                                int room = Store.maxStickers(b) - Store.visibleCount(b);
+                                long last = 0;
+                                for (int i = 0; i < old.length(); i++) {
+                                    JSONObject s = old.getJSONObject(i);
+                                    String f = s.optString("f");
+                                    boolean go = mv.contains(f);
+                                    if (go && !Store.isKb(b)) {
+                                        boolean stAnim = s.optBoolean("anim") || a.optBoolean("animated");
+                                        if (stAnim != b.optBoolean("animated")) { go = false; error = "Os packs do WhatsApp não podem misturar animados com estáticos."; }
+                                    }
+                                    if (go && !s.optBoolean("hidden") && room <= 0) { go = false; error = "O pack de destino ficou cheio."; }
+                                    if (!go) { keep.put(s); continue; }
+                                    File src = new File(Store.packDir(MainActivity.this, from), f);
+                                    File dst = new File(Store.packDir(MainActivity.this, to), f);
+                                    if (!src.renameTo(dst)) { Store.writeFile(dst, Store.readFile(src)); src.delete(); }
+                                    Store.forceExif(s);
+                                    b.getJSONArray("stickers").put(s);
+                                    if (!s.optBoolean("hidden")) room--;
+                                    n++;
+                                    relinkSpecials(data, from, f, to, f);
+                                    if (System.currentTimeMillis() - last > 150) { progress("A mover", n, t); last = System.currentTimeMillis(); }
+                                }
+                                a.put("stickers", keep);
+                                progress("A guardar", t, t);
+                                Store.sync(MainActivity.this, data, a);
+                                Store.sync(MainActivity.this, data, b);
+                                Store.save(MainActivity.this, data);
+                            }
+                        } catch (Exception e) { error = "erro a mover"; }
+                    }
+                    try {
+                        JSONObject r = new JSONObject().put("kind", "moveStickers").put("n", n).put("total", t);
+                        if (error != null) r.put("error", error);
+                        bulkDone(r);
+                    } catch (JSONException ignored) {}
+                }
+            });
+        }
+
+        /** Apaga um pack inteiro (pode ter milhares de ficheiros). */
+        @JavascriptInterface
+        public void deletePackAsync(final String packId) {
+            exec.execute(new Runnable() {
+                @Override public void run() {
+                    progress("A apagar o pack", 0, 1);
+                    deletePack(packId);
+                    try { bulkDone(new JSONObject().put("kind", "deletePack").put("n", 1)); } catch (JSONException ignored) {}
+                }
+            });
         }
 
         /** Cópia automática: escolher a pasta. */

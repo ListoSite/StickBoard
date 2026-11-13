@@ -85,6 +85,9 @@ public final class Store {
         } catch (Exception ignored) {}
     }
 
+    /** Obriga a reescrever o EXIF deste sticker no próximo sync. */
+    public static void forceExif(JSONObject s) { s.remove("exif"); s.remove("exifH"); }
+
     public static JSONObject findPack(JSONObject data, String id) {
         JSONArray a = data.optJSONArray("packs");
         if (a == null) return null;
@@ -191,7 +194,13 @@ public final class Store {
         for (int i = 0; i < a.length(); i++) {
             JSONObject s = a.getJSONObject(i);
             String want = exifJson(pack, s);
-            if (want != null && want.equals(s.optString("exif", null))) continue;
+            if (want == null) continue;
+            String wantH = Integer.toHexString(want.hashCode());
+            // guardamos só um resumo (hash) do EXIF escrito: o data.json fica bem mais pequeno com milhares de stickers
+            if (wantH.equals(s.optString("exifH", null)) || want.equals(s.optString("exif", null))) {
+                if (s.has("exif")) { s.remove("exif"); s.put("exifH", wantH); }
+                continue;
+            }
             File f = new File(dir, s.optString("f"));
             try {
                 byte[] b = readFile(f);
@@ -200,7 +209,8 @@ public final class Store {
                 boolean thisAnim = anim || (wi != null && wi.animated);
                 if (nb.length > (thisAnim ? ANIM_LIMIT : STATIC_LIMIT)) nb = Webp.withExif(b, null);
                 writeFile(f, nb);
-                s.put("exif", want);
+                s.remove("exif");
+                s.put("exifH", wantH);
             } catch (IOException ignored) {}
         }
         // capa do pack

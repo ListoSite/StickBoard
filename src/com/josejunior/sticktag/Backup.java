@@ -19,7 +19,9 @@ import java.util.zip.ZipOutputStream;
 public final class Backup {
     private Backup() {}
 
-    public static String export(Context c, Uri dest) {
+    public static String export(Context c, Uri dest) { return export(c, dest, null); }
+
+    public static String export(Context c, Uri dest, Dupes.Progress pr) {
         try {
             JSONObject data = Store.load(c);
             OutputStream os = c.getContentResolver().openOutputStream(dest);
@@ -36,6 +38,7 @@ public final class Backup {
                 File[] files = dir.listFiles();
                 if (files == null) continue;
                 for (File f : files) {
+                    if (pr != null && n % 20 == 0) pr.on(n, -1);
                     z.putNextEntry(new ZipEntry("packs/" + p.optString("id") + "/" + f.getName()));
                     FileInputStream in = new FileInputStream(f);
                     int r;
@@ -104,7 +107,7 @@ public final class Backup {
                         if (!f.renameTo(new File(dir, f.getName()))) Store.writeFile(new File(dir, f.getName()), Store.readFile(f));
                     }
                     JSONArray st = p.optJSONArray("stickers");
-                    if (st != null) for (int k = 0; k < st.length(); k++) st.getJSONObject(k).remove("exif");
+                    if (st != null) for (int k = 0; k < st.length(); k++) Store.forceExif(st.getJSONObject(k));
                     p.remove("trayFrom");
                     cur.put(p);
                     restored++;

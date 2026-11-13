@@ -168,11 +168,66 @@ function dialog({ title, text = '', html = '', buttons = [] }) {
 }
 const confirmBox = (title, text, ok = 'Apagar') => dialog({ title, text, buttons: [{ label: 'Cancelar', cls: 'ghost', value: false }, { label: ok, cls: 'danger', value: true }] });
 
-let busyEl = null;
-function busy(text) {
+let busyEl = null, busyT0 = 0;
+/*
+ * Ecrã de "a trabalhar". Com done/total mostra uma barra, a percentagem e o tempo que falta,
+ * para nunca parecer que a app congelou.
+ */
+function busy(text, done, total, onCancel) {
   if (!text) { if (busyEl) busyEl.remove(); busyEl = null; return; }
-  if (!busyEl) { busyEl = el('<div class="busy"><div class="b"><div class="spin"></div><div class="t"></div></div></div>'); document.body.appendChild(busyEl); }
+  if (!busyEl) {
+    busyEl = el('<div class="busy"><div class="b"><div class="spin"></div><div class="t"></div><div class="pb hidden"><div class="pf"></div></div><div class="pn"></div><div class="ph">Não feches a app.</div></div></div>');
+    document.body.appendChild(busyEl);
+    busyT0 = Date.now();
+  }
+  // "A importar 12 de 340…" → percentagem a partir do texto, se não vier em separado
+  if (done == null) { const m = /(\d+) de (\d+)/.exec(text); if (m) { done = +m[1]; total = +m[2]; } }
   busyEl.querySelector('.t').textContent = text;
+  if (onCancel && !busyEl.querySelector('.bc')) {
+    const b = el('<button class="btn sm ghost bc" style="margin-top:12px">Parar</button>');
+    b.onclick = () => { b.textContent = 'A parar…'; b.disabled = true; onCancel(); };
+    busyEl.querySelector('.b').appendChild(b);
+  }
+  const pb = busyEl.querySelector('.pb'), pn = busyEl.querySelector('.pn');
+  if (total > 0) {
+    const pct = Math.min(100, Math.round(done / total * 100));
+    pb.classList.remove('hidden');
+    busyEl.querySelector('.pf').style.width = pct + '%';
+    const el2 = (Date.now() - busyT0) / 1000;
+    const left = done > 2 && el2 > 3 ? Math.round(el2 / done * (total - done)) : null;
+    pn.textContent = `${pct}%` + (left != null && left > 2 ? ` · faltam ${left > 90 ? Math.round(left / 60) + ' min' : left + ' s'}` : '');
+  } else { pb.classList.add('hidden'); pn.textContent = done > 0 ? `${done} feitos` : ''; }
+}
+/* espera um instante para o ecrã de "a trabalhar" aparecer antes de uma tarefa pesada */
+const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 30)));
+async function withBusy(text, fn) { busy(text); await nextFrame(); try { return fn(); } finally { busy(null); } }
+/* operações grandes feitas no lado nativo: progresso em App.onBulkProgress e fim em App.onBulkDone */
+function runBulk(text, start) {
+  return new Promise(res => { S.bulkCb = r => { S.bulkCb = null; busy(null); res(r || {}); }; busy(text); start(); });
+}
+
+
+/*
+ * Grelhas grandes (milhares de stickers): desenha aos bocados à medida que fazes scroll,
+ * para abrir logo e não pesar.
+ */
+function progressive(container, items, make, first = 120, step = 120) {
+  let i = 0;
+  const sentinel = document.createElement('div');
+  sentinel.className = 'more';
+  function more(n) {
+    const end = Math.min(items.length, i + n);
+    const frag = document.createDocumentFragment();
+    for (; i < end; i++) { const node = make(items[i], i); if (node) frag.appendChild(node); }
+    container.appendChild(frag);
+    if (i < items.length) { container.appendChild(sentinel); sentinel.textContent = `+${items.length - i}`; }
+    else sentinel.remove();
+  }
+  more(first);
+  if (i < items.length && 'IntersectionObserver' in window) {
+    const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) { sentinel.remove(); more(step); if (i >= items.length) io.disconnect(); } }, { rootMargin: '600px' });
+    io.observe(sentinel);
+  } else if (i < items.length) more(items.length);
 }
 
 /* ---------- navegação ---------- */
@@ -334,10 +389,23 @@ function viewFolder() {
   const f = S.folder;
   const v = el('<section class="view"></section>');
   if (!S.ffiles) {
-    let r;
-    try { r = JSON.parse(A.listFolder(f.uri)); } catch (e) { r = { ok: false, error: 'erro' }; }
-    if (!r.ok) { setTimeout(() => toast(r.error, 3500), 0); S.folder = null; return viewFolders(); }
-    S.ffiles = r.files.sort((a, b) => (b.time || 0) - (a.time || 0));
+    // ler a pasta em segundo plano (com milhares de ficheiros pode demorar uns segundos)
+    if (S.flistFor !== f.uri) {
+      S.flistFor = f.uri;
+      S.flistCb = r => {
+        S.flistFor = null;
+        if (!S.folder || S.folder.uri !== f.uri) return;
+        if (!r || !r.ok) { toast((r && r.error) || 'erro', 3500); S.folder = null; render(); return; }
+        S.ffiles = r.files.sort((a, b) => (b.time || 0) - (a.time || 0));
+        render();
+      };
+      A.listFolderAsync(f.uri);
+    }
+    const tp0 = el(`<div class="top"><button class="iconbtn" id="bk">${ICON.back}</button><div style="flex:1;min-width:0"><h1>${esc(f.name)}</h1><div class="sub">A ler a pasta…</div></div></div>`);
+    tp0.querySelector('#bk').onclick = () => { S.folder = null; S.flistFor = null; render(); };
+    v.appendChild(tp0);
+    v.appendChild(el(`<div class="loading"><div class="spin"></div><b>A ler a pasta…</b><div class="hint">Com milhares de stickers pode demorar uns segundos.</div></div>`));
+    return v;
   }
   const have = new Set();
   S.data.packs.forEach(p => p.stickers.forEach(s => { if (s.src) have.add(s.src); }));
@@ -356,7 +424,7 @@ function viewFolder() {
   v.appendChild(acts);
   v.appendChild(el(`<div class="hint" style="margin-bottom:10px">Toca num sticker para o veres em grande. Carrega sem largar para escolher vários. Os que têm ✓ já estão num pack.</div>`));
   const grid = el('<div class="grid" style="grid-template-columns:repeat(4,1fr);gap:8px;margin-top:0"></div>');
-  files.forEach(x => {
+  progressive(grid, files, x => {
     const c = el(`<div class="st" style="padding:4px"><div class="im"><img loading="lazy" src="d/${encodeURIComponent(x.uri)}"></div>${isIn(x) ? '<span class="cv" style="color:var(--green);left:10px;right:auto">✓</span>' : ''}<span class="ck" style="${S.fsel.size ? '' : 'display:none'}"></span></div>`);
     if (S.fsel.has(x.uri)) c.classList.add('sel');
     const toggle = () => {
@@ -374,7 +442,7 @@ function viewFolder() {
       if (S.fsel.size) toggle();
       else openFolderViewer(files, files.indexOf(x));
     };
-    grid.appendChild(c);
+    return c;
   });
   v.appendChild(grid);
   const bar = el(`<div class="selbar hidden"><span class="n"></span><button class="btn sm" id="sa">Tudo</button><button class="btn sm primary" id="sp">Pôr num pack</button><button class="btn sm danger" id="sd">Apagar</button></div>`);
@@ -388,7 +456,8 @@ function viewFolder() {
   bar.querySelector('#sd').onclick = async () => {
     const n = S.fsel.size;
     if (!await confirmBox(`Apagar ${n} ficheiro${n > 1 ? 's' : ''} do telemóvel?`, 'São apagados de vez desta pasta. Os que já estão nos teus packs continuam na app.')) return;
-    const del = A.deleteDocs(JSON.stringify(Array.from(S.fsel)));
+    const r = await runBulk(`A apagar ${n} ficheiros…`, () => A.deleteDocsAsync(JSON.stringify(Array.from(S.fsel))));
+    const del = r.n || 0;
     toast(`${del} apagado${del === 1 ? '' : 's'}${del < n ? ` (${n - del} não deu)` : ''}`);
     S.fsel = new Set(); S.ffiles = null; render();
   };
@@ -622,9 +691,9 @@ function viewPack() {
     if (curSec) v.appendChild(el(`<div class="hint" style="margin:-2px 2px 6px">Toca outra vez em «${esc(curSec)}» para mudar o nome, mover ou apagar.</div>`));
   }
   const grid = el('<div class="grid"></div>');
-  p.stickers.forEach((s, i) => {
-    if (s.hidden) return; // só existe dentro de um especial
-    if (curSec && s.section !== curSec) return;
+  const shown = [];
+  p.stickers.forEach((s, i) => { if (!s.hidden && (!curSec || s.section === curSec)) shown.push([s, i]); }); // os escondidos só existem dentro de um especial
+  progressive(grid, shown, ([s, i]) => {
     const spN = specialsOf(p.id, s.f);
     const subN = spN.reduce((a, x) => a + subRefs(x).length, 0);
     const em = s.emojis && s.emojis.length ? `<div class="em emo">${s.emojis.map(esc).join('')}</div>` : '<div class="em none">sem emoji</div>';
@@ -634,7 +703,7 @@ function viewPack() {
       if (S.sel) { S.sel.has(s.f) ? S.sel.delete(s.f) : S.sel.add(s.f); c.classList.toggle('sel'); updSelBar(); return; }
       openEditor(p.id, i);
     };
-    grid.appendChild(c);
+    return c;
   });
   v.appendChild(grid);
   if (S.sel) {
@@ -646,8 +715,10 @@ function viewPack() {
     bar.querySelector('#sd').onclick = async () => {
       if (!S.sel.size) return toast('Escolhe primeiro os stickers');
       if (!await confirmBox(`Apagar ${S.sel.size} sticker${S.sel.size > 1 ? 's' : ''}?`, 'Saem deste pack (e do WhatsApp, se o pack lá estiver).')) return;
-      for (const f of S.sel) A.deleteSticker(p.id, f);
-      S.sel = new Set(); reload(); render();
+      const files = Array.from(S.sel);
+      const r = await runBulk(`A apagar ${files.length} stickers…`, () => A.deleteStickersAsync(p.id, JSON.stringify(files)));
+      S.sel = null; reload(); render();
+      toast(`${r.n || 0} sticker${r.n === 1 ? '' : 's'} apagado${r.n === 1 ? '' : 's'}`);
     };
     v.appendChild(bar);
     v.style.paddingBottom = '76px';
@@ -670,7 +741,8 @@ async function packMenu(p) {
     if (r2) { p.name = r2.n.trim() || p.name; p.publisher = r2.p.trim() || p.publisher; savePack(p); render(); }
   } else if (r === 'del') {
     if (!await confirmBox('Apagar este pack?', `“${p.name}” e os ${p.stickers.length} stickers saem da app e do WhatsApp.`)) return;
-    try { S.data = JSON.parse(A.deletePack(p.id)); } catch (e) { reload(); }
+    if (p.stickers.length > 60) { await runBulk('A apagar o pack…', () => A.deletePackAsync(p.id)); reload(); }
+    else { try { S.data = JSON.parse(A.deletePack(p.id)); } catch (e) { reload(); } }
     S.packId = null; render();
   }
 }
@@ -685,10 +757,12 @@ async function moveStickers(p, files) {
   await pr;
   if (!chosen) return false;
   let moved = 0, err = null;
-  for (const f of files) {
-    const r = JSON.parse(A.moveSticker(p.id, f, chosen));
-    if (r.error) { err = r.error; break; }
-    moved++;
+  if (files.length === 1) {
+    const r = JSON.parse(A.moveSticker(p.id, files[0], chosen));
+    if (r.error) err = r.error; else moved = 1;
+  } else {
+    const r = await runBulk(`A mover ${files.length} stickers…`, () => A.moveStickersAsync(p.id, JSON.stringify(files), chosen));
+    moved = r.n || 0; err = r.error || null;
   }
   reload();
   if (S.sel) S.sel = new Set();
@@ -1959,8 +2033,9 @@ async function bulkOcr(p) {
   try {
     busy('A preparar a leitura…');
     await OCR.init();
-    for (let i = 0; i < all.length; i++) {
-      busy(`A ler o texto ${i + 1} de ${all.length}…`);
+    let stop = false;
+    for (let i = 0; i < all.length && !stop; i++) {
+      busy(`A ler o texto ${i + 1} de ${all.length}…`, i + 1, all.length, () => { stop = true; });
       const s = all[i];
       const w = await OCR.read(imgUrl(p, s.f));
       const fresh = (w || []).filter(x => !(s.words || []).some(y => norm(y) === norm(x)));
@@ -2070,7 +2145,12 @@ function showDupes(r) {
       all.onclick = async () => {
         if (!await confirmBox(folder ? 'Apagar os repetidos iguais?' : 'Juntar todos os iguais?', folder ? 'Em cada grupo fica o ★ e os outros ficheiros são apagados da pasta.' : 'Em cada grupo fica o ★ e os outros são apagados (as tags passam para o que fica).', folder ? 'Apagar' : 'Juntar')) return;
         let ok = 0;
-        for (const g of groups.filter(g => g.level === 'same')) if (await act(g)) { ok++; g.done = true; }
+        const todo = groups.filter(g => g.level === 'same');
+        for (let k = 0; k < todo.length; k++) {
+          busy(`A resolver ${k + 1} de ${todo.length}…`); await nextFrame();
+          if (await act(todo[k])) { ok++; todo[k].done = true; }
+        }
+        busy(null);
         groups = groups.filter(g => !g.done);
         toast(`${ok} grupo${ok === 1 ? '' : 's'} resolvido${ok === 1 ? '' : 's'} ✓`);
         draw();
@@ -2348,8 +2428,8 @@ function pickSticker(title, opts = {}) {
       $('.pk-packs', sheet).innerHTML = packs.map(p => `<button data-id="${esc(p.id)}" class="${p.id === cur ? 'on' : ''}"><img src="${trayUrl(p)}"><span>${esc(p.name)}</span></button>`).join('');
       $$('.pk-packs button', sheet).forEach(b => b.onclick = () => { cur = b.dataset.id; S.pickPack = cur; draw(); });
       const p = packOf(cur);
-      $('.pk-grid2', sheet).innerHTML = visible(p).map(s => `<button data-f="${esc(s.f)}"><img loading="lazy" class="${hideAdult(p, s) ? 'nsfw' : ''}" src="${imgUrl(p, s.f)}"></button>`).join('');
-      $$('.pk-grid2 button', sheet).forEach(b => b.onclick = () => finish({ p: cur, f: b.dataset.f }));
+      const g = $('.pk-grid2', sheet); g.innerHTML = '';
+      progressive(g, visible(p), st => { const b = el(`<button data-f="${esc(st.f)}"><img loading="lazy" class="${hideAdult(p, st) ? 'nsfw' : ''}" src="${imgUrl(p, st.f)}"></button>`); b.onclick = () => finish({ p: cur, f: st.f }); return b; });
     }
     draw();
     if (!opts.multi) return;
@@ -2404,22 +2484,36 @@ function pickFromFolders() {
       });
     }
     function openFolder(f) {
-      let r; try { r = JSON.parse(A.listFolder(f.uri)); } catch (e) { r = { ok: false, error: 'erro' }; }
-      if (!r.ok) return toast(r.error || 'erro');
-      folder = f; files = r.files.sort((a, b) => (b.time || 0) - (a.time || 0));
-      $('#tt', sheet).textContent = f.name; $('#bk', sheet).style.display = ''; $('#ft', sheet).classList.remove('hidden');
-      drawFiles();
+      bd.innerHTML = '<div class="loading"><div class="spin"></div><b>A ler a pasta…</b></div>';
+      S.flistCb = r => {
+        if (!r || !r.ok) { toast((r && r.error) || 'erro'); drawFolders(); return; }
+        folder = f; files = r.files.sort((a, b) => (b.time || 0) - (a.time || 0));
+        $('#tt', sheet).textContent = f.name; $('#bk', sheet).style.display = ''; $('#ft', sheet).classList.remove('hidden');
+        drawFiles();
+      };
+      A.listFolderAsync(f.uri);
+    }
+    // os números de ordem atualizam-se sem redesenhar a grelha toda
+    function markSel(g) {
+      const order = [...sel];
+      $$('button[data-u]', g).forEach(b => {
+        const i = order.indexOf(b.dataset.u);
+        b.classList.toggle('psel', i >= 0);
+        let pn = b.querySelector('.pn');
+        if (i >= 0) { if (!pn) { pn = document.createElement('span'); pn.className = 'pn'; b.appendChild(pn); } pn.textContent = i + 1; } else if (pn) pn.remove();
+      });
+      $('#ok', sheet).textContent = sel.size ? `Juntar ${sel.size}` : 'Toca para escolher (pela ordem)';
     }
     function drawFiles() {
       bd.innerHTML = '';
       const g = el('<div class="pk-grid2"></div>');
-      files.forEach(x => {
-        const b = el(`<button class="${sel.has(x.uri) ? 'psel' : ''}"><img loading="lazy" src="d/${encodeURIComponent(x.uri)}">${sel.has(x.uri) ? `<span class="pn">${[...sel].indexOf(x.uri) + 1}</span>` : ''}</button>`);
-        b.onclick = () => { sel.has(x.uri) ? sel.delete(x.uri) : sel.add(x.uri); drawFiles(); };
-        g.appendChild(b);
+      progressive(g, files, x => {
+        const b = el(`<button data-u="${esc(x.uri)}"><img loading="lazy" src="d/${encodeURIComponent(x.uri)}"></button>`);
+        b.onclick = () => { sel.has(x.uri) ? sel.delete(x.uri) : sel.add(x.uri); markSel(g); };
+        return b;
       });
       bd.appendChild(g);
-      $('#ok', sheet).textContent = sel.size ? `Juntar ${sel.size}` : 'Toca para escolher (pela ordem)';
+      markSel(g);
     }
     $('#bk', sheet).onclick = drawFolders;
     $('#ok', sheet).onclick = () => { if (!sel.size) return; done = true; closeOverlay(ov); res([...sel]); };
@@ -2841,6 +2935,9 @@ function editSecret(x) {
 window.App = {
   onImportProgress(done, total) { busy(`A importar ${done} de ${total}…`); },
   onDupesProgress(done, total) { busy(`A comparar ${done} de ${total}…`); },
+  onBulkProgress(r) { if (!r) return; busy(r.total > 0 ? `${r.label} ${r.done} de ${r.total}…` : `${r.label}…`, r.done, r.total); },
+  onBulkDone(r) { if (S.bulkCb) S.bulkCb(r); else { busy(null); reload(); render(); } },
+  onFolderList(r) { if (S.flistCb) { const cb = S.flistCb; S.flistCb = null; cb(r); } },
   onDupes(r) { showDupes(r || { groups: [] }); },
   onImported(r) {
     if (r && r.hidden && S.hiddenCb) { S.hiddenCb(r); return; }
