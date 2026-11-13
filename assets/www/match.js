@@ -191,5 +191,25 @@
     return Array.from(new Set(tokens(line).slice(-8).filter(x => !STOP.has(x) && x.length >= 2)));
   }
 
-  window.Match = { queryTokens, norm, stripVS, tokens, stem, defaultWords, effectiveWords, buildIndex, search, emojisIn, STOP };
+  /** Sticker +18: o pack todo ou só o sticker marcado. */
+  function isAdult(p, st) { return !!((p && p.adult) || (st && st.adult)); }
+
+  /**
+   * Só os stickers do modo atual: normal (sem +18) ou +18 (só os +18). Nunca mistura.
+   * Os packs ficam com _partial = true se perderem stickers (para não mostrar a capa errada).
+   */
+  function modeData(data) {
+    if (!data) return { packs: [] };
+    const on = !!data.adultMode;
+    const packs = [];
+    for (const p of (data.packs || [])) {
+      const all = p.stickers || [];
+      const st = all.filter(x => isAdult(p, x) === on);
+      if (!st.length) continue;
+      packs.push(Object.assign({}, p, { stickers: st, _partial: st.length !== all.length }));
+    }
+    return Object.assign({}, data, { packs });
+  }
+
+  window.Match = { queryTokens, isAdult, modeData, norm, stripVS, tokens, stem, defaultWords, effectiveWords, buildIndex, search, emojisIn, STOP };
 })();

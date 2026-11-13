@@ -36,7 +36,9 @@ async function loadEmoji() {
 }
 
 function refresh() {
-  try { DATA = JSON.parse(K.getData()); } catch (e) { DATA = { packs: [] }; }
+  try { DATA = M.modeData(JSON.parse(K.getData())); } catch (e) { DATA = { packs: [] }; }
+  document.body.classList.toggle('adult', !!DATA.adultMode);
+  $('#adult').classList.toggle('on', !!DATA.adultMode);
   IDX = M.buildIndex(DATA, info);
   if (!['sug', 'rec', 'fav', 'spc'].includes(tab) && !DATA.packs.some(p => p.id === tab)) tab = 'sug';
   if (tab === 'spc' && !(DATA.specials || []).length) tab = 'sug';
@@ -52,17 +54,17 @@ function lastWords(t) {
 function renderTop() {
   if (searching) { $('#q').innerHTML = `🔍 <b>${esc(sq) || ''}</b><span style="color:#25D366">▏</span>${sq ? '' : '<span style="color:#6B7482">escreve para procurar</span>'}`; return; }
   const lw = lastWords(text);
-  $('#q').innerHTML = lw ? `Para <b>«${esc(lw)}»</b>` : 'Escreve no teu teclado e volta aqui';
+  $('#q').innerHTML = (DATA.adultMode ? '<span class="a18">🔞</span> ' : '') + (lw ? `Para <b>«${esc(lw)}»</b>` : (DATA.adultMode ? 'Modo +18 ligado' : 'Escreve no teu teclado e volta aqui'));
   $('#mode').classList.toggle('hidden', direct);
 }
 
 function renderTabs() {
   const t = $('#tabs');
   const T = [['sug', '✨'], ['fav', '⭐'], ['rec', '🕘']];
-  if ((DATA.specials || []).length) T.push(['spc', '⚡']);
+  if ((DATA.specials || []).some(sp => sp.first && findSticker(sp.first.p, sp.first.f))) T.push(['spc', '⚡']);
   const items = T.map(([id, ic]) => `<button class="tab ${tab === id ? 'on' : ''}" data-t="${id}">${ic}</button>`);
   for (const p of DATA.packs) if (p.stickers && p.stickers.length)
-    items.push(`<button class="tab ${tab === p.id ? 'on' : ''}" data-t="${esc(p.id)}"><img src="f/${encodeURIComponent(p.id)}/tray.png?v=${p.version || 0}" onerror="this.replaceWith(document.createTextNode('📦'))"></button>`);
+    items.push(`<button class="tab ${tab === p.id ? 'on' : ''}" data-t="${esc(p.id)}"><img src="${p._partial ? img(p, p.stickers[0].f) : `f/${encodeURIComponent(p.id)}/tray.png?v=${p.version || 0}`}" onerror="this.replaceWith(document.createTextNode('📦'))"></button>`);
   items.push(`<button class="tab" data-t="app">⚙️</button>`);
   t.innerHTML = items.join('');
   t.querySelectorAll('.tab').forEach(b => b.onclick = () => {
@@ -130,7 +132,7 @@ function preview(pid, f) {
   $('#pv-send').onclick = () => { closePv(); sendIt(p, s); };
   $('#pv-close').onclick = closePv;
   $('#pv-fav').onclick = () => {
-    try { DATA = JSON.parse(K.setFav(p.id, s.f, !s.fav)); } catch (e) {}
+    try { DATA = M.modeData(JSON.parse(K.setFav(p.id, s.f, !s.fav))); } catch (e) {}
     IDX = M.buildIndex(DATA, info);
     flash(!s.fav ? 'Adicionado aos favoritos ⭐' : 'Tirado dos favoritos');
     preview(pid, f); renderGrid();
@@ -138,7 +140,7 @@ function preview(pid, f) {
   $('#pv-gal').onclick = () => { K.saveToGallery(p.id, s.f); flash('A guardar…'); };
   const add = $('#pv-add');
   if (add) add.onclick = () => {
-    try { DATA = JSON.parse(K.addWords(p.id, s.f, JSON.stringify(qt.slice(-3)))); } catch (e) {}
+    try { DATA = M.modeData(JSON.parse(K.addWords(p.id, s.f, JSON.stringify(qt.slice(-3))))); } catch (e) {}
     IDX = M.buildIndex(DATA, info);
     flash('Palavras ligadas ✓');
     preview(pid, f);
@@ -173,7 +175,7 @@ function renderGrid() {
     return;
   }
   const total = DATA.packs.reduce((n, p) => n + (p.stickers ? p.stickers.length : 0), 0);
-  if (!total) { addMsg(g, 'Ainda não tens stickers. Toca em ⚙️ para abrir o StickTag e criar um pack.'); return; }
+  if (!total) { addMsg(g, DATA.adultMode ? '🔞 Ainda não tens stickers +18. Marca packs ou stickers como +18 no StickTag (ou toca em 🔞 para voltar ao normal).' : 'Ainda não tens stickers. Toca em ⚙️ para abrir o StickTag e criar um pack.'); return; }
   if (tab === 'sug') {
     let res = M.search(IDX, text, 60);
     if (DATA.kbShuffle && res.length > 1) {
@@ -223,8 +225,11 @@ function renderSpecials(g) {
     b.querySelector('button').onclick = () => { K.cancelSpecial(); setTimeout(renderGrid, 150); };
     g.appendChild(b);
   }
+  let shown = 0;
   for (const sp of DATA.specials || []) {
     const x = sp.first && findSticker(sp.first.p, sp.first.f);
+    if (!x) continue; // é do outro modo (+18 / normal) ou foi apagado
+    shown++;
     const d = document.createElement('button');
     d.className = 's sp';
     d.innerHTML = `${x ? `<img loading="lazy" src="${img(x.p, x.s.f)}">` : '❔'}<span class="spi">${SP_IC[sp.type] || '⚡'}</span><span class="spn">${esc(sp.name)}</span>`;
@@ -238,7 +243,7 @@ function renderSpecials(g) {
     };
     g.appendChild(d);
   }
-  if (!(DATA.specials || []).length) addMsg(g, 'Cria especiais no StickTag, no separador ⚡ Especiais.');
+  if (!shown) addMsg(g, DATA.adultMode ? 'Não tens especiais com stickers +18.' : 'Cria especiais no StickTag, no separador ⚡ Especiais.');
 }
 setInterval(() => { if (tab === 'spc' && !searching && document.visibilityState === 'visible') renderGrid(); }, 2000);
 
@@ -304,6 +309,13 @@ $('#shuf').onclick = () => {
   if (tab === 'sug') renderGrid();
 };
 $('#del').onclick = () => K.backspace();
+$('#adult').onclick = () => {
+  const on = !DATA.adultMode;
+  K.setOption('adultMode', on);
+  shufKey = null; tab = 'sug';
+  refresh(); $('#grid').scrollTop = 0;
+  flash(on ? '🔞 Modo +18: só aparecem stickers +18' : 'Modo normal: os +18 ficam escondidos');
+};
 $('#del').oncontextmenu = e => { e.preventDefault(); K.clearText(); };
 
 function setBusy(label) {

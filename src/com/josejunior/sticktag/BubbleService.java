@@ -379,6 +379,12 @@ public class BubbleService extends AccessibilityService {
 
         @JavascriptInterface public String specialState() { return Specials.state(); }
 
+        @JavascriptInterface public void setOption(String key, boolean value) {
+            synchronized (Store.LOCK) {
+                try { JSONObject d = Store.load(BubbleService.this); d.put(key, value); Store.save(BubbleService.this, d); } catch (Exception ignored) {}
+            }
+        }
+
         @JavascriptInterface public void openKeyboard() {
             ui.post(new Runnable() {
                 @Override public void run() {

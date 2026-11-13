@@ -889,6 +889,28 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String specialLog() { return Specials.logJson(); }
 
+        /** Marca (ou desmarca) um pack inteiro, ex.: +18. */
+        @JavascriptInterface
+        public String setPackFlag(String packId, String key, boolean value) {
+            synchronized (Store.LOCK) {
+                try {
+                    JSONObject d = Store.load(MainActivity.this);
+                    JSONObject p = Store.findPack(d, packId);
+                    if (p == null) return err("pack não encontrado");
+                    if (value) p.put(key, true); else p.remove(key);
+                    Store.save(MainActivity.this, d);
+                    return d.toString();
+                } catch (JSONException e) { return err("erro a guardar"); }
+            }
+        }
+
+        /** Marca (ou desmarca) um sticker, ex.: +18. */
+        @JavascriptInterface
+        public String setStickerFlag(String packId, String file, String key, boolean value) {
+            String d = Store.setFlag(MainActivity.this, packId, file, key, value);
+            return d == null ? err("sticker não encontrado") : d;
+        }
+
         /** Troca a imagem de um sticker animado (ex.: depois de o suavizar), mantendo as tags. */
         @JavascriptInterface
         public String replaceSticker(String packId, String file, String dataUrl) {

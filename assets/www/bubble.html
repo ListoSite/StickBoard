@@ -58,6 +58,10 @@ svg{display:block}
 .spbar span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .spbar button{background:#2C323C;color:#fff;border-radius:9px;padding:5px 10px;font-size:12px;font-weight:700}
 #bub .zap{position:absolute;bottom:-3px;left:-3px;width:20px;height:20px;border-radius:10px;background:#FFC83D;display:grid;place-items:center;font-size:11px;border:2px solid #0E1014}
+.ib.a18b{font-size:16px;opacity:.45;filter:grayscale(1)}
+.ib.a18b.on{opacity:1;filter:none;background:rgba(255,77,94,.2)}
+body.adult .card{border-color:rgba(255,77,94,.55)}
+body.adult #bub{box-shadow:0 0 0 2px #FF4D5E,0 6px 16px rgba(0,0,0,.45)}
 .sending{position:absolute;inset:0;background:rgba(14,16,20,.82);display:grid;place-items:center;border-radius:22px;font-weight:700;font-size:15px;color:#25D366;animation:fade .15s}
 @keyframes fade{from{opacity:0}}
 </style>
@@ -73,6 +77,7 @@ svg{display:block}
     <div class="hd">
       <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.6" fill="currentColor"/></svg></div>
       <div class="tt"><div class="a" id="qa">Stickers para</div><div class="b" id="qb"></div></div>
+      <button class="ib a18b" id="a18" title="Modo +18">🔞</button>
       <button class="ib" id="kb" title="Abrir o teclado de stickers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="13" rx="2.5"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 15h10"/></svg></button>
       <button class="ib" id="x" title="Fechar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
@@ -95,7 +100,9 @@ const img = (p, f) => `f/${encodeURIComponent(p.id)}/${encodeURIComponent(f)}?v=
 function load(force) {
   if (!force && Date.now() - lastLoad < 4000) return;
   lastLoad = Date.now();
-  try { DATA = JSON.parse(B.getData()); } catch (e) {}
+  try { DATA = M.modeData(JSON.parse(B.getData())); } catch (e) {}
+  document.body.classList.toggle('adult', !!DATA.adultMode);
+  const ab = document.getElementById('a18'); if (ab) ab.classList.toggle('on', !!DATA.adultMode);
   IDX = M.buildIndex(DATA, info);
 }
 function shuffle(r) { for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; } return r; }
@@ -141,7 +148,7 @@ function empty(icon, html) { const d = document.createElement('div'); d.classNam
 function drawTabs(nSug) {
   const favs = DATA.packs.reduce((a, p) => a + p.stickers.filter(s => s.fav).length, 0);
   const T = [['sug', '✨ Sugestões', nSug], ['fav', '⭐ Favoritos', 0], ['rec', '🕘 Recentes', 0]];
-  if ((DATA.specials || []).length) T.push(['spc', '⚡ Especiais', 0]);
+  if ((DATA.specials || []).some(sp => sp.first && find(sp.first.p, sp.first.f))) T.push(['spc', '⚡ Especiais', 0]);
   if (!favs) T.splice(1, 1);
   if (tab === 'fav' && !favs) tab = 'sug';
   if (tab === 'spc' && !(DATA.specials || []).length) tab = 'sug';
@@ -152,7 +159,8 @@ function drawPanel() {
   const l = line();
   $('#qa').textContent = l ? 'Stickers para' : 'Escreve uma frase';
   const qb = $('#qb');
-  qb.textContent = l ? `«${l.length > 34 ? '…' + l.slice(-32) : l}»` : 'e os stickers aparecem aqui';
+  qb.textContent = l ? `«${l.length > 34 ? '…' + l.slice(-32) : l}»` : (DATA.adultMode ? 'só stickers +18' : 'e os stickers aparecem aqui');
+  if (DATA.adultMode) $('#qa').textContent = '🔞 ' + $('#qa').textContent;
   qb.classList.toggle("muted", !l);
   const res = l ? results() : [];
   drawTabs(res.length);
@@ -217,6 +225,11 @@ $('#x').onclick = () => B.expand(false);
 $('#spx').onclick = () => B.cancelSpecial();
 let SPS = null;
 $('#kb').onclick = () => B.openKeyboard();
+$('#a18').onclick = () => {
+  const on = !DATA.adultMode;
+  try { B.setOption('adultMode', on); } catch (e) {}
+  load(true); tab = 'sug'; drawPanel();
+};
 
 window.BubbleApp = {
   setMode(m) {

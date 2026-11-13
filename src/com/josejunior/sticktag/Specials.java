@@ -460,13 +460,31 @@ public final class Specials {
                 String lk = key + "|" + rule.optString("id");
                 Long last = ECO_LAST.get(lk);
                 if (last != null && System.currentTimeMillis() - last < 20000) { log("Eco: «" + rule.optString("words") + "» ignorado (enviado há pouco)"); continue; }
-                Pending.Item it = pick(rule.optJSONArray("stickers"), 1200);
+                Pending.Item it = pick(sameMode(b, rule.optJSONArray("stickers")), 1200);
                 if (it == null) continue;
                 ECO_LAST.put(lk, System.currentTimeMillis());
                 startEco(b, rule, it, pkg, chat, x);
                 return;
             }
         }
+    }
+
+    /** Só os stickers do modo atual (normal ou +18): nunca manda um +18 no modo normal, nem ao contrário. */
+    static JSONArray sameMode(Context c, JSONArray list) {
+        JSONArray out = new JSONArray();
+        if (list == null) return out;
+        JSONObject data = Store.load(c);
+        boolean on = data.optBoolean("adultMode");
+        for (int i = 0; i < list.length(); i++) {
+            JSONObject x = list.optJSONObject(i);
+            if (x == null) continue;
+            JSONObject p = Store.findPack(data, x.optString("p"));
+            JSONObject st = p == null ? null : Store.findSticker(p, x.optString("f"));
+            if (st == null) continue;
+            boolean adult = p.optBoolean("adult") || st.optBoolean("adult");
+            if (adult == on) out.put(x);
+        }
+        return out;
     }
 
     static void startEco(Context c, JSONObject rule, Pending.Item it, String pkg, String chat, ChatDiff.Row row) {

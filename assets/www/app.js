@@ -104,6 +104,9 @@ function waStatus(id, force) {
 const isAdded = st => st && (st.addedWa === 1 || st.addedW4b === 1);
 
 const isKb = p => p.kind === 'kb';
+const adultOn = () => !!S.data.adultMode;
+/* no modo normal, as imagens +18 aparecem desfocadas na app (toca em «Mostrar» para ver) */
+const hideAdult = (p, s) => !adultOn() && Match.isAdult(p, s) && !(S.reveal && S.reveal[p.id]);
 const maxOf = p => isKb(p) ? 300 : 30;
 const countLabel = p => isKb(p) ? `${p.stickers.length} stickers` : `${p.stickers.length}/30 stickers`;
 const kindLabel = p => isKb(p) ? 'só teclado' : (p.animated ? 'animado' : 'estático');
@@ -206,7 +209,7 @@ function viewPacks() {
       listBox.classList.toggle('hidden', !!q);
       res.innerHTML = '';
       if (!q) return;
-      const found = Match.search(Match.buildIndex(S.data, emoInfo), q, 80);
+      const found = Match.search(Match.buildIndex(Match.modeData(S.data), emoInfo), q, 80);
       if (!found.length) { res.appendChild(el(`<div class="empty" style="padding-top:10px"><div>Nenhum sticker para “${esc(q)}”.</div></div>`)); return; }
       res.appendChild(el(`<div class="sec" style="margin-top:0">${found.length} sticker${found.length > 1 ? 's' : ''}</div>`));
       const g = el('<div class="mygrid"></div>');
@@ -234,8 +237,10 @@ function viewPacks() {
     const st = isKb(p) ? {} : waStatus(p.id);
     const iss = issues(p);
     let chip = iss.length ? `<span class="chip warn">${esc(iss[0].split(' (')[0])}</span>` : (isKb(p) ? '<span class="chip ok">⌨ No teclado</span>' : (isAdded(st) ? '<span class="chip ok">✓ No WhatsApp</span>' : '<span class="chip">Pronto para enviar</span>'));
-    const thumbs = p.stickers.slice(0, 6).map(s => `<img loading="lazy" src="${imgUrl(p, s.f)}">`).join('');
-    const c = el(`<div class="pack"><div class="tray">${p.stickers.length ? `<img src="${trayUrl(p)}">` : ICON.img}</div><div class="info"><div class="name">${esc(p.name)}</div><div class="meta">${countLabel(p)} · ${kindLabel(p)}</div>${chip}</div></div>`);
+    const nA = p.stickers.filter(s => Match.isAdult(p, s)).length;
+    const blurTray = !adultOn() && (p.adult || (p.cover && Match.isAdult(p, p.stickers.find(s => s.f === p.cover))));
+    const thumbs = p.stickers.slice(0, 6).map(s => `<img loading="lazy" class="${hideAdult(p, s) ? 'nsfw' : ''}" src="${imgUrl(p, s.f)}">`).join('');
+    const c = el(`<div class="pack"><div class="tray">${p.stickers.length ? `<img class="${blurTray ? 'nsfw' : ''}" src="${trayUrl(p)}">` : ICON.img}</div><div class="info"><div class="name">${p.adult ? '<span class="a18t">🔞</span> ' : ''}${esc(p.name)}</div><div class="meta">${countLabel(p)} · ${kindLabel(p)}${!p.adult && nA ? ` · ${nA} 🔞` : ''}</div>${chip}</div></div>`);
     if (thumbs) c.querySelector('.info').insertAdjacentHTML('beforeend', `<div class="thumbs" style="margin-top:8px">${thumbs}</div>`);
     c.onclick = () => { S.packId = p.id; S.sel = null; render(); $('#main').scrollTop = 0; };
     v.appendChild(c);
@@ -598,10 +603,16 @@ function viewPack() {
   v.appendChild(acts);
   if (!n) v.appendChild(el(`<div class="hint" style="margin-top:12px">“Do WhatsApp” abre a pasta onde o WhatsApp guarda os stickers que recebeste (Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Stickers). Também podes partilhar imagens de outra app diretamente para o StickTag.</div>`));
 
+  if (!adultOn() && p.stickers.some(s => Match.isAdult(p, s))) {
+    const rv = S.reveal && S.reveal[p.id];
+    const b = el(`<div class="banner a18ban"><div style="font-size:22px">🔞</div><div style="flex:1">${p.adult ? 'Pack +18' : 'Tem stickers +18'}: ${rv ? 'estão à vista.' : 'estão desfocados.'} No teclado e na bolha só aparecem no modo +18.</div><button class="btn sm">${rv ? 'Esconder' : 'Mostrar'}</button></div>`);
+    b.querySelector('button').onclick = () => { S.reveal = S.reveal || {}; S.reveal[p.id] = !rv; render(); };
+    v.appendChild(b);
+  }
   const grid = el('<div class="grid"></div>');
   p.stickers.forEach((s, i) => {
     const em = s.emojis && s.emojis.length ? `<div class="em emo">${s.emojis.map(esc).join('')}</div>` : '<div class="em none">sem emoji</div>';
-    const c = el(`<div class="st"><div class="im"><img loading="lazy" src="${imgUrl(p, s.f)}"></div>${em}${s.words && s.words.length ? `<span class="wd">${s.words.length} pal.</span>` : ''}${s.anim && isKb(p) ? '<span class="wd" style="left:auto;right:10px;top:auto;bottom:34px;color:var(--amber)">GIF</span>' : ''}${S.sel ? '<span class="ck"></span>' : (p.cover === s.f ? '<span class="cv">★</span>' : '')}</div>`);
+    const c = el(`<div class="st"><div class="im"><img loading="lazy" class="${hideAdult(p, s) ? 'nsfw' : ''}" src="${imgUrl(p, s.f)}"></div>${s.adult && !p.adult ? '<span class="a18s">🔞</span>' : ''}${em}${s.words && s.words.length ? `<span class="wd">${s.words.length} pal.</span>` : ''}${s.anim && isKb(p) ? '<span class="wd" style="left:auto;right:10px;top:auto;bottom:34px;color:var(--amber)">GIF</span>' : ''}${S.sel ? '<span class="ck"></span>' : (p.cover === s.f ? '<span class="cv">★</span>' : '')}</div>`);
     if (S.sel && S.sel.has(s.f)) c.classList.add('sel');
     c.onclick = () => {
       if (S.sel) { S.sel.has(s.f) ? S.sel.delete(s.f) : S.sel.add(s.f); c.classList.toggle('sel'); updSelBar(); return; }
@@ -630,8 +641,12 @@ function viewPack() {
 function updSelBar() { const n = $('#sn'); if (n && S.sel) n.textContent = `${S.sel.size} selec.`; }
 
 async function packMenu(p) {
-  const r = await dialog({ title: p.name, html: '<div style="height:4px"></div>', buttons: [{ label: 'Editar nome', value: 'edit' }, { label: 'Apagar pack', cls: 'danger', value: 'del' }] });
-  if (r === 'edit') {
+  const r = await dialog({ title: p.name, html: '<div style="height:4px"></div>', buttons: [{ label: 'Editar nome', value: 'edit' }, { label: p.adult ? 'Tirar o 🔞' : 'Marcar como 🔞 +18', value: 'adult' }, { label: 'Apagar pack', cls: 'danger', value: 'del' }] });
+  if (r === 'adult') {
+    try { S.data = JSON.parse(A.setPackFlag(p.id, 'adult', !p.adult)); } catch (e) {}
+    toast(!p.adult ? 'Pack +18 🔞: só aparece no teclado no modo +18' : 'Já não é +18');
+    render();
+  } else if (r === 'edit') {
     const r2 = await dialog({ title: 'Editar pack', html: `<label class="field"><span>Nome</span><input class="input" id="ep-n" maxlength="128" value="${esc(p.name)}"></label><label class="field"><span>Autor</span><input class="input" id="ep-p" maxlength="128" value="${esc(p.publisher)}"></label>`, buttons: [{ label: 'Cancelar', cls: 'ghost', value: null }, { label: 'Guardar', cls: 'primary', value: d => ({ n: $('#ep-n', d).value, p: $('#ep-p', d).value }) }] });
     if (r2) { p.name = r2.n.trim() || p.name; p.publisher = r2.p.trim() || p.publisher; savePack(p); render(); }
   } else if (r === 'del') {
@@ -813,7 +828,7 @@ function openEditor(packId, idx) {
       <div class="words"></div>
       <div class="hint" style="margin-top:6px">Quando escreveres uma destas palavras, o teclado de stickers sugere este sticker. As palavras dos emojis também contam.</div>
       ${Object.keys(s.learn || {}).length ? `<div class="sec" style="margin-top:16px">Aprendidas pelo teclado</div><div class="words" id="lw"></div><div class="hint" style="margin-top:6px">Palavras que escreveste antes de escolher este sticker. Toca no × para esquecer.</div>` : ''}
-      <div class="row" style="margin-top:16px;flex-wrap:wrap"><button class="btn sm" id="fv">${s.fav ? '⭐ Favorito' : '☆ Favorito'}</button><button class="btn sm" id="gl">💾 Galeria</button><button class="btn sm" id="cv">${p.cover === s.f ? '★ É a capa' : '☆ Capa'}</button><button class="btn sm" id="mv">Mover</button>${s.anim || p.animated ? '<button class="btn sm" id="smo">✨ Suavizar</button>' : ''}<button class="btn sm danger" id="dl">Apagar</button></div>`;
+      <div class="row" style="margin-top:16px;flex-wrap:wrap"><button class="btn sm" id="fv">${s.fav ? '⭐ Favorito' : '☆ Favorito'}</button><button class="btn sm" id="gl">💾 Galeria</button><button class="btn sm" id="cv">${p.cover === s.f ? '★ É a capa' : '☆ Capa'}</button><button class="btn sm" id="mv">Mover</button>${p.adult ? '' : `<button class="btn sm ${s.adult ? 'a18on' : ''}" id="a18">${s.adult ? '🔞 É +18' : '🔞 +18'}</button>`}${s.anim || p.animated ? '<button class="btn sm" id="smo">✨ Suavizar</button>' : ''}<button class="btn sm danger" id="dl">Apagar</button></div>`;
     const lw = $('#lw', bd);
     if (lw) {
       const L = s.learn || {};
@@ -826,6 +841,12 @@ function openEditor(packId, idx) {
     $('#cv', bd).onclick = () => { p.cover = s.f; commit(); drawAll(); toast('Capa do pack atualizada'); };
     $('#mv', bd).onclick = async () => { const ok = await moveStickers(p, [s.f]); if (ok) closeOverlay(ov); };
     const smo = $('#smo', bd); if (smo) smo.onclick = () => { closeOverlay(ov); openSmooth(p, s); };
+    const a18 = $('#a18', bd); if (a18) a18.onclick = () => {
+      const c = cur(), on = !c.adult;
+      try { const d = JSON.parse(A.setStickerFlag(p.id, c.f, 'adult', on)); if (!d.error) { S.data = d; p = packOf(packId); } } catch (e) {}
+      toast(on ? 'Sticker +18 🔞: só aparece no modo +18' : 'Já não é +18');
+      drawAll();
+    };
     $('#dl', bd).onclick = async () => {
       if (!await confirmBox('Apagar este sticker?', 'Sai deste pack (e do WhatsApp, se o pack lá estiver).')) return;
       const r = JSON.parse(A.deleteSticker(p.id, s.f));
@@ -1363,6 +1384,7 @@ function viewWords() {
   return v;
 }
 function closeAllAndEdit(p, s) {
+  p = packOf(p.id) || p;
   S.tab = 'packs'; S.packId = p.id; render();
   openEditor(p.id, p.stickers.findIndex(x => x.f === s.f));
 }
@@ -1496,6 +1518,10 @@ function viewShortcuts() {
 function viewKeyboard() {
   const v = el('<section class="view"></section>');
   v.appendChild(el(`<div class="top"><div style="flex:1"><h1>Teclado de stickers</h1><div class="sub">Escreves no teu teclado, os stickers aparecem aqui</div></div></div>`));
+  const nAdult = S.data.packs.reduce((a, p) => a + p.stickers.filter(s => Match.isAdult(p, s)).length, 0);
+  const am = el(`<div class="card ${adultOn() ? 'a18card' : ''}" style="margin-bottom:12px"><div class="opt" style="padding:0;border:0"><div class="t"><b>🔞 Modo +18</b><div class="small muted">${adultOn() ? 'Ligado: o teclado, a bolha, as sugestões, a pesquisa e os recentes só mostram stickers +18.' : 'Desligado: os stickers +18 ficam escondidos em todo o lado.'} Tens ${nAdult} sticker${nAdult === 1 ? '' : 's'} +18. Também podes trocar com o botão 🔞 no teclado e na bolha.</div></div><button class="sw ${adultOn() ? 'on' : ''}" id="am"></button></div><div class="hint" style="margin-top:8px">Para marcar: no menu ⋮ de um pack («Marcar como 🔞 +18») ou num sticker (botão «🔞 +18»).</div></div>`);
+  $('#am', am).onclick = () => { try { S.data = JSON.parse(A.setOption('adultMode', !adultOn())); } catch (e) {} toast(adultOn() ? '🔞 Modo +18 ligado' : 'Modo normal'); render(); };
+  v.appendChild(am);
   let st = {};
   try { st = JSON.parse(A.keyboardStatus()); } catch (e) {}
   const on = !!st.enabled;
@@ -1556,7 +1582,7 @@ function viewKeyboard() {
   const ti = $('input', tb), tg = $('.mygrid', tb), tw = $('#kbw', tb);
   const drawTest = () => {
     S.kbTest = ti.value;
-    const idx = Match.buildIndex(S.data, emoInfo);
+    const idx = Match.buildIndex(Match.modeData(S.data), emoInfo);
     const res = Match.search(idx, ti.value, 16);
     tg.innerHTML = '';
     res.forEach(r => { const im = el(`<img src="${imgUrl(r.p, r.s.f)}">`); im.onclick = () => closeAllAndEdit(r.p, r.s); tg.appendChild(im); });
@@ -1981,7 +2007,7 @@ function editEcoRule(r) {
   $('#eauto', sheet).onclick = () => {
     const words = $('#ew', sheet).value.split(',').map(x => x.trim()).filter(Boolean);
     if (!words.length) return toast('Escreve primeiro as palavras');
-    const idx = Match.buildIndex(S.data, emoInfo);
+    const idx = Match.buildIndex(Match.modeData(S.data), emoInfo);
     let n = 0;
     for (const w of words) for (const res of Match.search(idx, w, 40)) {
       if (list.some(x => x.p === res.p.id && x.f === res.s.f) || list.length >= 40) continue;
