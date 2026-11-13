@@ -57,6 +57,7 @@ public class BubbleService extends AccessibilityService {
         super.onServiceConnected();
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         inst = this;
+        recheckSoon();
     }
 
     /** App que está à frente (null se não der para saber). */
@@ -115,7 +116,22 @@ public class BubbleService extends AccessibilityService {
         try { return Specials.chatTitle(getRootInActiveWindow(), pkg); } catch (Exception e) { return null; }
     }
 
-    Set<String> allowedApps() {
+    /* as opções da bolha mudam pouco: guardamos em memória e só relemos quando o ficheiro muda */
+    Set<String> appsCache = null;
+    boolean onCache = true;
+    long optsMtime = -1;
+
+    void loadOpts() {
+        long m = new java.io.File(Store.root(this), "data.json").lastModified();
+        if (appsCache != null && m == optsMtime) return;
+        optsMtime = m;
+        appsCache = readAllowedApps();
+        onCache = Store.load(this).optBoolean("bubbleOn", true);
+    }
+
+    Set<String> allowedApps() { loadOpts(); return appsCache; }
+
+    Set<String> readAllowedApps() {
         Set<String> s = new HashSet<String>();
         JSONObject d = Store.load(this);
         String j = d.optString("bubbleApps", "");
@@ -126,7 +142,50 @@ public class BubbleService extends AccessibilityService {
         return s;
     }
 
-    boolean enabledByUser() { return Store.load(this).optBoolean("bubbleOn", true); }
+    boolean enabledByUser() { loadOpts(); return onCache; }
+
+    /**
+     * A app que está mesmo à frente (a janela que tem o teclado), lida na hora.
+     * Assim a bolha volta sozinha depois de abrires as notificações ou de saíres e voltares.
+     */
+    String foregroundApp() {
+        try {
+            for (AccessibilityWindowInfo w : getWindows()) {
+                if (w.getType() != AccessibilityWindowInfo.TYPE_APPLICATION) continue;
+                if (!w.isFocused() && !w.isActive()) continue;
+                AccessibilityNodeInfo r = w.getRoot();
+                if (r != null && r.getPackageName() != null) return r.getPackageName().toString();
+            }
+        } catch (Exception ignored) {}
+        try {
+            AccessibilityNodeInfo r = getRootInActiveWindow();
+            if (r != null && r.getPackageName() != null) return r.getPackageName().toString();
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    /** O texto da caixa onde estás a escrever (para a bolha não ficar com a frase antiga). */
+    String focusedText() {
+        try {
+            AccessibilityNodeInfo r = getRootInActiveWindow();
+            AccessibilityNodeInfo f = r == null ? null : r.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+            if (f == null || !f.isEditable() || f.isPassword()) return null;
+            if (Build.VERSION.SDK_INT >= 26) {
+                try { if ((Boolean) AccessibilityNodeInfo.class.getMethod("isShowingHintText").invoke(f)) return ""; } catch (Exception ignored) {}
+            }
+            CharSequence t = f.getText();
+            return t == null ? "" : t.toString();
+        } catch (Exception e) { return null; }
+    }
+
+    final Runnable recheck = new Runnable() { @Override public void run() { checkKeyboard(); } };
+
+    /** Volta a verificar daqui a pouco (o teclado e as janelas demoram a assentar). */
+    void recheckSoon() {
+        ui.removeCallbacks(recheck);
+        ui.postDelayed(recheck, 350);
+        ui.postDelayed(new Runnable() { @Override public void run() { checkKeyboard(); } }, 1200);
+    }
 
     String myIme() { return new ComponentName(this, KeyboardService.class).flattenToShortString(); }
 
@@ -144,7 +203,12 @@ public class BubbleService extends AccessibilityService {
         String pkg = pkgCs == null ? "" : pkgCs.toString();
         if (pkg.equals(getPackageName())) return;
         Specials.onA11y(this, e, pkg);
-        if (type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return;
+        if (type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+            // rede de segurança: se a bolha devia estar à vista e não está, volta a verificar (no máximo a cada 1,5 s)
+            long now = System.currentTimeMillis();
+            if (!shown && now - lastCheck > 1500 && allowedApps().contains(pkg)) { lastCheck = now; checkKeyboard(); }
+            return;
+        }
         if (type == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED || type == AccessibilityEvent.TYPE_VIEW_FOCUSED
                 || type == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) {
             if (!allowedApps().contains(pkg)) return;
@@ -162,6 +226,7 @@ public class BubbleService extends AccessibilityService {
                 else if (allowedApps().contains(pkg)) app = pkg;
             }
             checkKeyboard();
+            recheckSoon();
         }
     }
 
@@ -203,6 +268,17 @@ public class BubbleService extends AccessibilityService {
                 if (w.getType() == AccessibilityWindowInfo.TYPE_INPUT_METHOD) { ime = true; w.getBoundsInScreen(imeRect); }
             }
         } catch (Exception ignored) {}
+        if (ime) {
+            // decide pela app que está mesmo à frente, e não só pelo último evento
+            String fg = foregroundApp();
+            if (fg != null && fg.equals(getPackageName())) app = ""; // estás dentro do StickTag
+            else if (fg != null && !isImePackage(fg)) {
+                if (allowedApps().contains(fg)) {
+                    if (!fg.equals(app) || !shown) { String t = focusedText(); if (t != null) text = t; }
+                    app = fg;
+                } else app = "";
+            }
+        }
         boolean want = ime && app.length() > 0 && enabledByUser() && !myImeActive();
         if (want && !shown) show();
         else if (!want && shown) hide();
