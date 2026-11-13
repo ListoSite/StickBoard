@@ -39,6 +39,7 @@ public class BubbleService extends AccessibilityService {
             "com.instagram.android", "org.telegram.messenger", "com.facebook.orca", "com.google.android.apps.messaging",
             "com.samsung.android.messaging", "com.discord", "com.snapchat.android"};
 
+    static BubbleService inst;
     final Handler ui = new Handler(Looper.getMainLooper());
     WindowManager wm;
     WebView web;
@@ -55,6 +56,19 @@ public class BubbleService extends AccessibilityService {
     protected void onServiceConnected() {
         super.onServiceConnected();
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+        inst = this;
+    }
+
+    /** App que está à frente (null se não der para saber). */
+    String activePackage() {
+        try {
+            AccessibilityNodeInfo r = getRootInActiveWindow();
+            return r == null || r.getPackageName() == null ? null : r.getPackageName().toString();
+        } catch (Exception e) { return null; }
+    }
+
+    String chatTitle(String pkg) {
+        try { return Specials.chatTitle(getRootInActiveWindow(), pkg); } catch (Exception e) { return null; }
     }
 
     Set<String> allowedApps() {
@@ -85,6 +99,8 @@ public class BubbleService extends AccessibilityService {
         CharSequence pkgCs = e.getPackageName();
         String pkg = pkgCs == null ? "" : pkgCs.toString();
         if (pkg.equals(getPackageName())) return;
+        Specials.onA11y(this, e, pkg);
+        if (type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return;
         if (type == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED || type == AccessibilityEvent.TYPE_VIEW_FOCUSED
                 || type == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) {
             if (!allowedApps().contains(pkg)) return;
@@ -172,7 +188,7 @@ public class BubbleService extends AccessibilityService {
         web.setWebViewClient(new WebViewClient() {
             @Override public WebResourceResponse shouldInterceptRequest(WebView v, String url) { return Web.serve(BubbleService.this, url); }
             @Override public boolean shouldOverrideUrlLoading(WebView v, String url) { return true; }
-            @Override public void onPageFinished(WebView v, String url) { pageReady = true; js("onText", JSONObject.quote(text)); }
+            @Override public void onPageFinished(WebView v, String url) { pageReady = true; js("onText", JSONObject.quote(text)); js("onSpecial", Specials.state()); }
         });
         web.setOnTouchListener(new View.OnTouchListener() {
             @Override public boolean onTouch(View v, MotionEvent ev) {
@@ -253,6 +269,7 @@ public class BubbleService extends AccessibilityService {
 
     @Override
     public void onDestroy() {
+        if (inst == this) inst = null;
         hide();
         super.onDestroy();
     }
@@ -297,6 +314,26 @@ public class BubbleService extends AccessibilityService {
             });
             return "{\"ok\":true}";
         }
+
+        /** Envia o 1.º sticker de um especial e põe o especial a correr. */
+        @JavascriptInterface public void sendSpecial(final String id) {
+            JSONObject d = Specials.find(BubbleService.this, id);
+            JSONObject f = d == null ? null : d.optJSONObject("first");
+            if (f == null) return;
+            Pending.setSpecial(id, f.optString("p"), f.optString("f"));
+            ui.post(new Runnable() {
+                @Override public void run() {
+                    if (!switchToStickers()) { Pending.clear(); js("onSendFailed", Build.VERSION.SDK_INT < 30 ? "'old'" : "'disabled'"); }
+                    else setExpanded(false);
+                }
+            });
+        }
+
+        @JavascriptInterface public void cancelSpecial() {
+            ui.post(new Runnable() { @Override public void run() { Specials.cancel("cancelaste"); } });
+        }
+
+        @JavascriptInterface public String specialState() { return Specials.state(); }
 
         @JavascriptInterface public void openKeyboard() {
             ui.post(new Runnable() {

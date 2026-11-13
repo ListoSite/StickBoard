@@ -182,6 +182,7 @@ function render() {
   else if (S.tab === 'words') m.innerHTML = '', m.appendChild(viewWords());
   else if (S.tab === 'shortcuts') m.innerHTML = '', m.appendChild(viewShortcuts());
   else if (S.tab === 'kb') m.innerHTML = '', m.appendChild(viewKeyboard());
+  else if (S.tab === 'spc') m.innerHTML = '', m.appendChild(viewSpecials());
   else m.innerHTML = '', m.appendChild(viewHelp());
 }
 
@@ -1619,6 +1620,248 @@ function viewHelp() {
   v.appendChild(opts);
   v.appendChild(el(`<div class="note" style="text-align:center;margin:22px 0 4px">StickTag ${esc(A.appVersion ? A.appVersion() : '')} · os stickers ficam só neste telemóvel</div>`));
   return v;
+}
+
+/* ---------- stickers especiais ---------- */
+const SP_TYPES = {
+  seq: { icon: '⏱️', name: 'Sequência', desc: 'Mandas um e os seguintes vão sozinhos, com o tempo que escolheres entre eles.' },
+  reply: { icon: '💬', name: 'Resposta', desc: 'Mandas uma pergunta e, quando a pessoa responder qualquer coisa, vai o sticker seguinte.' },
+  choice: { icon: '🔢', name: 'Escolha', desc: 'Pergunta com opções (1, 2, 3…): o StickTag lê a resposta e manda o sticker certo.' },
+  random: { icon: '🎲', name: 'Ao calhas', desc: 'Mandas um e, passado um bocado, vai um ao calhas de uma lista (dado, bola mágica…).' },
+  secret: { icon: '🤫', name: 'Não cliques', desc: 'Quem tocar no sticker vê uma mensagem tua escondida no nome do pack.' }
+};
+const specials = () => S.data.specials || [];
+const stRef = x => { const p = x && packOf(x.p); const s = p && p.stickers.find(q => q.f === x.f); return s ? { p, s } : null; };
+const refImg = x => { const r = stRef(x); return r ? imgUrl(r.p, r.s.f) : ''; };
+function saveSpecials(list) {
+  try { const d = JSON.parse(A.setSpecials(JSON.stringify(list))); if (d.error) return toast(d.error); S.data = d; } catch (e) { toast('Erro a guardar'); }
+}
+function spSummary(sp) {
+  const n = a => (a || []).filter(stRef).length;
+  if (sp.type === 'seq') return `${n(sp.steps) + 1} stickers seguidos`;
+  if (sp.type === 'reply') return `Responde com ${n(sp.then)} sticker${n(sp.then) === 1 ? '' : 's'}${sp.noReply && sp.noReply.secs ? ` · sem resposta em ${sp.noReply.secs} s: ${n(sp.noReply.stickers)}` : ''}`;
+  if (sp.type === 'choice') return `${(sp.options || []).length} opções${n(sp.other) ? ' + outra resposta' : ''}${sp.noReply && sp.noReply.secs ? ` · sem resposta em ${sp.noReply.secs} s` : ''}`;
+  if (sp.type === 'random') return `Um ao calhas de ${n(sp.pool)}`;
+  return '';
+}
+
+function viewSpecials() {
+  const v = el('<section class="view"></section>');
+  v.appendChild(el(`<div class="top"><div style="flex:1;min-width:0"><h1>Especiais</h1><div class="sub">Stickers que fazem coisas sozinhos</div></div></div>`));
+  let bs = {};
+  try { bs = JSON.parse(A.bubbleStatus()); } catch (e) {}
+  if (!bs.enabled) {
+    const w = el(`<div class="card warn" style="margin-bottom:12px"><b>Liga a bolha primeiro</b><div class="hint" style="margin:4px 0 10px">É ela que lê a conversa (para as respostas) e que envia os stickers seguintes mesmo quando voltas ao teu teclado.</div><button class="btn sm primary">Ir ao separador Teclado</button></div>`);
+    w.querySelector('button').onclick = () => go('kb');
+    v.appendChild(w);
+  }
+  const list = specials();
+  const secrets = [];
+  S.data.packs.forEach(p => p.stickers.forEach(s => { if (s.secretName || s.secretPub) secrets.push({ p, s }); }));
+  if (!list.length && !secrets.length) {
+    v.appendChild(el(`<div class="empty"><div class="big">⚡</div><h2>Ainda não tens especiais</h2><div>Cria sequências, perguntas que respondem sozinhas ou stickers com mensagens escondidas.</div></div>`));
+  }
+  if (list.length) v.appendChild(el('<div class="sect">Os teus especiais</div>'));
+  list.forEach(sp => {
+    const t = SP_TYPES[sp.type] || SP_TYPES.seq;
+    const ok = stRef(sp.first);
+    const c = el(`<div class="pack"><div class="tray">${ok ? `<img src="${refImg(sp.first)}">` : '❔'}<span class="sp-ic">${t.icon}</span></div><div class="info"><div class="name">${esc(sp.name)}</div><div class="meta" style="margin:0">${t.name} · ${esc(spSummary(sp))}</div>${ok ? '' : '<div class="meta" style="color:var(--red);margin:2px 0 0">O primeiro sticker foi apagado</div>'}</div></div>`);
+    c.onclick = () => editSpecial(JSON.parse(JSON.stringify(sp)));
+    v.appendChild(c);
+  });
+  if (secrets.length) v.appendChild(el('<div class="sect">🤫 Mensagens escondidas</div>'));
+  secrets.forEach(({ p, s }) => {
+    const c = el(`<div class="pack"><div class="tray"><img src="${imgUrl(p, s.f)}"><span class="sp-ic">🤫</span></div><div class="info"><div class="name">${esc(s.secretName || '')}</div><div class="meta" style="margin:0">${esc(s.secretPub || '')}${s.secretPub ? ' · ' : ''}pack ${esc(p.name)}</div></div></div>`);
+    c.onclick = () => editSecret({ p: p.id, f: s.f });
+    v.appendChild(c);
+  });
+  v.appendChild(el(`<div class="note">Como funciona: no teclado de stickers e na bolha aparece o separador ⚡. Tocas num especial e ele manda o 1.º sticker. Se escreveres, enviares outro sticker ou mudares de conversa, o especial é cancelado. Só funciona com o WhatsApp (e apps que aceitam stickers do teclado) aberto na conversa.</div>`));
+  v.appendChild(el('<div style="height:84px"></div>'));
+  const fab = el(`<button class="fab">${ICON.plus}Novo especial</button>`);
+  fab.onclick = newSpecial;
+  v.appendChild(fab);
+  return v;
+}
+
+async function newSpecial() {
+  const html = `<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">${Object.entries(SP_TYPES).map(([k, t]) => `<button class="pack" data-k="${k}" style="margin:0;text-align:left;align-items:flex-start"><div style="font-size:26px;line-height:1.2">${t.icon}</div><div class="info"><div class="name">${t.name}</div><div class="meta" style="margin:2px 0 0;white-space:normal">${t.desc}</div></div></button>`).join('')}</div>`;
+  let chosen = null;
+  const pr = dialog({ title: 'Que tipo de especial?', html, buttons: [{ label: 'Cancelar', cls: 'ghost', value: null }] });
+  setTimeout(() => $$('.dialog .pack[data-k]').forEach(b => b.onclick = () => { chosen = b.dataset.k; closeOverlay(); }), 0);
+  await pr;
+  if (!chosen) return;
+  if (chosen === 'secret') {
+    const x = await pickSticker('Escolhe o sticker «não cliques»');
+    if (x) editSecret(x);
+    return;
+  }
+  const base = { id: 'sp' + Date.now().toString(36), type: chosen, name: '', first: null };
+  if (chosen === 'seq') base.steps = [];
+  if (chosen === 'reply') Object.assign(base, { then: [], replyDelay: 1, maxWait: 300, noReply: { secs: 0, stickers: [] } });
+  if (chosen === 'choice') Object.assign(base, { options: [{ answers: '1', stickers: [] }, { answers: '2', stickers: [] }], other: [], replyDelay: 1, maxWait: 300, noReply: { secs: 0, stickers: [] } });
+  if (chosen === 'random') Object.assign(base, { pool: [], delay: 2 });
+  editSpecial(base, true);
+}
+
+/* escolher um sticker de qualquer pack */
+function pickSticker(title) {
+  return new Promise(res => {
+    const packs = S.data.packs.filter(p => p.stickers.length);
+    if (!packs.length) { toast('Ainda não tens stickers'); return res(null); }
+    let cur = S.pickPack && packOf(S.pickPack) ? S.pickPack : packs[0].id, done = false;
+    const sheet = el(`<div class="sheet"><div class="hd"><h3>${esc(title)}</h3><button class="iconbtn" id="x">${ICON.close}</button></div><div class="pk-packs"></div><div class="bd"><div class="pk-grid2"></div></div></div>`);
+    const ov = openOverlay(sheet, { onClose: () => { if (!done) res(null); } });
+    $('#x', sheet).onclick = () => closeOverlay(ov);
+    function draw() {
+      $('.pk-packs', sheet).innerHTML = packs.map(p => `<button data-id="${esc(p.id)}" class="${p.id === cur ? 'on' : ''}"><img src="${trayUrl(p)}"><span>${esc(p.name)}</span></button>`).join('');
+      $$('.pk-packs button', sheet).forEach(b => b.onclick = () => { cur = b.dataset.id; S.pickPack = cur; draw(); });
+      const p = packOf(cur);
+      $('.pk-grid2', sheet).innerHTML = p.stickers.map(s => `<button data-f="${esc(s.f)}"><img loading="lazy" src="${imgUrl(p, s.f)}"></button>`).join('');
+      $$('.pk-grid2 button', sheet).forEach(b => b.onclick = () => { done = true; closeOverlay(ov); res({ p: cur, f: b.dataset.f }); });
+    }
+    draw();
+  });
+}
+
+function editSpecial(sp, isNew) {
+  const t = SP_TYPES[sp.type];
+  const sheet = el(`<div class="sheet"><div class="hd"><h3>${t.icon} ${t.name}</h3><button class="iconbtn" id="x">${ICON.close}</button></div><div class="bd" id="spb"></div>
+    <div class="ft row" style="padding:10px 16px 14px">${isNew ? '' : '<button class="btn danger" id="dl" style="flex:none;width:52px;padding:0">🗑️</button>'}<button class="btn primary" id="sv">Guardar</button></div></div>`);
+  const ov = openOverlay(sheet, { modal: true });
+  $('#x', sheet).onclick = () => closeOverlay(ov);
+  const bd = $('#spb', sheet);
+  const DELAYS = [0.5, 1, 1.5, 2, 3, 4, 5, 8, 10, 15, 20, 30, 60];
+  const delaySel = (val, cls) => `<select class="dsel ${cls || ''}">${DELAYS.map(d => `<option value="${d}" ${+val === d ? 'selected' : ''}>${String(d).replace('.', ',')} s</option>`).join('')}</select>`;
+  // lista de stickers editável. withDelay = cada um tem o seu tempo
+  function stickerList(arr, withDelay, addLabel) {
+    const w = el('<div class="splist"></div>');
+    function draw() {
+      w.innerHTML = '';
+      arr.forEach((x, i) => {
+        const r = stRef(x);
+        const it = el(`<div class="spi">${withDelay ? `<div class="spd">⏱ ${delaySel(x.d == null ? 2 : x.d)}</div>` : ''}<div class="spim">${r ? `<img src="${imgUrl(r.p, r.s.f)}">` : '❔'}<button class="spx">×</button></div></div>`);
+        $('.spx', it).onclick = () => { arr.splice(i, 1); draw(); };
+        const sel = $('select', it); if (sel) sel.onchange = () => { x.d = +sel.value; };
+        w.appendChild(it);
+      });
+      const add = el(`<button class="spadd"><span>＋</span>${esc(addLabel || 'Sticker')}</button>`);
+      add.onclick = async () => { const x = await pickSticker('Escolhe um sticker'); if (x) { if (withDelay) x.d = arr.length ? (arr[arr.length - 1].d || 2) : 2; arr.push(x); draw(); } };
+      w.appendChild(add);
+    }
+    draw();
+    return w;
+  }
+  function firstPicker() {
+    const w = el(`<div class="spfirst"></div>`);
+    function draw() {
+      const r = stRef(sp.first);
+      w.innerHTML = `<div class="spim big">${r ? `<img src="${imgUrl(r.p, r.s.f)}">` : '<span style="font-size:30px">＋</span>'}</div><div class="hint">${r ? 'Toca para trocar' : 'Escolhe o sticker que mandas primeiro'}${sp.type === 'reply' || sp.type === 'choice' ? '<br>(normalmente a pergunta)' : ''}</div>`;
+    }
+    w.onclick = async () => { const x = await pickSticker('Primeiro sticker'); if (x) { sp.first = x; if (!$('#nm', bd).value) $('#nm', bd).placeholder = 'Ex.: ' + t.name; draw(); } };
+    draw();
+    return w;
+  }
+  const field = (label, node, hint) => { const f = el(`<div class="field"><span>${label}</span></div>`); f.appendChild(node); if (hint) f.appendChild(el(`<div class="hint" style="margin-top:6px">${hint}</div>`)); return f; };
+  bd.appendChild(el(`<label class="field"><span>Nome (aparece no teclado)</span><input class="input" id="nm" maxlength="40" placeholder="Ex.: ${t.name} da pizza" value="${esc(sp.name)}"></label>`));
+  bd.appendChild(field('1.º sticker', firstPicker()));
+  if (sp.type === 'seq') {
+    bd.appendChild(field('Depois vão estes, por ordem', stickerList(sp.steps, true, 'Próximo'), '⏱ = quanto tempo espera antes de mandar esse sticker.'));
+  }
+  if (sp.type === 'random') {
+    bd.appendChild(field('Espera antes de mandar', el(`<div>${delaySel(sp.delay, 'big')}</div>`)));
+    bd.appendChild(field('Vai um destes ao calhas', stickerList(sp.pool, false, 'Opção')));
+  }
+  if (sp.type === 'reply') {
+    bd.appendChild(field('Quando a pessoa responder, manda', stickerList(sp.then, false, 'Sticker')));
+  }
+  if (sp.type === 'choice') {
+    const ow = el('<div></div>');
+    function drawOps() {
+      ow.innerHTML = '';
+      sp.options.forEach((o, i) => {
+        const c = el(`<div class="card spop"><div class="row" style="margin-bottom:8px"><b style="flex:1">Opção ${i + 1}</b>${sp.options.length > 1 ? '<button class="iconbtn sm" data-r="1">' + ICON.close + '</button>' : ''}</div>
+          <label class="field" style="margin-bottom:8px"><span>Se a pessoa responder (separa com vírgulas)</span><input class="input" value="${esc(o.answers)}" placeholder="Ex.: 1, um, pizza"></label><div class="field" style="margin:0"><span>Manda</span></div></div>`);
+        $('input', c).oninput = e => { o.answers = e.target.value; };
+        const r = c.querySelector('[data-r]'); if (r) r.onclick = () => { sp.options.splice(i, 1); drawOps(); };
+        c.appendChild(stickerList(o.stickers, false, 'Sticker'));
+        ow.appendChild(c);
+      });
+      if (sp.options.length < 6) {
+        const a = el(`<button class="btn sm ghost block" style="margin-top:8px">＋ Mais uma opção</button>`);
+        a.onclick = () => { sp.options.push({ answers: String(sp.options.length + 1), stickers: [] }); drawOps(); };
+        ow.appendChild(a);
+      }
+    }
+    drawOps();
+    bd.appendChild(field('Opções', ow, 'As respostas comparam palavras inteiras, sem ligar a maiúsculas nem acentos: «1» não apanha «10».'));
+    bd.appendChild(field('Se responder outra coisa (opcional)', stickerList(sp.other, false, 'Sticker'), 'Se deixares vazio, o StickTag ignora e continua à espera de uma resposta certa.'));
+  }
+  if (sp.type === 'reply' || sp.type === 'choice') {
+    bd.appendChild(field('Espera depois da resposta', el(`<div>${delaySel(sp.replyDelay, 'big rd')}</div>`)));
+    const nr = sp.noReply || (sp.noReply = { secs: 0, stickers: [] });
+    const box = el(`<div class="card" style="padding:12px"><div class="opt" style="padding:0 0 10px;border:0"><div class="t"><b>💣 Se não responder a tempo</b><div class="small muted">Manda logo estes stickers todos (spam!)</div></div><button class="sw ${nr.secs ? 'on' : ''}" id="nrs"></button></div><div id="nrb" class="${nr.secs ? '' : 'hidden'}"></div></div>`);
+    const nrb = $('#nrb', box);
+    const SECS = [5, 10, 15, 20, 30, 45, 60, 90, 120];
+    nrb.appendChild(el(`<div class="row" style="margin-bottom:8px"><span class="small muted">Tempo para responder</span><select class="dsel" id="nrt">${SECS.map(s => `<option value="${s}" ${(nr.secs || 10) === s ? 'selected' : ''}>${s} s</option>`).join('')}</select></div>`));
+    nrb.appendChild(stickerList(nr.stickers, false, 'Sticker'));
+    $('#nrs', box).onclick = e => { const on = !nr.secs; nr.secs = on ? +$('#nrt', box).value : 0; e.currentTarget.classList.toggle('on', on); nrb.classList.toggle('hidden', !on); };
+    $('#nrt', box).onchange = e => { if (nr.secs) nr.secs = +e.target.value; };
+    bd.appendChild(field('Contagem decrescente (opcional)', box));
+    const MW = [[60, '1 minuto'], [180, '3 minutos'], [300, '5 minutos'], [600, '10 minutos'], [1800, '30 minutos']];
+    bd.appendChild(field('Desiste se ninguém responder em', el(`<div><select class="dsel big" id="mw">${MW.map(([s, l]) => `<option value="${s}" ${(sp.maxWait || 300) === s ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`)));
+  }
+  const dl = $('#dl', sheet);
+  if (dl) dl.onclick = async () => {
+    if (!await confirmBox('Apagar este especial?', 'Os stickers continuam nos teus packs.')) return;
+    saveSpecials(specials().filter(x => x.id !== sp.id)); closeOverlay(ov); render();
+  };
+  $('#sv', sheet).onclick = () => {
+    sp.name = $('#nm', bd).value.trim() || t.name;
+    const rd = $('.rd', bd); if (rd) sp.replyDelay = +rd.value;
+    const big = $('.dsel.big:not(.rd):not(#mw)', bd); if (big && sp.type === 'random') sp.delay = +big.value;
+    const mw = $('#mw', bd); if (mw) sp.maxWait = +mw.value;
+    if (!stRef(sp.first)) return toast('Escolhe o 1.º sticker');
+    if (sp.type === 'seq' && !sp.steps.length) return toast('Junta pelo menos mais um sticker à sequência');
+    if (sp.type === 'random' && !sp.pool.length) return toast('Junta os stickers que podem sair');
+    if (sp.type === 'reply' && !sp.then.length && !(sp.noReply.secs && sp.noReply.stickers.length)) return toast('Escolhe o que mandar quando responderem');
+    if (sp.type === 'choice') {
+      sp.options = sp.options.filter(o => o.answers.trim() || o.stickers.length);
+      if (!sp.options.length || sp.options.some(o => !o.answers.trim() || !o.stickers.length)) { if (!sp.options.length) sp.options.push({ answers: '1', stickers: [] }); return toast('Cada opção precisa de uma resposta e de um sticker'); }
+    }
+    if (sp.noReply && sp.noReply.secs && !sp.noReply.stickers.length) sp.noReply.secs = 0;
+    const list = specials().slice();
+    const i = list.findIndex(x => x.id === sp.id);
+    if (i >= 0) list[i] = sp; else list.push(sp);
+    saveSpecials(list);
+    closeOverlay(ov);
+    toast('Especial guardado ⚡');
+    render();
+  };
+}
+
+function editSecret(x) {
+  const r = stRef(x);
+  if (!r) return;
+  const { p, s } = r;
+  const sheet = el(`<div class="sheet"><div class="hd"><h3>🤫 Não cliques</h3><button class="iconbtn" id="x">${ICON.close}</button></div><div class="bd">
+    <div class="hint" style="margin-bottom:12px">Quem receber este sticker no WhatsApp e tocar nele vê estas duas linhas em vez do nome do pack. Exemplo: um sticker a dizer «não cliques» e, por baixo, «Eu avisei 😂».</div>
+    <div class="wa-prev"><img src="${imgUrl(p, s.f)}"><div><b id="pn">${esc(s.secretName || 'Eu disse para não clicares 😂')}</b><span id="pp">${esc(s.secretPub || 'Agora tens de me pagar um café ☕')}</span></div></div>
+    <label class="field"><span>Linha de cima (nome do pack)</span><input class="input" id="sn" maxlength="120" value="${esc(s.secretName || '')}" placeholder="Eu disse para não clicares 😂"></label>
+    <label class="field"><span>Linha de baixo (autor)</span><input class="input" id="sp" maxlength="120" value="${esc(s.secretPub || '')}" placeholder="Agora tens de me pagar um café ☕"></label>
+    <div class="note" style="margin-top:4px">Para a mensagem chegar, envia este sticker pelo teclado de stickers ou pela bolha. Se o mandares pelo pack instalado no WhatsApp, pode aparecer o nome normal do pack.</div>
+    </div><div class="ft row" style="padding:10px 16px 14px">${s.secretName || s.secretPub ? '<button class="btn danger" id="rm" style="flex:none">Tirar</button>' : ''}<button class="btn primary" id="sv">Guardar</button></div></div>`);
+  const ov = openOverlay(sheet, { modal: true });
+  $('#x', sheet).onclick = () => closeOverlay(ov);
+  $('#sn', sheet).oninput = e => { $('#pn', sheet).textContent = e.target.value || 'Eu disse para não clicares 😂'; };
+  $('#sp', sheet).oninput = e => { $('#pp', sheet).textContent = e.target.value || 'Agora tens de me pagar um café ☕'; };
+  const put = (n, pb) => { try { const d = JSON.parse(A.setSecret(p.id, s.f, n, pb)); if (d.error) return toast(d.error); S.data = d; } catch (e) { toast('Erro'); } };
+  $('#sv', sheet).onclick = () => {
+    const n = $('#sn', sheet).value.trim(), pb = $('#sp', sheet).value.trim();
+    if (!n && !pb) return toast('Escreve a mensagem');
+    put(n, pb); closeOverlay(ov); toast('Mensagem escondida guardada 🤫'); render();
+  };
+  const rm = $('#rm', sheet);
+  if (rm) rm.onclick = () => { put('', ''); closeOverlay(ov); toast('Mensagem tirada'); render(); };
 }
 
 /* ---------- respostas do lado nativo ---------- */

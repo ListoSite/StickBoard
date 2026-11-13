@@ -39,17 +39,25 @@ svg{display:block}
 .tab{height:30px;padding:0 12px;border-radius:15px;background:#1D222A;color:#9AA3B0;font-size:13px;font-weight:600;white-space:nowrap;display:flex;align-items:center;gap:5px}
 .tab.on{background:rgba(37,211,102,.16);color:#25D366}
 .tab .n{font-size:11px;background:#25D366;color:#06210F;border-radius:8px;padding:0 6px;line-height:16px}
-.strip{flex:1;display:grid;grid-auto-flow:column;grid-template-rows:repeat(2,1fr);grid-auto-columns:76px;gap:6px;overflow-x:auto;overflow-y:hidden;padding:0 12px 12px;scrollbar-width:none}
+.strip{flex:1;min-height:0;display:grid;grid-auto-flow:column;grid-template-rows:repeat(2,minmax(0,1fr));grid-auto-columns:76px;gap:6px;overflow-x:auto;overflow-y:hidden;padding:0 12px 12px;scrollbar-width:none}
 .strip::-webkit-scrollbar{display:none}
 .s{border-radius:16px;background:#1A1F27;display:grid;place-items:center;position:relative;transition:transform .12s}
 .s:active{transform:scale(.92);background:#20302A}
-.s img{width:86%;height:86%;object-fit:contain;pointer-events:none}
+.s img{position:absolute;left:7%;top:7%;width:86%;height:86%;object-fit:contain;pointer-events:none}
 .s .fv{position:absolute;top:3px;right:5px;font-size:11px}
 .sep{grid-row:1/-1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:4px;width:44px;color:#6B7482;font-size:10.5px;font-weight:700;text-align:center;line-height:1.2}
 .sep .i{font-size:18px}
 .empty{grid-row:1/-1;width:calc(100vw - 30px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#9AA3B0;font-size:13px;text-align:center;padding:0 16px;line-height:1.4}
 .empty .i{font-size:28px}
 .empty b{color:#EEF1F5}
+.s.sp{background:#1E2430}
+.s.sp img{left:14%;top:6%;width:72%;height:calc(94% - 18px)}
+.s .spi{position:absolute;top:3px;left:5px;font-size:12px}
+.s .spn{position:absolute;left:3px;right:3px;bottom:3px;font-size:10px;font-weight:700;color:#C9D1DC;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
+.spbar{display:flex;align-items:center;gap:8px;margin:0 12px 8px;background:rgba(37,211,102,.12);color:#CFEFDC;border-radius:12px;padding:5px 5px 5px 10px;font-size:12.5px;flex:none}
+.spbar span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.spbar button{background:#2C323C;color:#fff;border-radius:9px;padding:5px 10px;font-size:12px;font-weight:700}
+#bub .zap{position:absolute;bottom:-3px;left:-3px;width:20px;height:20px;border-radius:10px;background:#FFC83D;display:grid;place-items:center;font-size:11px;border:2px solid #0E1014}
 .sending{position:absolute;inset:0;background:rgba(14,16,20,.82);display:grid;place-items:center;border-radius:22px;font-weight:700;font-size:15px;color:#25D366;animation:fade .15s}
 @keyframes fade{from{opacity:0}}
 </style>
@@ -58,6 +66,7 @@ svg{display:block}
 <div id="bub">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.6" fill="currentColor"/></svg>
   <span class="bd hidden" id="badge"></span>
+  <span class="zap hidden" id="zap">⚡</span>
 </div>
 <div id="pan" class="hidden">
   <div class="card" id="card">
@@ -67,6 +76,7 @@ svg{display:block}
       <button class="ib" id="kb" title="Abrir o teclado de stickers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="13" rx="2.5"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 15h10"/></svg></button>
       <button class="ib" id="x" title="Fechar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
+    <div class="spbar hidden" id="spbar"><span id="spt"></span><button id="spx">Cancelar</button></div>
     <div class="tabs" id="tabs"></div>
     <div class="strip" id="strip"></div>
   </div>
@@ -131,8 +141,10 @@ function empty(icon, html) { const d = document.createElement('div'); d.classNam
 function drawTabs(nSug) {
   const favs = DATA.packs.reduce((a, p) => a + p.stickers.filter(s => s.fav).length, 0);
   const T = [['sug', '✨ Sugestões', nSug], ['fav', '⭐ Favoritos', 0], ['rec', '🕘 Recentes', 0]];
+  if ((DATA.specials || []).length) T.push(['spc', '⚡ Especiais', 0]);
   if (!favs) T.splice(1, 1);
   if (tab === 'fav' && !favs) tab = 'sug';
+  if (tab === 'spc' && !(DATA.specials || []).length) tab = 'sug';
   $('#tabs').innerHTML = T.map(([id, l, n]) => `<button class="tab ${tab === id ? 'on' : ''}" data-t="${id}">${l}${n ? `<span class="n">${n}</span>` : ''}</button>`).join('');
   $('#tabs').querySelectorAll('.tab').forEach(b => b.onclick = () => { tab = b.dataset.t; drawPanel(); });
 }
@@ -156,6 +168,23 @@ function drawPanel() {
       if (rec.length) { st.appendChild(sep('🕘', 'Recentes')); rec.forEach(x => st.appendChild(tile(x.p, x.s))); }
       if (!now.length && !rec.length) st.appendChild(empty('💬', l ? `Nada para <b>«${esc(l.slice(-30))}»</b> ainda.<br>Dá palavras aos teus stickers no StickTag.` : 'Escreve na conversa e eu mostro os stickers que combinam.'));
     }
+  } else if (tab === 'spc') {
+    const SP_IC = { seq: '⏱️', reply: '💬', choice: '🔢', random: '🎲' };
+    (DATA.specials || []).forEach(sp => {
+      const x = sp.first && find(sp.first.p, sp.first.f);
+      if (!x) return;
+      const d = document.createElement('button');
+      d.className = 's sp';
+      d.innerHTML = `<img loading="lazy" src="${img(x.p, x.s.f)}"><span class="spi">${SP_IC[sp.type] || '⚡'}</span><span class="spn">${esc(sp.name)}</span>`;
+      d.onclick = () => {
+        pushRecent(x.p.id, x.s.f);
+        const ov = document.createElement('div'); ov.className = 'sending'; ov.textContent = '⚡ ' + sp.name;
+        $('#card').appendChild(ov);
+        setTimeout(() => ov.remove(), 1200);
+        B.sendSpecial(sp.id);
+      };
+      st.appendChild(d);
+    });
   } else if (tab === 'fav') {
     DATA.packs.forEach(p => p.stickers.forEach(s => { if (s.fav) st.appendChild(tile(p, s)); }));
   } else {
@@ -185,6 +214,8 @@ bub.addEventListener('pointerup', () => {
   else B.dragEnd();
 });
 $('#x').onclick = () => B.expand(false);
+$('#spx').onclick = () => B.cancelSpecial();
+let SPS = null;
 $('#kb').onclick = () => B.openKeyboard();
 
 window.BubbleApp = {
@@ -199,6 +230,12 @@ window.BubbleApp = {
     text = t || '';
     load(false);
     if (mode === 'panel') drawPanel(); else drawBadge();
+  },
+  onSpecial(st) {
+    SPS = st;
+    $('#zap').classList.toggle('hidden', !st);
+    $('#spbar').classList.toggle('hidden', !st);
+    if (st) $('#spt').innerHTML = `⚡ <b>${esc(st.name)}</b> ${st.waiting ? 'à espera da resposta…' : 'a enviar…'}`;
   },
   onSendFailed(why) {
     B.expand(true);

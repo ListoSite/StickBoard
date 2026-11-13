@@ -145,8 +145,10 @@ public final class Store {
         try {
             JSONObject j = new JSONObject();
             j.put("sticker-pack-id", pack.optString("id"));
-            j.put("sticker-pack-name", pack.optString("name"));
-            j.put("sticker-pack-publisher", pack.optString("publisher"));
+            // mensagem escondida ("não cliques"): aparece a quem tocar no sticker
+            String sn = st.optString("secretName", ""), sp = st.optString("secretPub", "");
+            j.put("sticker-pack-name", sn.length() > 0 ? sn : pack.optString("name"));
+            j.put("sticker-pack-publisher", sn.length() > 0 || sp.length() > 0 ? sp : pack.optString("publisher"));
             JSONArray e = st.optJSONArray("emojis");
             j.put("emojis", e == null ? new JSONArray() : e);
             return j.toString();
@@ -161,7 +163,8 @@ public final class Store {
         if (a != null) for (int i = 0; i < a.length(); i++) {
             JSONObject s = a.optJSONObject(i);
             sb.append('#').append(s.optString("f")).append(':').append(joinArr(s.optJSONArray("emojis"), ","))
-              .append(':').append(joinArr(s.optJSONArray("words"), ","));
+              .append(':').append(joinArr(s.optJSONArray("words"), ","))
+              .append(':').append(s.optString("secretName", "")).append(':').append(s.optString("secretPub", ""));
         }
         return sb.toString();
     }

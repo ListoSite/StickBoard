@@ -38,7 +38,8 @@ async function loadEmoji() {
 function refresh() {
   try { DATA = JSON.parse(K.getData()); } catch (e) { DATA = { packs: [] }; }
   IDX = M.buildIndex(DATA, info);
-  if (!['sug', 'rec', 'fav'].includes(tab) && !DATA.packs.some(p => p.id === tab)) tab = 'sug';
+  if (!['sug', 'rec', 'fav', 'spc'].includes(tab) && !DATA.packs.some(p => p.id === tab)) tab = 'sug';
+  if (tab === 'spc' && !(DATA.specials || []).length) tab = 'sug';
   $('#shuf').classList.toggle('on', !!DATA.kbShuffle);
   renderTabs(); renderTop(); renderGrid();
 }
@@ -57,7 +58,9 @@ function renderTop() {
 
 function renderTabs() {
   const t = $('#tabs');
-  const items = [['sug', '✨'], ['fav', '⭐'], ['rec', '🕘']].map(([id, ic]) => `<button class="tab ${tab === id ? 'on' : ''}" data-t="${id}">${ic}</button>`);
+  const T = [['sug', '✨'], ['fav', '⭐'], ['rec', '🕘']];
+  if ((DATA.specials || []).length) T.push(['spc', '⚡']);
+  const items = T.map(([id, ic]) => `<button class="tab ${tab === id ? 'on' : ''}" data-t="${id}">${ic}</button>`);
   for (const p of DATA.packs) if (p.stickers && p.stickers.length)
     items.push(`<button class="tab ${tab === p.id ? 'on' : ''}" data-t="${esc(p.id)}"><img src="f/${encodeURIComponent(p.id)}/tray.png?v=${p.version || 0}" onerror="this.replaceWith(document.createTextNode('📦'))"></button>`);
   items.push(`<button class="tab" data-t="app">⚙️</button>`);
@@ -80,7 +83,7 @@ function tile(p, s) {
   d.className = 's';
   const mi = multi ? multi.findIndex(x => x.p === p.id && x.f === s.f) : -1;
   if (mi >= 0) d.classList.add('sel');
-  d.innerHTML = `<img loading="lazy" src="${img(p, s.f)}">${s.fav ? '<span class="fv">⭐</span>' : ''}${mi >= 0 ? `<span class="num">${mi + 1}</span>` : ''}`;
+  d.innerHTML = `<img loading="lazy" src="${img(p, s.f)}">${s.fav ? '<span class="fv">⭐</span>' : ''}${s.secretName || s.secretPub ? '<span class="sec">🤫</span>' : ''}${mi >= 0 ? `<span class="num">${mi + 1}</span>` : ''}`;
   let timer = null, long = false, sx = 0, sy = 0;
   d.addEventListener('pointerdown', e => {
     long = false; sx = e.clientX; sy = e.clientY;
@@ -198,6 +201,8 @@ function renderGrid() {
     let n = 0;
     for (const p of DATA.packs) for (const s of p.stickers) if (s.fav) { g.appendChild(tile(p, s)); n++; }
     if (!n) addMsg(g, 'Carrega sem largar num sticker e toca em ☆ Favorito para o pôr aqui.');
+  } else if (tab === 'spc') {
+    renderSpecials(g);
   } else if (tab === 'rec') {
     if (!renderRecent(g, false)) addMsg(g, 'Os stickers que enviares aparecem aqui.');
   } else {
@@ -205,6 +210,37 @@ function renderGrid() {
     if (p) p.stickers.forEach(s => g.appendChild(tile(p, s)));
   }
 }
+
+/* ---- stickers especiais ---- */
+const SP_IC = { seq: '⏱️', reply: '💬', choice: '🔢', random: '🎲' };
+function spState() { try { return JSON.parse(K.specialState()); } catch (e) { return null; } }
+function renderSpecials(g) {
+  const st = spState();
+  if (st) {
+    const b = document.createElement('div');
+    b.className = 'spbar';
+    b.innerHTML = `<span>⚡ <b>${esc(st.name)}</b> ${st.waiting ? 'à espera da resposta…' : 'a enviar…'}</span><button>Cancelar</button>`;
+    b.querySelector('button').onclick = () => { K.cancelSpecial(); setTimeout(renderGrid, 150); };
+    g.appendChild(b);
+  }
+  for (const sp of DATA.specials || []) {
+    const x = sp.first && findSticker(sp.first.p, sp.first.f);
+    const d = document.createElement('button');
+    d.className = 's sp';
+    d.innerHTML = `${x ? `<img loading="lazy" src="${img(x.p, x.s.f)}">` : '❔'}<span class="spi">${SP_IC[sp.type] || '⚡'}</span><span class="spn">${esc(sp.name)}</span>`;
+    d.onclick = () => {
+      if (!x) return flash('O 1.º sticker deste especial foi apagado');
+      if (!direct) return flash('Os especiais só funcionam no WhatsApp (e apps que aceitam stickers do teclado)');
+      pushRecent(x.p.id, x.s.f);
+      K.sendSpecial(sp.id);
+      flash('⚡ ' + sp.name);
+      setTimeout(() => { if (tab === 'spc') renderGrid(); }, 900);
+    };
+    g.appendChild(d);
+  }
+  if (!(DATA.specials || []).length) addMsg(g, 'Cria especiais no StickTag, no separador ⚡ Especiais.');
+}
+setInterval(() => { if (tab === 'spc' && !searching && document.visibilityState === 'visible') renderGrid(); }, 2000);
 
 let flashT = null;
 function flash(t) {

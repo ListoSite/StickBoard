@@ -35,6 +35,8 @@ import java.lang.reflect.Method;
 
 /** O teclado de stickers: lê o que já escreveste e sugere stickers para enviar. */
 public class KeyboardService extends InputMethodService {
+    static KeyboardService inst;
+    boolean inputOn = false;
     WebView web;
     FrameLayout box;
     final Handler ui = new Handler(Looper.getMainLooper());
@@ -44,6 +46,86 @@ public class KeyboardService extends InputMethodService {
     final Runnable textChanged = new Runnable() {
         @Override public void run() { js("onText", JSONObject.quote(currentText())); }
     };
+
+    @Override public void onCreate() { super.onCreate(); inst = this; }
+
+    @Override public void onDestroy() { if (inst == this) inst = null; super.onDestroy(); }
+
+    @Override
+    public void onStartInput(EditorInfo attribute, boolean restarting) {
+        super.onStartInput(attribute, restarting);
+        inputOn = true;
+        handlePending();
+    }
+
+    @Override
+    public void onFinishInput() { super.onFinishInput(); inputOn = false; }
+
+    boolean isCurrentIme() {
+        String cur = android.provider.Settings.Secure.getString(getContentResolver(), "default_input_method");
+        android.content.ComponentName me = new android.content.ComponentName(this, KeyboardService.class);
+        return cur != null && (cur.equals(me.flattenToShortString()) || cur.equals(me.flattenToString()));
+    }
+
+    /** Dá para enviar já, sem trocar de teclado? */
+    boolean canDirect(String pkg) {
+        EditorInfo info = getCurrentInputEditorInfo();
+        return inputOn && isCurrentIme() && getCurrentInputConnection() != null && info != null
+                && pkg != null && pkg.equals(info.packageName) && chooseMime(info) != null;
+    }
+
+    /** Pedido da bolha ou do motor dos especiais: envia e (se veio da bolha) volta ao teclado anterior. */
+    void handlePending() {
+        final Pending.Req r = Pending.take();
+        if (r == null) return;
+        ui.postDelayed(new Runnable() {
+            @Override public void run() {
+                if (r.engine) { runBatch(r.items, true, r.gen); return; }
+                if (r.special != null) sendSpecialFirst(r.special);
+                else if (!r.items.isEmpty()) sendSticker(r.items.get(0).pack, r.items.get(0).file, false);
+                ui.postDelayed(new Runnable() { @Override public void run() { switchBack(); } }, 450);
+            }
+        }, 250);
+    }
+
+    /** Envia uma série de stickers com as esperas pedidas (motor dos especiais). */
+    void runBatch(final java.util.List<Pending.Item> items, final boolean back, final int gen) {
+        final boolean[] failed = {false};
+        long t = 0;
+        for (int i = 0; i < items.size(); i++) {
+            final Pending.Item it = items.get(i);
+            final boolean last = i == items.size() - 1;
+            t += it.gap;
+            ui.postDelayed(new Runnable() {
+                @Override public void run() {
+                    if (failed[0]) return;
+                    if (Specials.run == null || Specials.run.gen != gen) { failed[0] = true; if (back) switchBack(); return; }
+                    int m = sendSticker(it.pack, it.file, true);
+                    if (m != 1) {
+                        failed[0] = true;
+                        Specials.batchDone(gen, false);
+                        if (back) ui.postDelayed(new Runnable() { @Override public void run() { switchBack(); } }, 300);
+                        return;
+                    }
+                    if (last) {
+                        Specials.batchDone(gen, true);
+                        if (back) ui.postDelayed(new Runnable() { @Override public void run() { switchBack(); } }, 450);
+                    }
+                }
+            }, t);
+        }
+    }
+
+    /** Envia o 1.º sticker de um especial e põe-no a correr. */
+    void sendSpecialFirst(String id) {
+        JSONObject d = Specials.find(this, id);
+        JSONObject f = d == null ? null : d.optJSONObject("first");
+        if (f == null) { js("onSent", "{\"ok\":false,\"error\":\"especial não encontrado\"}"); return; }
+        int m = sendSticker(f.optString("p"), f.optString("f"), false);
+        EditorInfo info = getCurrentInputEditorInfo();
+        if (m == 1) Specials.start(this, id, info != null ? info.packageName : "");
+        else if (m == 2) android.widget.Toast.makeText(this, "⚡ Os especiais só funcionam em apps que aceitam stickers do teclado (ex.: WhatsApp)", android.widget.Toast.LENGTH_LONG).show();
+    }
 
     int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 
@@ -94,15 +176,7 @@ public class KeyboardService extends InputMethodService {
             if (lp != null && lp.height != dp(heightDp())) { lp.height = dp(heightDp()); web.setLayoutParams(lp); }
         }
         // pedido vindo da bolha: envia já e volta ao teclado anterior
-        final String[] pend = Pending.take();
-        if (pend != null) {
-            ui.postDelayed(new Runnable() {
-                @Override public void run() {
-                    sendSticker(pend[0], pend[1]);
-                    ui.postDelayed(new Runnable() { @Override public void run() { switchBack(); } }, 450);
-                }
-            }, 250);
-        }
+        handlePending();
         try {
             JSONObject o = new JSONObject();
             o.put("text", currentText());
@@ -153,11 +227,13 @@ public class KeyboardService extends InputMethodService {
         return null;
     }
 
-    void sendSticker(String packId, String file) {
+    /** Envia um sticker. Devolve 1 = enviado direto, 2 = pela partilha, 0 = falhou. engine = enviado pelo motor dos especiais. */
+    int sendSticker(String packId, String file, boolean engine) {
         String result;
+        int mode = 0;
         try {
             File f = new File(Store.root(this), "packs/" + packId + "/" + file);
-            if (!f.exists()) { js("onSent", "{\"ok\":false,\"error\":\"ficheiro não encontrado\"}"); return; }
+            if (!f.exists()) { if (!engine) js("onSent", "{\"ok\":false,\"error\":\"ficheiro não encontrado\"}"); return 0; }
             EditorInfo info = getCurrentInputEditorInfo();
             InputConnection ic = getCurrentInputConnection();
             String mime = chooseMime(info);
@@ -186,9 +262,11 @@ public class KeyboardService extends InputMethodService {
                     ok = (Boolean) m.invoke(ic, content, 1 /* INPUT_CONTENT_GRANT_READ_URI_PERMISSION */, null);
                 } catch (Exception e) { ok = false; }
             }
+            if (engine) return ok ? 1 : 0;
             if (ok) {
                 if (Store.load(this).optBoolean("kbDelete", true)) deleteAllBefore();
                 result = "{\"ok\":true,\"mode\":\"direct\"}";
+                mode = 1;
             } else {
                 Intent it = new Intent(Intent.ACTION_SEND);
                 it.setType(shareMime);
@@ -206,11 +284,15 @@ public class KeyboardService extends InputMethodService {
                     startActivity(ch);
                 }
                 result = "{\"ok\":true,\"mode\":\"share\"}";
+                mode = 2;
             }
+            Specials.onUserSent();
         } catch (Exception e) {
             result = "{\"ok\":false,\"error\":\"não consegui enviar\"}";
+            if (engine) return 0;
         }
         js("onSent", result);
+        return mode;
     }
 
     void deleteAllBefore() {
@@ -245,8 +327,18 @@ public class KeyboardService extends InputMethodService {
         @JavascriptInterface public String getText() { return currentText(); }
 
         @JavascriptInterface public void send(final String packId, final String file) {
-            ui.post(new Runnable() { @Override public void run() { sendSticker(packId, file); } });
+            ui.post(new Runnable() { @Override public void run() { sendSticker(packId, file, false); } });
         }
+
+        @JavascriptInterface public void sendSpecial(final String id) {
+            ui.post(new Runnable() { @Override public void run() { sendSpecialFirst(id); } });
+        }
+
+        @JavascriptInterface public void cancelSpecial() {
+            ui.post(new Runnable() { @Override public void run() { Specials.cancel("cancelaste"); } });
+        }
+
+        @JavascriptInterface public String specialState() { return Specials.state(); }
 
         @JavascriptInterface public void back() {
             ui.post(new Runnable() { @Override public void run() { switchBack(); } });

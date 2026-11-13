@@ -55,3 +55,12 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0}
 .s.sel{background:rgba(37,211,102,.14)}
 .sendn{position:fixed;right:10px;bottom:10px;height:40px;padding:0 16px;border-radius:20px;background:#25D366;color:#06210F;font-weight:800;font-size:14px;box-shadow:0 6px 18px rgba(0,0,0,.4);z-index:4}
 .secl{grid-column:1/-1;color:#6B7482;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;padding:6px 6px 0}
+
+.s.sp{background:#171C24;border:1px solid #2A303A}
+.s.sp img{width:78%;height:78%;margin-bottom:12px}
+.s .spi{position:absolute;top:3px;left:4px;font-size:13px}
+.s .spn{position:absolute;left:3px;right:3px;bottom:3px;font-size:10.5px;font-weight:700;color:#C9D1DC;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
+.s .sec{position:absolute;bottom:2px;right:4px;font-size:11px}
+.spbar{grid-column:1/-1;display:flex;align-items:center;gap:8px;background:rgba(37,211,102,.12);color:#CFEFDC;border-radius:12px;padding:6px 6px 6px 10px;font-size:12.5px}
+.spbar span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.spbar button{background:#2C323C;color:#fff;border-radius:9px;padding:6px 10px;font-size:12px;font-weight:700}

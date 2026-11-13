@@ -736,6 +736,40 @@ public class MainActivity extends Activity {
             });
         }
 
+        /** Guarda a lista de stickers especiais. */
+        @JavascriptInterface
+        public String setSpecials(String json) {
+            synchronized (Store.LOCK) {
+                try {
+                    JSONObject d = Store.load(MainActivity.this);
+                    d.put("specials", new JSONArray(json));
+                    Store.save(MainActivity.this, d);
+                    return d.toString();
+                } catch (JSONException e) { return err("erro a guardar"); }
+            }
+        }
+
+        /** Mensagem escondida de um sticker (aparece a quem tocar nele no WhatsApp). */
+        @JavascriptInterface
+        public String setSecret(String packId, String file, String name, String pub) {
+            synchronized (Store.LOCK) {
+                try {
+                    JSONObject d = Store.load(MainActivity.this);
+                    JSONObject p = Store.findPack(d, packId);
+                    JSONObject st = p == null ? null : Store.findSticker(p, file);
+                    if (st == null) return err("sticker não encontrado");
+                    name = name == null ? "" : name.trim(); pub = pub == null ? "" : pub.trim();
+                    if (name.length() > 120) name = name.substring(0, 120);
+                    if (pub.length() > 120) pub = pub.substring(0, 120);
+                    if (name.length() == 0 && pub.length() == 0) { st.remove("secretName"); st.remove("secretPub"); }
+                    else { st.put("secretName", name.length() > 0 ? name : "🤫"); st.put("secretPub", pub); }
+                    Store.sync(MainActivity.this, d, p);
+                    Store.save(MainActivity.this, d);
+                    return d.toString();
+                } catch (JSONException e) { return err("erro a guardar"); }
+            }
+        }
+
         @JavascriptInterface
         public String listFolder(String uri) {
             Uri tree = Uri.parse(uri);
