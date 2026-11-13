@@ -31,7 +31,15 @@ public final class Store {
 
     public static boolean isKb(JSONObject p) { return "kb".equals(p.optString("kind")); }
 
-    public static int maxStickers(JSONObject p) { return isKb(p) ? 300 : MAX_STICKERS; }
+    /** Packs só do teclado não têm limite; os do WhatsApp têm 30 (os escondidos dos especiais não contam). */
+    public static int maxStickers(JSONObject p) { return isKb(p) ? 1000000 : MAX_STICKERS; }
+
+    public static int visibleCount(JSONObject p) {
+        JSONArray a = p.optJSONArray("stickers");
+        int n = 0;
+        if (a != null) for (int i = 0; i < a.length(); i++) if (!a.optJSONObject(i).optBoolean("hidden")) n++;
+        return n;
+    }
 
     public static String authority(Context c) { return c.getPackageName() + ".stickercontentprovider"; }
 
@@ -164,7 +172,8 @@ public final class Store {
             JSONObject s = a.optJSONObject(i);
             sb.append('#').append(s.optString("f")).append(':').append(joinArr(s.optJSONArray("emojis"), ","))
               .append(':').append(joinArr(s.optJSONArray("words"), ","))
-              .append(':').append(s.optString("secretName", "")).append(':').append(s.optString("secretPub", ""));
+              .append(':').append(s.optString("secretName", "")).append(':').append(s.optString("secretPub", ""))
+              .append(s.optBoolean("hidden") ? ":h" : "");
         }
         return sb.toString();
     }
@@ -239,6 +248,7 @@ public final class Store {
                 JSONObject s = p == null ? null : findSticker(p, file);
                 if (s == null) return null;
                 if (value) s.put(key, true); else s.remove(key);
+                if (key.equals("hidden")) sync(c, data, p);
                 save(c, data);
                 return data.toString();
             } catch (JSONException e) { return null; }

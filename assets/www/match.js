@@ -204,7 +204,7 @@
     const packs = [];
     for (const p of (data.packs || [])) {
       const all = p.stickers || [];
-      const st = all.filter(x => isAdult(p, x) === on);
+      const st = all.filter(x => !x.hidden && isAdult(p, x) === on);
       if (!st.length) continue;
       packs.push(Object.assign({}, p, { stickers: st, _partial: st.length !== all.length }));
     }

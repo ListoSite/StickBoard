@@ -53,6 +53,7 @@ public class MainActivity extends Activity {
     final Handler ui = new Handler(Looper.getMainLooper());
     final ExecutorService exec = Executors.newSingleThreadExecutor();
     String pickPack, waPack, exportText;
+    boolean pickHidden = false;
     final List<Uri> shared = java.util.Collections.synchronizedList(new ArrayList<Uri>());
 
     @Override
@@ -178,7 +179,10 @@ public class MainActivity extends Activity {
         return -1;
     }
 
-    void importUris(final String packId, final List<Uri> uris) {
+    void importUris(final String packId, final List<Uri> uris) { importUris(packId, uris, false); }
+
+    /** hidden = stickers que só existem dentro de um especial (não aparecem no pack nem nas sugestões). */
+    void importUris(final String packId, final List<Uri> uris, final boolean hidden) {
         exec.execute(new Runnable() {
             @Override public void run() {
                 JSONArray added = new JSONArray(), errors = new JSONArray(), notes = new JSONArray();
@@ -191,12 +195,12 @@ public class MainActivity extends Activity {
                         JSONObject data = Store.load(MainActivity.this);
                         JSONObject p = Store.findPack(data, packId);
                         if (p == null) break;
-                        if (p.optJSONArray("stickers").length() >= Store.maxStickers(p)) {
+                        if (!hidden && Store.visibleCount(p) >= Store.maxStickers(p)) {
                             errors.put(new JSONObject().put("name", Importer.displayName(MainActivity.this, u))
                                     .put("error", Store.isKb(p) ? "o pack já está cheio (" + Store.maxStickers(p) + ")" : "o pack já tem 30 stickers (o máximo do WhatsApp)"));
                             continue;
                         }
-                        Importer.Result r = Importer.importUri(MainActivity.this, u, packId, p.optBoolean("animated"), data.optBoolean("fill"), Store.isKb(p));
+                        Importer.Result r = Importer.importUri(MainActivity.this, u, packId, p.optBoolean("animated"), data.optBoolean("fill"), Store.isKb(p) || hidden);
                         if (r.error != null) {
                             errors.put(new JSONObject().put("name", r.name).put("error", r.error));
                             continue;
@@ -212,11 +216,13 @@ public class MainActivity extends Activity {
                             st.put("words", new JSONArray());
                             if (r.animated) st.put("anim", true);
                             st.put("src", Importer.srcKey(MainActivity.this, u));
+                            if (hidden) st.put("hidden", true);
                             p.getJSONArray("stickers").put(st);
                             Store.sync(MainActivity.this, data, p);
                             Store.save(MainActivity.this, data);
                         }
                         added.put(r.file);
+                        if (hidden) continue;
                         // já tinhas um igual?
                         try {
                             if (app == null) app = Dupes.appItems(MainActivity.this, null);
@@ -236,6 +242,7 @@ public class MainActivity extends Activity {
                 try {
                     JSONObject res = new JSONObject();
                     res.put("packId", packId); res.put("added", added); res.put("errors", errors); res.put("notes", notes);
+                    if (hidden) res.put("hidden", true);
                     js("onImported", res.toString());
                 } catch (JSONException ignored) {}
             }
@@ -277,7 +284,7 @@ public class MainActivity extends Activity {
                     JSONObject d = Store.load(this);
                     String want = kb || !anim ? curStatic : curAnim;
                     JSONObject p = want == null ? null : Store.findPack(d, want);
-                    if (p == null || p.getJSONArray("stickers").length() >= Store.maxStickers(p)) {
+                    if (p == null || Store.visibleCount(p) >= Store.maxStickers(p)) {
                         JSONArray ps = d.getJSONArray("packs");
                         int wa = 0;
                         for (int k = 0; k < ps.length(); k++) if (!Store.isKb(ps.getJSONObject(k))) wa++;
@@ -343,8 +350,8 @@ public class MainActivity extends Activity {
                 if (cd != null) for (int i = 0; i < cd.getItemCount(); i++) uris.add(cd.getItemAt(i).getUri());
                 else if (data.getData() != null) uris.add(data.getData());
             }
-            if (uris.isEmpty() || pickPack == null) { js("onImported", "{\"cancelled\":true}"); return; }
-            importUris(pickPack, uris);
+            if (uris.isEmpty() || pickPack == null) { js("onImported", pickHidden ? "{\"cancelled\":true,\"hidden\":true}" : "{\"cancelled\":true}"); return; }
+            importUris(pickPack, uris, pickHidden);
         } else if (req == REQ_WA) {
             JSONObject o = new JSONObject();
             try {
@@ -582,7 +589,7 @@ public class MainActivity extends Activity {
                         boolean stAnim = Store.findSticker(a, file) != null && (Store.findSticker(a, file).optBoolean("anim") || a.optBoolean("animated"));
                         if (stAnim != b.optBoolean("animated")) return err("Os packs do WhatsApp não podem misturar animados com estáticos.");
                     }
-                    if (b.getJSONArray("stickers").length() >= Store.maxStickers(b)) return err("Esse pack já está cheio.");
+                    if (Store.visibleCount(b) >= Store.maxStickers(b)) return err("Esse pack já está cheio.");
                     JSONObject s = Store.findSticker(a, file);
                     if (s == null) return err("sticker não encontrado");
                     File src = new File(Store.packDir(MainActivity.this, from), file);
@@ -622,6 +629,7 @@ public class MainActivity extends Activity {
             ui.post(new Runnable() {
                 @Override public void run() {
                     pickPack = packId;
+                    pickHidden = false;
                     Intent it = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                     it.addCategory(Intent.CATEGORY_OPENABLE);
                     it.setType("image/*");
@@ -634,6 +642,54 @@ public class MainActivity extends Activity {
                     catch (Exception e) { js("onImported", "{\"cancelled\":true}"); }
                 }
             });
+        }
+
+        /** Escolher imagens que ficam escondidas (só para usar em especiais). */
+        @JavascriptInterface
+        public void pickImagesHidden(final String packId) {
+            ui.post(new Runnable() {
+                @Override public void run() {
+                    pickPack = packId;
+                    pickHidden = true;
+                    Intent it = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                    it.addCategory(Intent.CATEGORY_OPENABLE);
+                    it.setType("image/*");
+                    it.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                    try { startActivityForResult(it, REQ_PICK); }
+                    catch (Exception e) { js("onImported", "{\"cancelled\":true,\"hidden\":true}"); }
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void importDocsHidden(String packId, String urisJson) {
+            List<Uri> l = new ArrayList<Uri>();
+            try {
+                JSONArray a = new JSONArray(urisJson);
+                for (int i = 0; i < a.length(); i++) { Uri u = Uri.parse(a.getString(i)); if (Folders.allowed(MainActivity.this, u)) l.add(u); }
+            } catch (JSONException ignored) {}
+            if (l.isEmpty()) { js("onImported", "{\"cancelled\":true,\"hidden\":true}"); return; }
+            importUris(packId, l, true);
+        }
+
+        /** Emojis e palavras de um sticker de uma vez (usado no criador). */
+        @JavascriptInterface
+        public String setStickerTags(String packId, String file, String emojisJson, String wordsJson) {
+            synchronized (Store.LOCK) {
+                try {
+                    JSONObject d = Store.load(MainActivity.this);
+                    JSONObject p = Store.findPack(d, packId);
+                    JSONObject st = p == null ? null : Store.findSticker(p, file);
+                    if (st == null) return err("sticker não encontrado");
+                    JSONArray em = new JSONArray(emojisJson), e2 = new JSONArray();
+                    for (int i = 0; i < em.length() && e2.length() < 3; i++) if (em.optString(i).trim().length() > 0) e2.put(em.optString(i).trim());
+                    st.put("emojis", e2);
+                    if (wordsJson != null) st.put("words", new JSONArray(wordsJson));
+                    Store.sync(MainActivity.this, d, p);
+                    Store.save(MainActivity.this, d);
+                    return d.toString();
+                } catch (JSONException e) { return err("erro a guardar"); }
+            }
         }
 
         @JavascriptInterface
@@ -1108,7 +1164,7 @@ public class MainActivity extends Activity {
                 JSONObject data = Store.load(MainActivity.this);
                 JSONObject p = Store.findPack(data, packId);
                 if (p == null) return err("pack não encontrado");
-                if (p.getJSONArray("stickers").length() >= Store.maxStickers(p)) return err("O pack já está cheio.");
+                if (Store.visibleCount(p) >= Store.maxStickers(p)) return err("O pack já está cheio.");
                 Webp.Info wi = Webp.info(png);
                 boolean isAnim = wi != null && wi.animated && wi.frames > 1;
                 if (!Store.isKb(p) && p.optBoolean("animated") != isAnim)

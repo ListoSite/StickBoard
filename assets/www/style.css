@@ -322,3 +322,21 @@ img.nsfw{filter:blur(14px) saturate(.6);transform:scale(1.05)}
 .btn.a18on{background:rgba(255,77,94,.16);color:#FF7A86}
 .a18ban{border-color:rgba(255,77,94,.35)!important;background:rgba(255,77,94,.07)!important}
 .card.a18card{border-color:rgba(255,77,94,.5);background:rgba(255,77,94,.06)}
+
+/* especiais nos packs */
+.st .spb{position:absolute;bottom:34px;right:8px;font-size:11.5px;font-weight:800;background:#FFC83D;color:#1a1300;border-radius:9px;padding:1px 6px}
+.spcard{padding:12px;margin-bottom:8px}
+.dim.sm{width:52px;height:52px;border-radius:10px;background:var(--card2);display:grid;place-items:center;flex:none}
+.dim.sm img{width:86%;height:86%;object-fit:contain}
+.sp-types{margin-top:4px}
+.sp-inline{border-left:3px solid #FFC83D;padding-left:12px;margin-left:2px}
+.pk-new{display:flex;gap:8px;padding:0 16px 6px}
+.pk-new .btn{flex:1}
+.pk-grid2 button{position:relative}
+.pk-grid2 button.psel{outline:3px solid var(--green);outline-offset:-3px}
+.pk-grid2 .pn{position:absolute;top:4px;left:4px;background:var(--green);color:#06210F;border-radius:9px;min-width:18px;height:18px;font-size:11px;font-weight:800;display:grid;place-items:center}
+.emq{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.emq .slot{width:44px;height:44px;border-radius:12px;background:var(--card2);display:grid;place-items:center;font-size:24px;position:relative}
+.emq .slot .x{position:absolute;top:-5px;right:-5px;width:18px;height:18px;border-radius:50%;background:var(--red);color:#fff;font-size:12px;display:grid;place-items:center}
+.cx{margin-top:4px}
+.cx-pk{margin:-4px 0 12px;max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:14px;padding:8px}

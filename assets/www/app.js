@@ -107,21 +107,22 @@ const isKb = p => p.kind === 'kb';
 const adultOn = () => !!S.data.adultMode;
 /* no modo normal, as imagens +18 aparecem desfocadas na app (toca em «Mostrar» para ver) */
 const hideAdult = (p, s) => !adultOn() && Match.isAdult(p, s) && !(S.reveal && S.reveal[p.id]);
-const maxOf = p => isKb(p) ? 300 : 30;
-const countLabel = p => isKb(p) ? `${p.stickers.length} stickers` : `${p.stickers.length}/30 stickers`;
+const visible = p => p.stickers.filter(s => !s.hidden);
+const maxOf = p => isKb(p) ? Infinity : 30;
+const countLabel = p => { const v = visible(p).length, h = p.stickers.length - v; return (isKb(p) ? `${v} stickers` : `${v}/30 stickers`) + (h ? ` · +${h} em especiais` : ''); };
 const kindLabel = p => isKb(p) ? 'só teclado' : (p.animated ? 'animado' : 'estático');
 function emoWords(e) { return Match.effectiveWords(e, S.data, emoInfo); }
 
 function issues(p) {
   const out = [];
   if (isKb(p)) {
-    const none = p.stickers.filter(s => !(s.emojis && s.emojis.length) && !(s.words && s.words.length)).length;
+    const none = visible(p).filter(s => !(s.emojis && s.emojis.length) && !(s.words && s.words.length)).length;
     if (none) out.push(`${none} sticker${none > 1 ? 's' : ''} sem emoji nem palavras (não aparece${none > 1 ? 'm' : ''} nas sugestões)`);
     return out;
   }
-  const n = p.stickers.length;
+  const n = visible(p).length;
   if (n < 3) out.push(`${3 - n > 1 ? 'Faltam' : 'Falta'} ${3 - n} sticker${3 - n > 1 ? 's' : ''} (o WhatsApp pede no mínimo 3)`);
-  const no = p.stickers.filter(s => !s.emojis || !s.emojis.length).length;
+  const no = visible(p).filter(s => !s.emojis || !s.emojis.length).length;
   if (no) out.push(`${no} sticker${no > 1 ? 's' : ''} sem emoji${S.wa[p.id] && isAdded(S.wa[p.id]) ? ' (só aparece' + (no > 1 ? 'm' : '') + ' no WhatsApp depois de ter' + (no > 1 ? 'em' : '') + ' um)' : ''}`);
   return out;
 }
@@ -239,7 +240,7 @@ function viewPacks() {
     let chip = iss.length ? `<span class="chip warn">${esc(iss[0].split(' (')[0])}</span>` : (isKb(p) ? '<span class="chip ok">⌨ No teclado</span>' : (isAdded(st) ? '<span class="chip ok">✓ No WhatsApp</span>' : '<span class="chip">Pronto para enviar</span>'));
     const nA = p.stickers.filter(s => Match.isAdult(p, s)).length;
     const blurTray = !adultOn() && (p.adult || (p.cover && Match.isAdult(p, p.stickers.find(s => s.f === p.cover))));
-    const thumbs = p.stickers.slice(0, 6).map(s => `<img loading="lazy" class="${hideAdult(p, s) ? 'nsfw' : ''}" src="${imgUrl(p, s.f)}">`).join('');
+    const thumbs = visible(p).slice(0, 6).map(s => `<img loading="lazy" class="${hideAdult(p, s) ? 'nsfw' : ''}" src="${imgUrl(p, s.f)}">`).join('');
     const c = el(`<div class="pack"><div class="tray">${p.stickers.length ? `<img class="${blurTray ? 'nsfw' : ''}" src="${trayUrl(p)}">` : ICON.img}</div><div class="info"><div class="name">${p.adult ? '<span class="a18t">🔞</span> ' : ''}${esc(p.name)}</div><div class="meta">${countLabel(p)} · ${kindLabel(p)}${!p.adult && nA ? ` · ${nA} 🔞` : ''}</div>${chip}</div></div>`);
     if (thumbs) c.querySelector('.info').insertAdjacentHTML('beforeend', `<div class="thumbs" style="margin-top:8px">${thumbs}</div>`);
     c.onclick = () => { S.packId = p.id; S.sel = null; render(); $('#main').scrollTop = 0; };
@@ -266,7 +267,7 @@ async function newPack(thenShared) {
       $$('#np-kind button').forEach(b => b.onclick = () => {
         kind = b.dataset.k;
         $$('#np-kind button').forEach(x => x.classList.toggle('on', x === b));
-        $('#np-khint').textContent = kind === 'kb' ? 'Fica só no teclado de stickers: até 300 stickers, e podes misturar animados com estáticos.' : 'Vai para o WhatsApp (3 a 30 stickers) e também aparece no teclado de stickers.';
+        $('#np-khint').textContent = kind === 'kb' ? 'Fica só no teclado de stickers: sem limite de stickers, e podes misturar animados com estáticos.' : 'Vai para o WhatsApp (3 a 30 stickers) e também aparece no teclado de stickers.';
         $('#np-typef').classList.toggle('hidden', kind === 'kb');
         $('#np-hint').classList.toggle('hidden', kind === 'kb');
       });
@@ -519,7 +520,7 @@ function openFolderViewer(list, start) {
     const pid = target() ? S.vPack : await pickTarget();
     if (!pid) return;
     const p = packOf(pid);
-    if (p.stickers.length >= maxOf(p)) { toast('Este pack já está cheio: escolhe outro'); return pickTarget(); }
+    if (visible(p).length >= maxOf(p)) { toast('Este pack já está cheio: escolhe outro'); return pickTarget(); }
     S.vImp = (S.vImp || 0) + 1;
     A.importDocs(pid, JSON.stringify([x.uri]));
     done(S.fonlyNew);
@@ -529,7 +530,7 @@ function openFolderViewer(list, start) {
     const pid = target() ? S.vPack : await pickTarget();
     if (!pid) return;
     const p = packOf(pid);
-    if (p.stickers.length >= maxOf(p)) { toast('Este pack já está cheio: escolhe outro'); return pickTarget(); }
+    if (visible(p).length >= maxOf(p)) { toast('Este pack já está cheio: escolhe outro'); return pickTarget(); }
     const url = 'd/' + encodeURIComponent(x.uri);
     const onSaved = () => { toast(`Guardado em «${p.name}» ✓`, 1600); done(S.fonlyNew); };
     if (await isAnimDoc(x)) {
@@ -545,12 +546,12 @@ async function autoImportDialog(f, list) {
   if (!list.length) return toast('Já está tudo na app');
   let kind = 'kb';
   const html = `<div class="field"><span>Para onde</span><div class="seg" id="ai-k"><button class="on" data-k="kb">Só teclado</button><button data-k="wa">WhatsApp</button></div></div>
-    <div class="hint" id="ai-h" style="margin:-4px 0 12px">Cria packs do teclado com até 300 stickers cada (animados e estáticos juntos).</div>
+    <div class="hint" id="ai-h" style="margin:-4px 0 12px">Junta tudo num pack do teclado, sem limite (animados e estáticos juntos).</div>
     <label class="field"><span>Nome dos packs</span><input class="input" id="ai-n" maxlength="60" value="${esc(f.name)}"></label>`;
   const pr = dialog({ title: `Importar ${list.length} sticker${list.length > 1 ? 's' : ''}`, html, buttons: [{ label: 'Cancelar', cls: 'ghost', value: null }, { label: 'Importar', cls: 'primary', value: d => $('#ai-n', d).value }] });
   setTimeout(() => $$('#ai-k button').forEach(b => b.onclick = () => {
     kind = b.dataset.k; $$('#ai-k button').forEach(x => x.classList.toggle('on', x === b));
-    $('#ai-h').textContent = kind === 'kb' ? 'Cria packs do teclado com até 300 stickers cada (animados e estáticos juntos).' : 'Cria packs de 30 para o WhatsApp, com animados e estáticos em packs separados (máximo 10 packs no total).';
+    $('#ai-h').textContent = kind === 'kb' ? 'Junta tudo num pack do teclado, sem limite (animados e estáticos juntos).' : 'Cria packs de 30 para o WhatsApp, com animados e estáticos em packs separados (máximo 10 packs no total).';
   }), 0);
   const name = await pr;
   if (name == null) return;
@@ -571,7 +572,7 @@ function viewPack() {
 
   const st = isKb(p) ? {} : waStatus(p.id);
   const iss = issues(p);
-  const n = p.stickers.length;
+  const n = visible(p).length;
   const card = isKb(p) ? el(`<div class="card status">
     <div class="row" style="justify-content:space-between"><b>${n} stickers</b><span class="chip ok">⌨ Só teclado</span></div>
     <ul class="issues">${iss.map(t => `<li><span class="d"></span>${esc(t)}</li>`).join('') || '<li class="ok"><span class="d"></span>Estes stickers aparecem no teclado de stickers quando escreves as palavras deles.</li>'}</ul>
@@ -611,8 +612,11 @@ function viewPack() {
   }
   const grid = el('<div class="grid"></div>');
   p.stickers.forEach((s, i) => {
+    if (s.hidden) return; // só existe dentro de um especial
+    const spN = specialsOf(p.id, s.f);
+    const subN = spN.reduce((a, x) => a + subRefs(x).length, 0);
     const em = s.emojis && s.emojis.length ? `<div class="em emo">${s.emojis.map(esc).join('')}</div>` : '<div class="em none">sem emoji</div>';
-    const c = el(`<div class="st"><div class="im"><img loading="lazy" class="${hideAdult(p, s) ? 'nsfw' : ''}" src="${imgUrl(p, s.f)}"></div>${s.adult && !p.adult ? '<span class="a18s">🔞</span>' : ''}${em}${s.words && s.words.length ? `<span class="wd">${s.words.length} pal.</span>` : ''}${s.anim && isKb(p) ? '<span class="wd" style="left:auto;right:10px;top:auto;bottom:34px;color:var(--amber)">GIF</span>' : ''}${S.sel ? '<span class="ck"></span>' : (p.cover === s.f ? '<span class="cv">★</span>' : '')}</div>`);
+    const c = el(`<div class="st"><div class="im"><img loading="lazy" class="${hideAdult(p, s) ? 'nsfw' : ''}" src="${imgUrl(p, s.f)}"></div>${s.adult && !p.adult ? '<span class="a18s">🔞</span>' : ''}${spN.length ? `<span class="spb">${(SP_TYPES[spN[0].type] || {}).icon || '⚡'}${subN ? ' +' + subN : ''}</span>` : ''}${em}${s.words && s.words.length ? `<span class="wd">${s.words.length} pal.</span>` : ''}${s.anim && isKb(p) ? '<span class="wd" style="left:auto;right:10px;top:auto;bottom:34px;color:var(--amber)">GIF</span>' : ''}${S.sel ? '<span class="ck"></span>' : (p.cover === s.f ? '<span class="cv">★</span>' : '')}</div>`);
     if (S.sel && S.sel.has(s.f)) c.classList.add('sel');
     c.onclick = () => {
       if (S.sel) { S.sel.has(s.f) ? S.sel.delete(s.f) : S.sel.add(s.f); c.classList.toggle('sel'); updSelBar(); return; }
@@ -767,6 +771,9 @@ function openEditor(packId, idx) {
 
   function cur() { return p.stickers[idx]; }
   function commit() { p = savePack(p); }
+  // anda só pelos stickers visíveis (os escondidos dos especiais ficam de fora)
+  function step(d) { for (let j = idx + d; j >= 0 && j < p.stickers.length; j += d) if (!p.stickers[j].hidden) return j; return -1; }
+  function visIdx() { return visible(p).indexOf(cur()); }
 
   function drawTop() {
     const s = cur();
@@ -774,7 +781,7 @@ function openEditor(packId, idx) {
     const top = $('.ed-top-wrap', sheet);
     const slots = [0, 1, 2].map(i => s.emojis[i] ? `<div class="slot f emo" data-i="${i}">${esc(s.emojis[i])}<span class="x">×</span></div>` : `<div class="slot"></div>`).join('');
     top.innerHTML = `<div class="ed-top"><div class="st ed-prev" style="padding:6px"><div class="im"><img src="${imgUrl(p, s.f)}"></div></div>
-      <div class="ed-side"><div class="navs"><button class="btn sm" id="pv" ${idx === 0 ? 'disabled' : ''}>‹</button><span style="flex:1;text-align:center">${idx + 1} de ${p.stickers.length}</span><button class="btn sm" id="nx" ${idx >= p.stickers.length - 1 ? 'disabled' : ''}>›</button></div>
+      <div class="ed-side"><div class="navs"><button class="btn sm" id="pv" ${step(-1) < 0 ? 'disabled' : ''}>‹</button><span style="flex:1;text-align:center">${s.hidden ? 'escondido ⚡' : `${visIdx() + 1} de ${visible(p).length}`}</span><button class="btn sm" id="nx" ${step(1) < 0 ? 'disabled' : ''}>›</button></div>
       <div class="hint">Emojis (tags) — 1 a 3</div><div class="slots">${slots}</div></div></div>
       <div class="emoinfo">${s.emojis.map(e => {
         const o = emoInfo(e); const others = (used.get(stripVS(e)) || []).filter(x => x.s.f !== s.f).length;
@@ -783,8 +790,8 @@ function openEditor(packId, idx) {
       }).join('')}</div>`;
     $$('.slot.f', top).forEach(sl => sl.onclick = () => { cur().emojis.splice(+sl.dataset.i, 1); commit(); drawTop(); redrawPicker(); });
     const pv = $('#pv', top), nx = $('#nx', top);
-    pv.onclick = () => { if (idx > 0) { idx--; drawAll(); } };
-    nx.onclick = () => { if (idx < p.stickers.length - 1) { idx++; drawAll(); } };
+    pv.onclick = () => { const j = step(-1); if (j >= 0) { idx = j; drawAll(); } };
+    nx.onclick = () => { const j = step(1); if (j >= 0) { idx = j; drawAll(); } };
   }
   function drawWords() {
     const s = cur();
@@ -838,6 +845,8 @@ function openEditor(packId, idx) {
     $('#fv', bd).onclick = () => { const c = cur(); c.fav = !c.fav; commit(); drawAll(); toast(c.fav ? 'Nos favoritos do teclado ⭐' : 'Tirado dos favoritos'); };
     $('#gl', bd).onclick = () => { const r = JSON.parse(A.saveToGallery(p.id, s.f)); toast(r.error ? 'Não guardei: ' + r.error : 'Guardado em Imagens/StickTag ✓'); };
     drawTop(); drawWords(); redrawPicker();
+    const spw = el('<div></div>'); bd.appendChild(spw);
+    if (!s.hidden) specialSection(() => ({ p: p.id, f: cur().f }), () => p.id, spw);
     $('#cv', bd).onclick = () => { p.cover = s.f; commit(); drawAll(); toast('Capa do pack atualizada'); };
     $('#mv', bd).onclick = async () => { const ok = await moveStickers(p, [s.f]); if (ok) closeOverlay(ov); };
     const smo = $('#smo', bd); if (smo) smo.onclick = () => { closeOverlay(ov); openSmooth(p, s); };
@@ -1036,6 +1045,7 @@ function openAnimCreator(packId, media, opts = {}) {
   $$('#sh button', sheet).forEach(b => b.onclick = () => { st.shape = b.dataset.s; $$('#sh button', sheet).forEach(x => x.classList.toggle('on', x === b)); redraw(); });
   $('#ol', sheet).onclick = e => { st.outline = !st.outline; e.currentTarget.classList.toggle('on', st.outline); redraw(); };
   if (opts.edit) { st.shape = 'full'; st.outline = false; $$('#sh button', sheet).forEach(x => x.classList.toggle('on', x.dataset.s === 'full')); $('#ol', sheet).classList.remove('on'); }
+  const ex = opts.edit ? creatorExtras(sheet, packId) : null;
   $('#tt', sheet).oninput = e => { st.top = e.target.value; redraw(); };
   $('#tb', sheet).oninput = e => { st.bottom = e.target.value; redraw(); };
   $('#ts', sheet).oninput = e => { st.size = +e.target.value; redraw(); };
@@ -1058,6 +1068,7 @@ function openAnimCreator(packId, media, opts = {}) {
     playing = false; $('#pl', sheet).textContent = '▶ Pré-visualizar';
   };
   $('#sv', sheet).onclick = async () => {
+    if (ex && !ex.validate()) return;
     playing = false;
     if (!srcW) return toast('Ainda a carregar…');
     try {
@@ -1088,6 +1099,7 @@ function openAnimCreator(packId, media, opts = {}) {
       busy(null);
       if (r.error) return toast(r.error);
       S.data = r.data;
+      if (ex) ex.apply(r.file, words);
       closeOverlay(ov);
       if (opts.onSaved) return opts.onSaved(r);
       toast(`Sticker animado criado ✓ (${Math.round(out.length / 1024)} KB)`);
@@ -1099,6 +1111,46 @@ function openAnimCreator(packId, media, opts = {}) {
     }
   };
   init();
+}
+
+
+/*
+ * Extras do criador quando vens das pastas (botão Editar): emojis e especial no mesmo ecrã,
+ * para fazer tudo de uma vez sem abrir mais menus.
+ */
+function creatorExtras(sheet, packId) {
+  const emojis = [];
+  const box = el(`<div class="cx"><div class="field"><span>Emojis (tags) — 1 a 3</span><div class="emq"></div></div><div class="cx-pk hidden"></div><div class="cx-sp"></div></div>`);
+  const anchor = $('#wd', sheet).closest('.field');
+  anchor.after(box);
+  const emq = $('.emq', box), pkh = $('.cx-pk', box);
+  let picker = null;
+  function drawEm() {
+    emq.innerHTML = emojis.map((e, i) => `<div class="slot emo" data-i="${i}">${esc(e)}<span class="x">×</span></div>`).join('') + (emojis.length < 3 ? `<button class="btn sm" id="cx-add">${picker ? 'Fechar' : '＋ Emoji'}</button>` : '');
+    $$('.slot', emq).forEach(sl => sl.onclick = () => { emojis.splice(+sl.dataset.i, 1); drawEm(); if (picker) showPicker(); });
+    const add = $('#cx-add', emq);
+    if (add) add.onclick = () => { if (picker) { picker = null; pkh.classList.add('hidden'); pkh.innerHTML = ''; drawEm(); } else showPicker(); };
+  }
+  function showPicker() {
+    picker = makePicker(e => {
+      const i = emojis.findIndex(x => stripVS(x) === stripVS(e));
+      if (i >= 0) emojis.splice(i, 1); else if (emojis.length < 3) emojis.push(e);
+      drawEm();
+      if (emojis.length >= 3) { picker = null; pkh.classList.add('hidden'); pkh.innerHTML = ''; drawEm(); }
+    }, e => emojis.some(x => stripVS(x) === stripVS(e)));
+    pkh.innerHTML = ''; pkh.appendChild(picker); pkh.classList.remove('hidden');
+    drawEm();
+  }
+  drawEm();
+  const sps = specialSection(() => null, () => packId, $('.cx-sp', box));
+  return {
+    validate: () => sps.validate(),
+    // depois de o sticker ser criado: emojis + especial
+    apply(file, words) {
+      if (emojis.length) { try { const d = JSON.parse(A.setStickerTags(packId, file, JSON.stringify(emojis), JSON.stringify(words || []))); if (!d.error) S.data = d; } catch (e) {} }
+      sps.commit({ p: packId, f: file });
+    }
+  };
 }
 
 /* ---------- Criar sticker a partir de uma foto ---------- */
@@ -1302,6 +1354,7 @@ function openCreator(packId, url, opts = {}) {
   $$('#bgs button', sheet).forEach(x => x.style.borderColor = x.dataset.b === st.bg ? 'var(--green)' : 'var(--line)');
   $('#ol', sheet).onclick = e => { st.outline = !st.outline; e.currentTarget.classList.toggle('on', st.outline); draw(); };
   if (opts.edit) { st.shape = 'full'; st.outline = false; $$('#sh button', sheet).forEach(x => x.classList.toggle('on', x.dataset.s === 'full')); $('#ol', sheet).classList.remove('on'); draw(); }
+  const ex = opts.edit ? creatorExtras(sheet, packId) : null;
   $('#tt', sheet).oninput = e => { st.top = e.target.value; draw(); };
   $('#tb', sheet).oninput = e => { st.bottom = e.target.value; draw(); };
   $('#ts', sheet).oninput = e => { st.size = +e.target.value; draw(); };
@@ -1309,12 +1362,14 @@ function openCreator(packId, url, opts = {}) {
   $('#sv', sheet).onclick = () => {
     draw();
     if (textMode && !st.mid.trim() && !st.top && !st.bottom) return toast('Escreve um texto primeiro');
+    if (ex && !ex.validate()) return;
     const words = $('#wd', sheet).value.split(',').map(x => x.trim()).filter(Boolean);
     if (textMode && !words.length) Match.tokens(st.mid).filter(w => !Match.STOP.has(w)).slice(0, 4).forEach(w => words.push(w));
     let r;
     try { r = JSON.parse(A.saveCreated(packId, cv.toDataURL('image/png'), JSON.stringify(words))); } catch (e) { r = { error: 'erro' }; }
     if (r.error) { toast(r.error); return; }
     S.data = r.data;
+    if (ex) ex.apply(r.file, words);
     closeOverlay(ov);
     if (opts.onSaved) return opts.onSaved(r);
     const pk = packOf(packId);
@@ -1763,7 +1818,7 @@ async function openSmooth(p, s) {
     S.data = r; closeOverlay(ov); toast('Sticker suavizado ✨'); render();
   };
   $('#nw', sheet).onclick = async () => {
-    if (p.stickers.length >= maxOf(p)) return toast('Este pack já está cheio');
+    if (visible(p).length >= maxOf(p)) return toast('Este pack já está cheio');
     const url = await encode(); if (!url) return;
     let r; try { r = JSON.parse(A.saveCreated(p.id, url, JSON.stringify(s.words || []))); } catch (e) { r = { error: 'erro' }; }
     if (r.error) return toast(r.error);
@@ -2104,32 +2159,221 @@ async function makeTypingSticker(packId) {
 }
 
 /* escolher um sticker de qualquer pack */
-function pickSticker(title) {
+const refList = x => !x ? [] : Array.isArray(x) ? x : [x];
+
+/*
+ * Escolher sticker(s). Dos packs (um) ou, com opts.multi, também novos da galeria ou das pastas:
+ * esses ficam ESCONDIDOS no pack opts.hostPack (só existem dentro do especial).
+ */
+function pickSticker(title, opts = {}) {
   return new Promise(res => {
-    const packs = S.data.packs.filter(p => p.stickers.length);
-    if (!packs.length) { toast('Ainda não tens stickers'); return res(null); }
-    let cur = S.pickPack && packOf(S.pickPack) ? S.pickPack : packs[0].id, done = false;
-    const sheet = el(`<div class="sheet"><div class="hd"><h3>${esc(title)}</h3><button class="iconbtn" id="x">${ICON.close}</button></div><div class="pk-packs"></div><div class="bd"><div class="pk-grid2"></div></div></div>`);
+    const packs = S.data.packs.filter(p => visible(p).length);
+    if (!packs.length && !opts.multi) { toast('Ainda não tens stickers'); return res(null); }
+    let cur = S.pickPack && packOf(S.pickPack) && visible(packOf(S.pickPack)).length ? S.pickPack : (packs[0] && packs[0].id), done = false;
+    const sheet = el(`<div class="sheet"><div class="hd"><h3>${esc(title)}</h3><button class="iconbtn" id="x">${ICON.close}</button></div>
+      ${opts.multi ? `<div class="pk-new"><button class="btn sm" id="pg">📥 Da galeria</button><button class="btn sm" id="pf">📁 Das pastas</button></div><div class="hint" style="padding:0 16px 8px">Os novos ficam escondidos: só existem dentro deste especial.</div>` : ''}
+      <div class="pk-packs"></div><div class="bd"><div class="pk-grid2"></div></div></div>`);
     const ov = openOverlay(sheet, { onClose: () => { if (!done) res(null); } });
     $('#x', sheet).onclick = () => closeOverlay(ov);
+    const finish = v => { done = true; closeOverlay(ov); res(v); };
     function draw() {
+      if (!cur) { $('.pk-grid2', sheet).innerHTML = '<div class="hint">Ainda não tens stickers nos packs.</div>'; return; }
       $('.pk-packs', sheet).innerHTML = packs.map(p => `<button data-id="${esc(p.id)}" class="${p.id === cur ? 'on' : ''}"><img src="${trayUrl(p)}"><span>${esc(p.name)}</span></button>`).join('');
       $$('.pk-packs button', sheet).forEach(b => b.onclick = () => { cur = b.dataset.id; S.pickPack = cur; draw(); });
       const p = packOf(cur);
-      $('.pk-grid2', sheet).innerHTML = p.stickers.map(s => `<button data-f="${esc(s.f)}"><img loading="lazy" src="${imgUrl(p, s.f)}"></button>`).join('');
-      $$('.pk-grid2 button', sheet).forEach(b => b.onclick = () => { done = true; closeOverlay(ov); res({ p: cur, f: b.dataset.f }); });
+      $('.pk-grid2', sheet).innerHTML = visible(p).map(s => `<button data-f="${esc(s.f)}"><img loading="lazy" class="${hideAdult(p, s) ? 'nsfw' : ''}" src="${imgUrl(p, s.f)}"></button>`).join('');
+      $$('.pk-grid2 button', sheet).forEach(b => b.onclick = () => finish({ p: cur, f: b.dataset.f }));
     }
     draw();
+    if (!opts.multi) return;
+    const target = async () => opts.hostPack || await choosePack('Onde guardar os stickers escondidos?');
+    $('#pg', sheet).onclick = async () => {
+      const pid = await target(); if (!pid) return;
+      const r = await hiddenImport(() => A.pickImagesHidden(pid));
+      if (r && r.length) finish(r.map(f => ({ p: pid, f })));
+    };
+    $('#pf', sheet).onclick = async () => {
+      const pid = await target(); if (!pid) return;
+      const uris = await pickFromFolders();
+      if (!uris || !uris.length) return;
+      const r = await hiddenImport(() => A.importDocsHidden(pid, JSON.stringify(uris)));
+      if (r && r.length) finish(r.map(f => ({ p: pid, f })));
+    };
   });
 }
 
-function editSpecial(sp, isNew) {
+/* importa para escondido e espera pela resposta do lado nativo; devolve os ficheiros criados */
+function hiddenImport(start) {
+  return new Promise(res => {
+    S.hiddenCb = r => {
+      S.hiddenCb = null; busy(null); reload();
+      if (!r || r.cancelled) return res(null);
+      if (r.errors && r.errors.length) toast(`${r.errors.length} não entrou: ${r.errors[0].error}`, 3200);
+      res(r.added || []);
+    };
+    busy('A juntar…');
+    start();
+  });
+}
+
+/* escolher vários ficheiros de uma pasta do telemóvel */
+function pickFromFolders() {
+  return new Promise(res => {
+    const fs = S.data.folders || [];
+    if (!fs.length) { toast('Ainda não juntaste pastas (Packs › 📁 Pastas)'); return res(null); }
+    let folder = null, files = [], sel = new Set(), done = false;
+    const sheet = el(`<div class="sheet"><div class="hd"><button class="iconbtn" id="bk" style="display:none">${ICON.back}</button><h3 id="tt">Escolhe a pasta</h3><button class="iconbtn" id="x">${ICON.close}</button></div><div class="bd" id="fb"></div><div class="row hidden" id="ft" style="padding:10px 16px 14px"><button class="btn primary" id="ok">Juntar</button></div></div>`);
+    const ov = openOverlay(sheet, { onClose: () => { if (!done) res(null); } });
+    $('#x', sheet).onclick = () => closeOverlay(ov);
+    const bd = $('#fb', sheet);
+    function drawFolders() {
+      folder = null; sel.clear();
+      $('#tt', sheet).textContent = 'Escolhe a pasta'; $('#bk', sheet).style.display = 'none'; $('#ft', sheet).classList.add('hidden');
+      bd.innerHTML = '';
+      fs.forEach(f => {
+        const c = el(`<button class="pack" style="width:100%;text-align:left"><div class="tray" style="font-size:26px">📁</div><div class="info"><div class="name">${esc(f.name)}</div></div></button>`);
+        c.onclick = () => openFolder(f);
+        bd.appendChild(c);
+      });
+    }
+    function openFolder(f) {
+      let r; try { r = JSON.parse(A.listFolder(f.uri)); } catch (e) { r = { ok: false, error: 'erro' }; }
+      if (!r.ok) return toast(r.error || 'erro');
+      folder = f; files = r.files.sort((a, b) => (b.time || 0) - (a.time || 0));
+      $('#tt', sheet).textContent = f.name; $('#bk', sheet).style.display = ''; $('#ft', sheet).classList.remove('hidden');
+      drawFiles();
+    }
+    function drawFiles() {
+      bd.innerHTML = '';
+      const g = el('<div class="pk-grid2"></div>');
+      files.forEach(x => {
+        const b = el(`<button class="${sel.has(x.uri) ? 'psel' : ''}"><img loading="lazy" src="d/${encodeURIComponent(x.uri)}">${sel.has(x.uri) ? `<span class="pn">${[...sel].indexOf(x.uri) + 1}</span>` : ''}</button>`);
+        b.onclick = () => { sel.has(x.uri) ? sel.delete(x.uri) : sel.add(x.uri); drawFiles(); };
+        g.appendChild(b);
+      });
+      bd.appendChild(g);
+      $('#ok', sheet).textContent = sel.size ? `Juntar ${sel.size}` : 'Toca para escolher (pela ordem)';
+    }
+    $('#bk', sheet).onclick = drawFolders;
+    $('#ok', sheet).onclick = () => { if (!sel.size) return; done = true; closeOverlay(ov); res([...sel]); };
+    drawFolders();
+  });
+}
+
+/* todos os stickers que um especial usa, menos o 1.º */
+function subRefs(sp) {
+  const out = [], seen = new Set();
+  const walk = o => {
+    if (!o || typeof o !== 'object') return;
+    if (Array.isArray(o)) return o.forEach(walk);
+    if (typeof o.p === 'string' && typeof o.f === 'string') {
+      const k = o.p + '/' + o.f;
+      if (!(sp.first && sp.first.p === o.p && sp.first.f === o.f) && !seen.has(k)) { seen.add(k); out.push({ p: o.p, f: o.f }); }
+      return;
+    }
+    for (const k in o) if (k !== 'first') walk(o[k]);
+  };
+  walk(sp);
+  return out;
+}
+const specialsOf = (pid, f) => specials().filter(sp => sp.first && sp.first.p === pid && sp.first.f === f);
+
+/* apaga um especial; pergunta o que fazer aos stickers que só existiam dentro dele */
+async function deleteSpecial(sp) {
+  const others = specials().filter(x => x.id !== sp.id);
+  const usedElsewhere = new Set(others.flatMap(x => subRefs(x).concat(x.first ? [x.first] : [])).map(dupKey));
+  const orphans = subRefs(sp).filter(x => { const r = stRef(x); return r && r.s.hidden && !usedElsewhere.has(dupKey(x)); });
+  let what = 'keep';
+  if (orphans.length) {
+    what = await dialog({ title: 'Apagar este especial?', text: `Tem ${orphans.length} sticker${orphans.length > 1 ? 's' : ''} escondido${orphans.length > 1 ? 's' : ''} que só existe${orphans.length > 1 ? 'm' : ''} aqui.`, buttons: [{ label: 'Cancelar', cls: 'ghost', value: null }, { label: 'Pôr no pack', value: 'show' }, { label: 'Apagar tudo', cls: 'danger', value: 'del' }] });
+    if (!what) return false;
+  } else if (!await confirmBox('Apagar este especial?', 'Os stickers continuam nos teus packs.')) return false;
+  saveSpecials(others);
+  for (const x of orphans) {
+    try {
+      const d = JSON.parse(what === 'del' ? (A.deleteSticker(x.p, x.f), A.getData()) : A.setStickerFlag(x.p, x.f, 'hidden', false));
+      if (!d.error) S.data = d;
+    } catch (e) {}
+  }
+  reload();
+  toast('Especial apagado');
+  return true;
+}
+
+/*
+ * Secção "⚡ Especial" para pôr dentro do editor de um sticker ou do criador.
+ * getMain() = {p,f} do sticker (null se ainda não existe: o criador só o guarda no fim).
+ * Devolve { pending(): especial novo por guardar (ou null), validate() }.
+ */
+function specialSection(getMain, hostPack, wrap) {
+  let form = null, sp = null;
+  function draw() {
+    wrap.innerHTML = '';
+    const m = getMain();
+    const mine = m ? specialsOf(m.p, m.f) : [];
+    wrap.appendChild(el(`<div class="sec" style="margin-top:18px">⚡ Especial</div>`));
+    mine.forEach(x => {
+      const t = SP_TYPES[x.type] || SP_TYPES.seq;
+      const subs = subRefs(x).filter(stRef);
+      const c = el(`<div class="card spcard"><div class="row"><b style="flex:1">${t.icon} ${esc(x.name)}</b><button class="btn sm" data-e="1">Editar</button></div><div class="ditems" style="margin-top:8px">${subs.map(y => `<div class="dim sm"><img src="${refImg(y)}"></div>`).join('') || '<span class="small muted">sem outros stickers</span>'}</div></div>`);
+      c.querySelector('[data-e]').onclick = () => editSpecial(JSON.parse(JSON.stringify(x)), false, draw);
+      wrap.appendChild(c);
+    });
+    const types = Object.entries(SP_TYPES).filter(([k]) => k !== 'secret');
+    const chips = el(`<div class="chips sp-types">${sp ? '' : `<span class="small muted" style="width:100%;margin-bottom:2px">${mine.length ? 'Juntar outro:' : 'Torna este sticker especial:'}</span>`}${types.map(([k, t]) => `<button class="mchip ${sp && sp.type === k ? 'on' : ''}" data-k="${k}">${t.icon} ${t.name}</button>`).join('')}${sp ? '<button class="mchip" data-k="">✕ Nenhum</button>' : ''}</div>`);
+    $$('[data-k]', chips).forEach(b => b.onclick = () => {
+      const k = b.dataset.k;
+      sp = k ? newSpecialData(k) : null;
+      if (sp && m) sp.first = m;
+      draw();
+      if (sp) setTimeout(() => wrap.scrollIntoView({ block: 'start', behavior: 'smooth' }), 50);
+    });
+    wrap.appendChild(chips);
+    form = null;
+    if (sp) {
+      wrap.appendChild(el(`<div class="hint" style="margin:8px 0 10px">${SP_TYPES[sp.type].desc}</div>`));
+      const fb = el('<div class="sp-inline"></div>');
+      wrap.appendChild(fb);
+      form = specialForm(sp, fb, { fixedFirst: true, hostPack: m ? m.p : hostPack() });
+      if (m) {
+        const sv = el(`<button class="btn primary block" style="margin-top:6px">Guardar especial ⚡</button>`);
+        sv.onclick = () => { const r = form.collect({}); if (!r) return; persistSpecial(r); sp = null; toast('Especial guardado ⚡'); draw(); };
+        wrap.appendChild(sv);
+      }
+    }
+  }
+  draw();
+  return {
+    // para o criador: valida antes de guardar a imagem
+    validate() { return !form || !!form.collect({ noFirst: true }); },
+    // depois de o sticker existir: liga o especial a ele e guarda
+    commit(main) { if (!form || !sp) return; sp.first = main; const r = form.collect({}); if (r) persistSpecial(r); },
+    redraw: draw
+  };
+}
+
+/* dados iniciais de um especial novo */
+function newSpecialData(k) {
+  const base = { id: 'sp' + Date.now().toString(36), type: k, name: '', first: null };
+  if (k === 'seq' || k === 'typing') base.steps = [];
+  if (k === 'reply') Object.assign(base, { then: [], replyDelay: 1, maxWait: 300, noReply: { secs: 0, stickers: [] } });
+  if (k === 'choice') Object.assign(base, { options: [{ answers: '1', stickers: [] }, { answers: '2', stickers: [] }], other: [], replyDelay: 1, maxWait: 300, noReply: { secs: 0, stickers: [] } });
+  if (k === 'random') Object.assign(base, { pool: [], delay: 2 });
+  if (k === 'quiz') Object.assign(base, { questions: [{ sticker: null, answers: '' }, { sticker: null, answers: '' }], right: [], wrong: [], resAll: [], resHalf: [], resLow: [], qDelay: 2, replyDelay: 1, maxWait: 300 });
+  if (k === 'game') Object.assign(base, { moves: [], iwin: [], youwin: [], draw: [], replyDelay: 1, maxWait: 300 });
+  if (k === 'nudge') Object.assign(base, { nudges: [], every: 60, then: [], replyDelay: 1 });
+  return base;
+}
+
+/*
+ * Formulário de um especial dentro de um contentor (folha própria, editor do sticker ou criador).
+ * opts.fixedFirst = o 1.º sticker é o que estás a editar (não aparece para escolher).
+ * opts.hostPack = pack onde ficam os stickers novos escondidos (senão usa o do 1.º sticker).
+ */
+function specialForm(sp, bd, opts = {}) {
   const t = SP_TYPES[sp.type];
-  const sheet = el(`<div class="sheet"><div class="hd"><h3>${t.icon} ${t.name}</h3><button class="iconbtn" id="x">${ICON.close}</button></div><div class="bd" id="spb"></div>
-    <div class="ft row" style="padding:10px 16px 14px">${isNew ? '' : '<button class="btn danger" id="dl" style="flex:none;width:52px;padding:0">🗑️</button>'}<button class="btn primary" id="sv">Guardar</button></div></div>`);
-  const ov = openOverlay(sheet, { modal: true });
-  $('#x', sheet).onclick = () => closeOverlay(ov);
-  const bd = $('#spb', sheet);
+  const host = () => opts.hostPack || (sp.first && sp.first.p) || null;
+  const pickOpts = () => ({ hostPack: host(), multi: true });
   const DELAYS = [0.5, 1, 1.5, 2, 3, 4, 5, 8, 10, 15, 20, 30, 60];
   const delaySel = (val, cls) => `<select class="dsel ${cls || ''}">${DELAYS.map(d => `<option value="${d}" ${+val === d ? 'selected' : ''}>${String(d).replace('.', ',')} s</option>`).join('')}</select>`;
   // lista de stickers editável. withDelay = cada um tem o seu tempo
@@ -2145,7 +2389,11 @@ function editSpecial(sp, isNew) {
         w.appendChild(it);
       });
       const add = el(`<button class="spadd"><span>＋</span>${esc(addLabel || 'Sticker')}</button>`);
-      add.onclick = async () => { const x = await pickSticker('Escolhe um sticker'); if (x) { if (withDelay) x.d = arr.length ? (arr[arr.length - 1].d || 2) : 2; arr.push(x); draw(); } };
+      add.onclick = async () => {
+        const got = refList(await pickSticker('Escolhe um sticker', pickOpts()));
+        for (const x of got) { if (withDelay) x.d = arr.length ? (arr[arr.length - 1].d || 2) : 2; arr.push(x); }
+        if (got.length) draw();
+      };
       w.appendChild(add);
     }
     draw();
@@ -2157,13 +2405,15 @@ function editSpecial(sp, isNew) {
       const r = stRef(sp.first);
       w.innerHTML = `<div class="spim big">${r ? `<img src="${imgUrl(r.p, r.s.f)}">` : '<span style="font-size:30px">＋</span>'}</div><div class="hint">${r ? 'Toca para trocar' : 'Escolhe o sticker que mandas primeiro'}${sp.type === 'reply' || sp.type === 'choice' ? '<br>(normalmente a pergunta)' : ''}</div>`;
     }
-    w.onclick = async () => { const x = await pickSticker('Primeiro sticker'); if (x) { sp.first = x; if (!$('#nm', bd).value) $('#nm', bd).placeholder = 'Ex.: ' + t.name; draw(); } };
+    w.onclick = async () => { const x = refList(await pickSticker('Primeiro sticker'))[0]; if (x) { sp.first = x; if (!$('#nm', bd).value) $('#nm', bd).placeholder = 'Ex.: ' + t.name; draw(); } };
     draw();
     return w;
   }
   const field = (label, node, hint) => { const f = el(`<div class="field"><span>${label}</span></div>`); f.appendChild(node); if (hint) f.appendChild(el(`<div class="hint" style="margin-top:6px">${hint}</div>`)); return f; };
   bd.appendChild(el(`<label class="field"><span>Nome (aparece no teclado)</span><input class="input" id="nm" maxlength="40" placeholder="Ex.: ${t.name} da pizza" value="${esc(sp.name)}"></label>`));
-  if (sp.type === 'typing') {
+  if (opts.fixedFirst) {
+    if (sp.type === 'typing') bd.appendChild(field('Depois vem a piada', stickerList(sp.steps, true, 'Piada'), '⏱ = quanto tempo «está a escrever» antes de mandar.'));
+  } else if (sp.type === 'typing') {
     const w = el('<div></div>');
     w.appendChild(firstPicker());
     const mk = el(`<button class="btn sm block" style="margin-top:10px">✨ Criar um sticker «a escrever…» animado</button>`);
@@ -2219,8 +2469,9 @@ function editSpecial(sp, isNew) {
         $('input', c).oninput = e => { q.answers = e.target.value; };
         const r = c.querySelector('[data-r]'); if (r) r.onclick = () => { sp.questions.splice(i, 1); drawQs(); };
         const pk = $('.qpick', c);
-        const drawPk = () => { const rr = stRef(q.sticker); pk.innerHTML = `<div class="spim">${rr ? `<img src="${imgUrl(rr.p, rr.s.f)}">` : '<span style="font-size:24px">＋</span>'}</div>`; };
-        pk.onclick = async () => { const x = await pickSticker(`Sticker da pergunta ${i + 1}`); if (x) { q.sticker = x; drawPk(); } };
+        const fixed = opts.fixedFirst && i === 0;
+        const drawPk = () => { const rr = stRef(q.sticker); pk.innerHTML = fixed ? `<div class="spim" style="font-size:11px;text-align:center;padding:4px">este sticker</div>` : `<div class="spim">${rr ? `<img src="${imgUrl(rr.p, rr.s.f)}">` : '<span style="font-size:24px">＋</span>'}</div>`; };
+        if (!fixed) pk.onclick = async () => { const x = refList(await pickSticker(`Sticker da pergunta ${i + 1}`, pickOpts()))[0]; if (x) { q.sticker = x; drawPk(); } };
         drawPk();
         qw.appendChild(c);
       });
@@ -2272,7 +2523,7 @@ function editSpecial(sp, isNew) {
         });
         const pk = $('.qpick', c);
         const drawPk = () => { const rr = stRef(m.sticker); pk.innerHTML = `<div class="spim">${rr ? `<img src="${imgUrl(rr.p, rr.s.f)}">` : '<span style="font-size:24px">＋</span>'}</div><div class="spd" style="text-align:center">o meu sticker</div>`; };
-        pk.onclick = async () => { const x = await pickSticker(`O teu sticker para «${m.name || 'esta jogada'}»`); if (x) { m.sticker = x; drawPk(); } };
+        pk.onclick = async () => { const x = refList(await pickSticker(`O teu sticker para «${m.name || 'esta jogada'}»`, pickOpts()))[0]; if (x) { m.sticker = x; drawPk(); } };
         drawPk();
         mw.appendChild(c);
       });
@@ -2308,12 +2559,11 @@ function editSpecial(sp, isNew) {
     const MW = [[60, '1 minuto'], [180, '3 minutos'], [300, '5 minutos'], [600, '10 minutos'], [1800, '30 minutos']];
     bd.appendChild(field('Desiste se ninguém responder em', el(`<div><select class="dsel big" id="mw">${MW.map(([s, l]) => `<option value="${s}" ${(sp.maxWait || 300) === s ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`)));
   }
-  const dl = $('#dl', sheet);
-  if (dl) dl.onclick = async () => {
-    if (!await confirmBox('Apagar este especial?', 'Os stickers continuam nos teus packs.')) return;
-    saveSpecials(specials().filter(x => x.id !== sp.id)); closeOverlay(ov); render();
-  };
-  $('#sv', sheet).onclick = () => {
+  const hideW = el(`<div class="opt" style="padding:8px 2px 4px;border:0"><div class="t"><b>Esconder os outros stickers do pack</b><div class="small muted">Ficam só dentro deste especial (no pack aparece só o 1.º, com ⚡). Não aparecem nas sugestões.</div></div><button class="sw ${sp.hideSubs === false ? '' : 'on'}"></button></div>`);
+  const hideSw = $('.sw', hideW);
+  hideSw.onclick = () => hideSw.classList.toggle('on');
+  bd.appendChild(hideW);
+  function collect(o2 = {}) {
     sp.name = $('#nm', bd).value.trim() || t.name;
     const rd = $('.rd', bd); if (rd) sp.replyDelay = +rd.value;
     const big = $('.dsel.big:not(.rd):not(#mw)', bd); if (big && sp.type === 'random') sp.delay = +big.value;
@@ -2322,34 +2572,69 @@ function editSpecial(sp, isNew) {
     const ev = $('#ev', bd); if (ev) sp.every = +ev.value;
     if (sp.type === 'quiz') {
       sp.questions = sp.questions.filter(q => q.sticker || q.answers.trim());
-      if (!sp.questions.length || sp.questions.some(q => !stRef(q.sticker) || !q.answers.trim())) { if (!sp.questions.length) sp.questions.push({ sticker: null, answers: '' }); return toast('Cada pergunta precisa de um sticker e da resposta certa'); }
-      if (![sp.resAll, sp.resHalf, sp.resLow].some(a => a.length)) return toast('Escolhe pelo menos um sticker para o resultado');
-      sp.first = sp.questions[0].sticker;
+      if (!sp.questions.length || sp.questions.some((q, i) => !(opts.fixedFirst && i === 0) && !stRef(q.sticker) || !q.answers.trim())) { if (!sp.questions.length) sp.questions.push({ sticker: null, answers: '' }); return void toast('Cada pergunta precisa de um sticker e da resposta certa'); }
+      if (![sp.resAll, sp.resHalf, sp.resLow].some(a => a.length)) return void toast('Escolhe pelo menos um sticker para o resultado');
+      if (!opts.fixedFirst) sp.first = sp.questions[0].sticker;
     }
     if (sp.type === 'game') {
-      if (sp.moves.length < 2) return toast('Precisas de pelo menos 2 jogadas');
-      if (sp.moves.some(m => !m.name.trim() || !stRef(m.sticker))) return toast('Cada jogada precisa de nome e do teu sticker');
+      if (sp.moves.length < 2) return void toast('Precisas de pelo menos 2 jogadas');
+      if (sp.moves.some(m => !m.name.trim() || !stRef(m.sticker))) return void toast('Cada jogada precisa de nome e do teu sticker');
       sp.moves.forEach(m => { if (!m.answers.trim()) m.answers = m.name; });
-      if (![sp.iwin, sp.youwin, sp.draw].every(a => a.length)) return toast('Escolhe os stickers de ganhar, perder e empate');
+      if (![sp.iwin, sp.youwin, sp.draw].every(a => a.length)) return void toast('Escolhe os stickers de ganhar, perder e empate');
     }
-    if (sp.type === 'nudge' && !sp.nudges.length) return toast('Escolhe os stickers para insistir');
-    if (sp.type === 'typing' && !sp.steps.length) return toast('Escolhe o sticker da piada');
-    if (!stRef(sp.first)) return toast('Escolhe o 1.º sticker');
-    if (sp.type === 'seq' && !sp.steps.length) return toast('Junta pelo menos mais um sticker à sequência');
-    if (sp.type === 'random' && !sp.pool.length) return toast('Junta os stickers que podem sair');
-    if (sp.type === 'reply' && !sp.then.length && !(sp.noReply.secs && sp.noReply.stickers.length)) return toast('Escolhe o que mandar quando responderem');
+    if (sp.type === 'nudge' && !sp.nudges.length) return void toast('Escolhe os stickers para insistir');
+    if (sp.type === 'typing' && !sp.steps.length) return void toast('Escolhe o sticker da piada');
+    if (!o2.noFirst && !stRef(sp.first)) return void toast('Escolhe o 1.º sticker');
+    if (sp.type === 'seq' && !sp.steps.length) return void toast('Junta pelo menos mais um sticker à sequência');
+    if (sp.type === 'random' && !sp.pool.length) return void toast('Junta os stickers que podem sair');
+    if (sp.type === 'reply' && !sp.then.length && !(sp.noReply.secs && sp.noReply.stickers.length)) return void toast('Escolhe o que mandar quando responderem');
     if (sp.type === 'choice') {
       sp.options = sp.options.filter(o => o.answers.trim() || o.stickers.length);
-      if (!sp.options.length || sp.options.some(o => !o.answers.trim() || !o.stickers.length)) { if (!sp.options.length) sp.options.push({ answers: '1', stickers: [] }); return toast('Cada opção precisa de uma resposta e de um sticker'); }
+      if (!sp.options.length || sp.options.some(o => !o.answers.trim() || !o.stickers.length)) { if (!sp.options.length) sp.options.push({ answers: '1', stickers: [] }); return void toast('Cada opção precisa de uma resposta e de um sticker'); }
     }
     if (sp.noReply && sp.noReply.secs && !sp.noReply.stickers.length) sp.noReply.secs = 0;
-    const list = specials().slice();
-    const i = list.findIndex(x => x.id === sp.id);
-    if (i >= 0) list[i] = sp; else list.push(sp);
-    saveSpecials(list);
+    sp.hideSubs = hideSw.classList.contains('on');
+    return sp;
+  }
+  return { collect };
+}
+
+/* guarda um especial (novo ou editado) e esconde os stickers secundários se pedido */
+function persistSpecial(sp) {
+  if (sp.type === 'quiz' && sp.questions[0]) sp.questions[0].sticker = sp.first;
+  const list = specials().slice();
+  const i = list.findIndex(x => x.id === sp.id);
+  if (i >= 0) list[i] = sp; else list.push(sp);
+  saveSpecials(list);
+  const firsts = new Set(specials().map(x => x.first && dupKey(x.first)));
+  for (const x of subRefs(sp)) {
+    const r = stRef(x);
+    if (!r || firsts.has(dupKey(x))) continue;
+    const want = !!sp.hideSubs;
+    if (!!r.s.hidden === want) continue;
+    if (!want && !r.s.hidden) continue;
+    try { const d = JSON.parse(A.setStickerFlag(x.p, x.f, 'hidden', want)); if (!d.error) S.data = d; } catch (e) {}
+  }
+}
+
+function editSpecial(sp, isNew, onDone) {
+  const t = SP_TYPES[sp.type];
+  const sheet = el(`<div class="sheet"><div class="hd"><h3>${t.icon} ${t.name}</h3><button class="iconbtn" id="x">${ICON.close}</button></div><div class="bd" id="spb"></div>
+    <div class="ft row" style="padding:10px 16px 14px">${isNew ? '' : '<button class="btn danger" id="dl" style="flex:none;width:52px;padding:0">🗑️</button>'}<button class="btn primary" id="sv">Guardar</button></div></div>`);
+  const ov = openOverlay(sheet, { modal: true });
+  $('#x', sheet).onclick = () => closeOverlay(ov);
+  const bd = $('#spb', sheet);
+  const form = specialForm(sp, bd, {});
+  const dl = $('#dl', sheet);
+  if (dl) dl.onclick = async () => { if (await deleteSpecial(sp)) { closeOverlay(ov); render(); if (onDone) onDone(); } };
+  $('#sv', sheet).onclick = () => {
+    const r = form.collect();
+    if (!r) return;
+    persistSpecial(r);
     closeOverlay(ov);
     toast('Especial guardado ⚡');
     render();
+    if (onDone) onDone();
   };
 }
 
@@ -2391,6 +2676,7 @@ window.App = {
   onDupesProgress(done, total) { busy(`A comparar ${done} de ${total}…`); },
   onDupes(r) { showDupes(r || { groups: [] }); },
   onImported(r) {
+    if (r && r.hidden && S.hiddenCb) { S.hiddenCb(r); return; }
     if (S.vImp && r && !r.cancelled) {
       S.vImp--;
       reload();

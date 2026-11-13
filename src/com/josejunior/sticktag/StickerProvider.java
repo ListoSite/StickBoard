@@ -69,12 +69,14 @@ public class StickerProvider extends ContentProvider {
                 // stickers sem emoji ficam de fora (o WhatsApp exige 1 a 3), desde que sobrem pelo menos 3
                 int tagged = 0;
                 if (a != null) for (int i = 0; i < a.length(); i++) {
+                    if (a.optJSONObject(i).optBoolean("hidden")) continue;
                     JSONArray e = a.optJSONObject(i).optJSONArray("emojis");
                     if (e != null && e.length() > 0) tagged++;
                 }
                 boolean onlyTagged = tagged >= 3;
                 if (a != null) for (int i = 0; i < a.length(); i++) {
                     JSONObject s = a.optJSONObject(i);
+                    if (s.optBoolean("hidden")) continue; // só existem dentro de um especial
                     String em = Store.joinArr(s.optJSONArray("emojis"), ",");
                     if (onlyTagged && em.length() == 0) continue;
                     c.addRow(new Object[]{s.optString("f"), em, Store.a11yText(data, p, s)});
