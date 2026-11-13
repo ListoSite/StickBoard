@@ -412,16 +412,26 @@ function viewFolder() {
   const isIn = x => have.has(x.name + '|' + x.size);
   const files = S.fonlyNew ? S.ffiles.filter(x => !isIn(x)) : S.ffiles;
   const nNew = S.ffiles.filter(x => !isIn(x)).length;
+  const nHave = S.ffiles.length - nNew;
   const tp = el(`<div class="top"><button class="iconbtn" id="bk">${ICON.back}</button><div style="flex:1;min-width:0"><h1>${esc(f.name)}</h1><div class="sub">${S.ffiles.length} imagens · ${nNew} ainda não estão na app</div></div><button class="iconbtn" id="rf" title="Atualizar">⟳</button></div>`);
   tp.querySelector('#bk').onclick = () => { S.folder = null; S.fsel = null; render(); };
   tp.querySelector('#rf').onclick = () => { S.ffiles = null; render(); };
   v.appendChild(tp);
-  const acts = el(`<div class="row" style="margin-bottom:12px;flex-wrap:wrap"><button class="btn primary" id="ia" ${nNew ? '' : 'disabled'}>Importar tudo${nNew ? ` (${nNew})` : ''}</button><button class="btn" id="fl">${S.fonlyNew ? 'Ver todos' : 'Só os novos'}</button>${files.length ? '<button class="btn" id="vw">▶ Rever um a um</button>' : ''}${S.ffiles.length > 1 ? '<button class="btn" id="dpf">👯 Repetidos</button>' : ''}</div>`);
+  const acts = el(`<div class="row" style="margin-bottom:12px;flex-wrap:wrap"><button class="btn primary" id="ia" ${nNew ? '' : 'disabled'}>Importar tudo${nNew ? ` (${nNew})` : ''}</button><button class="btn" id="fl">${S.fonlyNew ? 'Ver todos' : 'Só os novos'}</button>${files.length ? '<button class="btn" id="vw">▶ Rever um a um</button>' : ''}${S.ffiles.length > 1 ? '<button class="btn" id="dpf">👯 Repetidos</button>' : ''}${nHave ? `<button class="btn danger" id="cln">🧹 Apagar os que já tens (${nHave})</button>` : ''}</div>`);
+  const cln = acts.querySelector('#cln');
+  if (cln) cln.onclick = async () => {
+    if (!await confirmBox(`Apagar ${nHave} ficheiro${nHave === 1 ? '' : 's'} da pasta?`, 'São os que já estão nos teus packs (com ✓). A app guarda a sua própria cópia, por isso continuam no StickTag.', 'Apagar')) return;
+    await cleanupFolder(S.ffiles.filter(isIn).map(x => x.uri));
+    render();
+  };
+  const opt = el(`<div class="opt" style="padding:4px 2px 12px;border:0"><div class="t"><b>Apagar da pasta depois de importar</b><div class="small muted">O que entra na app sai desta pasta (a app fica com a sua cópia).</div></div><button class="sw ${folderDeleteOn() ? 'on' : ''}"></button></div>`);
+  $('.sw', opt).onclick = e => { try { S.data = JSON.parse(A.setOption('folderDelete', !folderDeleteOn())); } catch (er) {} e.currentTarget.classList.toggle('on', folderDeleteOn()); toast(folderDeleteOn() ? 'Os importados vão sair da pasta' : 'Os importados ficam na pasta'); };
   const dpf = acts.querySelector('#dpf'); if (dpf) dpf.onclick = () => findDupes(S.ffiles);
   const vw = acts.querySelector('#vw'); if (vw) vw.onclick = () => openFolderViewer(files, 0);
   acts.querySelector('#fl').onclick = () => { S.fonlyNew = !S.fonlyNew; render(); };
   acts.querySelector('#ia').onclick = () => autoImportDialog(f, S.ffiles.filter(x => !isIn(x)));
   v.appendChild(acts);
+  v.appendChild(opt);
   v.appendChild(el(`<div class="hint" style="margin-bottom:10px">Toca num sticker para o veres em grande. Carrega sem largar para escolher vários. Os que têm ✓ já estão num pack.</div>`));
   const grid = el('<div class="grid" style="grid-template-columns:repeat(4,1fr);gap:8px;margin-top:0"></div>');
   progressive(grid, files, x => {
@@ -481,6 +491,7 @@ async function folderToPack(uris) {
   const chosen = await choosePack(`Pôr ${uris.length} sticker${uris.length > 1 ? 's' : ''} em…`);
   if (!chosen) return;
   busy('A importar…');
+  S.fromFolder = true;
   A.importDocs(chosen, JSON.stringify(uris));
 }
 
@@ -592,7 +603,7 @@ function openFolderViewer(list, start) {
     if (visible(p).length >= maxOf(p)) { toast('Este pack já está cheio: escolhe outro'); return pickTarget(); }
     S.vImp = (S.vImp || 0) + 1;
     A.importDocs(pid, JSON.stringify([x.uri]));
-    done(S.fonlyNew);
+    done(S.fonlyNew || folderDeleteOn());
   };
   $('#ed', v).onclick = async () => {
     const x = list[i];
@@ -601,7 +612,11 @@ function openFolderViewer(list, start) {
     const p = packOf(pid);
     if (visible(p).length >= maxOf(p)) { toast('Este pack já está cheio: escolhe outro'); return pickTarget(); }
     const url = 'd/' + encodeURIComponent(x.uri);
-    const onSaved = () => { toast(`Guardado em «${p.name}» ✓`, 1600); done(S.fonlyNew); };
+    const onSaved = () => {
+      toast(`Guardado em «${p.name}» ✓`, 1600);
+      if (folderDeleteOn()) { A.deleteDocs(JSON.stringify([x.uri])); changed = true; if (S.ffiles) S.ffiles = S.ffiles.filter(f => f.uri !== x.uri); done(true); }
+      else done(S.fonlyNew);
+    };
     if (await isAnimDoc(x)) {
       const mime = x.mime || ((x.name || '').toLowerCase().endsWith('.gif') ? 'image/gif' : 'image/webp');
       openAnimCreator(pid, { url, mime }, { onSaved, edit: true });
@@ -2068,6 +2083,20 @@ async function bulkOcr(p) {
     toast(`${n} palavra${n === 1 ? '' : 's'} juntada${n === 1 ? '' : 's'} ✓`);
   };
 }
+
+/* ---------- limpar a pasta: o que já está na app sai da pasta ---------- */
+// a app guarda a sua própria cópia, por isso o ficheiro original pode ir embora
+const folderDeleteOn = () => S.data.folderDelete !== false;
+async function cleanupFolder(uris, quiet) {
+  if (!uris || !uris.length) return 0;
+  const r = uris.length > 15
+    ? await runBulk(`A apagar da pasta ${uris.length} que já estão na app…`, () => A.deleteDocsAsync(JSON.stringify(uris)))
+    : { n: A.deleteDocs(JSON.stringify(uris)) };
+  const n = r.n || 0;
+  if (S.ffiles) { const gone = new Set(uris); S.ffiles = S.ffiles.filter(x => !gone.has(x.uri)); }
+  if (n && !quiet) toast(`🧹 ${n} apagado${n === 1 ? '' : 's'} da pasta (já ${n === 1 ? 'está' : 'estão'} na app)`, 2600);
+  return n;
+}
 /* ---------- stickers repetidos ---------- */
 function ignoredDupes() { try { return new Set(JSON.parse(localStorage.getItem('dupIgnore') || '[]')); } catch (e) { return new Set(); } }
 function ignoreDupe(sig) { try { const s = ignoredDupes(); s.add(sig); localStorage.setItem('dupIgnore', JSON.stringify([...s].slice(-500))); } catch (e) {} }
@@ -2944,14 +2973,17 @@ window.App = {
     if (S.vImp && r && !r.cancelled) {
       S.vImp--;
       reload();
+      if (folderDeleteOn() && r.uris && r.uris.length) cleanupFolder(r.uris, true);
       const e = (r.errors || [])[0], p = packOf(r.packId);
       if (e) toast('Não entrou no pack: ' + e.error, 3200);
       else if (r.added && r.added.length) toast(`Adicionado a «${p ? p.name : 'pack'}» ✓`, 1300);
       return;
     }
     busy(null);
+    const fromFolder = S.fromFolder; S.fromFolder = false;
     if (!r || r.cancelled) return;
     reload();
+    if (fromFolder && folderDeleteOn() && r.uris && r.uris.length) cleanupFolder(r.uris).then(() => { if (S.folder) render(); });
     if (S.folder) { S.fsel = new Set(); render(); }
     else { S.tab = 'packs'; S.packId = r.packId; S.sel = null; render(); }
     const added = r.added.length, errs = r.errors || [], notes = r.notes || [];
@@ -2978,12 +3010,14 @@ window.App = {
     S.folders = true; S.folder = f; S.fsel = new Set(); S.ffiles = null;
     render();
   },
-  onAutoImported(r) {
+  async onAutoImported(r) {
     busy(null);
     reload();
+    let cleaned = 0;
+    if (folderDeleteOn() && r.uris && r.uris.length) cleaned = await cleanupFolder(r.uris, true);
     S.ffiles = null; render();
     dialog({ title: `${r.added} sticker${r.added === 1 ? '' : 's'} importado${r.added === 1 ? '' : 's'}`,
-      html: `<ul class="list-err">${r.created ? `<li>${r.created} pack${r.created > 1 ? 's' : ''} novo${r.created > 1 ? 's' : ''}</li>` : ''}${r.dup ? `<li>${r.dup} já estavam na app (ignorados)</li>` : ''}${r.fail ? `<li>${r.fail} não deram para converter</li>` : ''}${r.stop ? `<li>${esc(r.stop)}</li>` : ''}</ul>`,
+      html: `<ul class="list-err">${r.created ? `<li>${r.created} pack${r.created > 1 ? 's' : ''} novo${r.created > 1 ? 's' : ''}</li>` : ''}${r.dup ? `<li>${r.dup} já estavam na app (ignorados)</li>` : ''}${cleaned ? `<li>🧹 ${cleaned} apagado${cleaned === 1 ? '' : 's'} da pasta</li>` : ''}${r.fail ? `<li>${r.fail} não deram para converter</li>` : ''}${r.stop ? `<li>${esc(r.stop)}</li>` : ''}</ul>`,
       buttons: [{ label: 'OK', cls: 'primary' }] });
   },
   onAutoBackup(r) {

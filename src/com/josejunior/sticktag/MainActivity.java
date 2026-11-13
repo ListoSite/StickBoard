@@ -191,7 +191,7 @@ public class MainActivity extends Activity {
     void importUris(final String packId, final List<Uri> uris, final boolean hidden) {
         exec.execute(new Runnable() {
             @Override public void run() {
-                JSONArray added = new JSONArray(), errors = new JSONArray(), notes = new JSONArray();
+                JSONArray added = new JSONArray(), errors = new JSONArray(), notes = new JSONArray(), okUris = new JSONArray();
                 List<Dupes.Item> app = null;
                 java.util.HashMap<String, String> hashes = new java.util.HashMap<String, String>();
                 // os novos stickers guardam-se aos lotes (bem mais rápido com centenas de ficheiros)
@@ -229,6 +229,7 @@ public class MainActivity extends Activity {
                         pending.add(st);
                         if (!hidden) count++;
                         added.put(r.file);
+                        okUris.put(u.toString());
                         if (pending.size() >= 25 || System.currentTimeMillis() - lastFlush > 4000) {
                             flushStickers(packId, pending); lastFlush = System.currentTimeMillis();
                         }
@@ -254,6 +255,7 @@ public class MainActivity extends Activity {
                 try {
                     JSONObject res = new JSONObject();
                     res.put("packId", packId); res.put("added", added); res.put("errors", errors); res.put("notes", notes);
+                    res.put("uris", okUris);
                     if (hidden) res.put("hidden", true);
                     js("onImported", res.toString());
                 } catch (JSONException ignored) {}
@@ -287,6 +289,7 @@ public class MainActivity extends Activity {
         JSONArray a;
         try { a = new JSONArray(urisJson); } catch (JSONException e) { a = new JSONArray(); }
         java.util.HashSet<String> have = new java.util.HashSet<String>();
+        JSONArray inApp = new JSONArray(); // ficheiros da pasta que ficaram (ou já estavam) na app
         JSONObject d0 = Store.load(this);
         JSONArray ps0 = d0.optJSONArray("packs");
         if (ps0 != null) for (int i = 0; i < ps0.length(); i++) {
@@ -307,13 +310,13 @@ public class MainActivity extends Activity {
             try {
                 Uri u = Uri.parse(a.getString(i));
                 String src = Importer.srcKey(this, u);
-                if (have.contains(src)) { dup++; continue; }
+                if (have.contains(src)) { dup++; inApp.put(u.toString()); continue; }
                 InputStream in = getContentResolver().openInputStream(u);
                 byte[] b = Store.readAll(in, 30 * 1024 * 1024);
                 in.close();
                 // igual (pela imagem) a um que já tens ou que acabou de entrar? não repete
                 String hs = Dupes.hashBytes(b);
-                if (hs != null && Dupes.sameAs(app, hs, "", "") != null) { dup++; have.add(src); continue; }
+                if (hs != null && Dupes.sameAs(app, hs, "", "") != null) { dup++; have.add(src); inApp.put(u.toString()); continue; }
                 Webp.Info info = Webp.info(b);
                 boolean anim = info != null && info.animated && info.frames > 1;
                 String want = kb || !anim ? curStatic : curAnim;
@@ -367,13 +370,14 @@ public class MainActivity extends Activity {
                     Dupes.Item me = new Dupes.Item(); me.pack = target; me.file = r.file; me.h = Dupes.parse(nh != null ? nh : hs); app.add(me);
                 }
                 have.add(src);
+                inApp.put(u.toString());
                 added++;
             } catch (Exception e) { fail++; }
         }
         for (String id : new ArrayList<String>(pend.keySet())) flushStickers(id, pend.get(id));
         Dupes.rememberAll(this, hashes);
         try {
-            JSONObject res = new JSONObject().put("auto", true).put("added", added).put("dup", dup).put("fail", fail).put("created", created);
+            JSONObject res = new JSONObject().put("auto", true).put("added", added).put("dup", dup).put("fail", fail).put("created", created).put("uris", inApp);
             if (stop != null) res.put("stop", stop);
             js("onAutoImported", res.toString());
         } catch (JSONException ignored) {}
