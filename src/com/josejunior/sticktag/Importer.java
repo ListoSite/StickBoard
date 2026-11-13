@@ -154,6 +154,18 @@ public final class Importer {
         return best;
     }
 
+    /** Identifica o ficheiro de origem (nome|tamanho) para não importar repetidos. */
+    static String srcKey(Context c, Uri uri) {
+        String n = null; long size = -1;
+        try {
+            android.database.Cursor cur = c.getContentResolver().query(uri, new String[]{"_display_name", "_size"}, null, null, null);
+            if (cur != null) {
+                try { if (cur.moveToFirst()) { n = cur.getString(0); size = cur.isNull(1) ? -1 : cur.getLong(1); } } finally { cur.close(); }
+            }
+        } catch (Exception ignored) {}
+        return (n == null ? uri.getLastPathSegment() : n) + "|" + size;
+    }
+
     static String displayName(Context c, Uri uri) {
         String n = uri.getLastPathSegment();
         try {

@@ -7,6 +7,15 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&a
 const EM = new Map();
 let DATA = { packs: [] }, IDX = [], text = '', tab = 'sug', direct = true;
 let shufKey = null, shufOrder = [];
+let searching = false, sq = '', multi = null;
+
+/* palavras para a hora do dia */
+function timeWords() {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 12) return { label: 'Bom dia', q: 'bom dia manhã café' };
+  if (h >= 12 && h < 19) return { label: 'Boa tarde', q: 'boa tarde almoço' };
+  return { label: 'Boa noite', q: 'boa noite dormir sono' };
+}
 
 const info = e => EM.get(M.stripVS(e));
 const img = (p, f) => `f/${encodeURIComponent(p.id)}/${encodeURIComponent(f)}?v=${p.version || 0}`;
@@ -40,6 +49,7 @@ function lastWords(t) {
 }
 
 function renderTop() {
+  if (searching) { $('#q').innerHTML = `🔍 <b>${esc(sq) || ''}</b><span style="color:#25D366">▏</span>${sq ? '' : '<span style="color:#6B7482">escreve para procurar</span>'}`; return; }
   const lw = lastWords(text);
   $('#q').innerHTML = lw ? `Para <b>«${esc(lw)}»</b>` : 'Escreve no teu teclado e volta aqui';
   $('#mode').classList.toggle('hidden', direct);
@@ -68,7 +78,9 @@ function sendIt(p, s) {
 function tile(p, s) {
   const d = document.createElement('button');
   d.className = 's';
-  d.innerHTML = `<img loading="lazy" src="${img(p, s.f)}">${s.fav ? '<span class="fv">⭐</span>' : ''}`;
+  const mi = multi ? multi.findIndex(x => x.p === p.id && x.f === s.f) : -1;
+  if (mi >= 0) d.classList.add('sel');
+  d.innerHTML = `<img loading="lazy" src="${img(p, s.f)}">${s.fav ? '<span class="fv">⭐</span>' : ''}${mi >= 0 ? `<span class="num">${mi + 1}</span>` : ''}`;
   let timer = null, long = false, sx = 0, sy = 0;
   d.addEventListener('pointerdown', e => {
     long = false; sx = e.clientX; sy = e.clientY;
@@ -77,7 +89,15 @@ function tile(p, s) {
   d.addEventListener('pointermove', e => { if (Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy) > 12) clearTimeout(timer); });
   ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => d.addEventListener(ev, () => clearTimeout(timer)));
   d.addEventListener('contextmenu', e => e.preventDefault());
-  d.onclick = () => { if (long) { long = false; return; } sendIt(p, s); };
+  d.onclick = () => {
+    if (long) { long = false; return; }
+    if (multi) {
+      const i = multi.findIndex(x => x.p === p.id && x.f === s.f);
+      if (i >= 0) multi.splice(i, 1); else multi.push({ p: p.id, f: s.f });
+      renderGrid(); drawSend(); return;
+    }
+    sendIt(p, s);
+  };
   return d;
 }
 
@@ -141,6 +161,14 @@ function renderRecent(g, label) {
 function renderGrid() {
   const g = $('#grid');
   g.innerHTML = '';
+  g.classList.toggle('strip', searching);
+  if (searching) {
+    const res = sq.trim() ? M.search(IDX, sq, 60) : [];
+    if (res.length) res.forEach(r => g.appendChild(tile(r.p, r.s)));
+    else if (sq.trim()) addMsg(g, `Nada para «${esc(sq)}»`);
+    else renderRecent(g, false);
+    return;
+  }
   const total = DATA.packs.reduce((n, p) => n + (p.stickers ? p.stickers.length : 0), 0);
   if (!total) { addMsg(g, 'Ainda não tens stickers. Toca em ⚙️ para abrir o StickTag e criar um pack.'); return; }
   if (tab === 'sug') {
@@ -158,7 +186,12 @@ function renderGrid() {
     }
     if (res.length) res.forEach(r => g.appendChild(tile(r.p, r.s)));
     else {
-      addMsg(g, text.trim() ? `Nenhum sticker para <b>«${esc(lastWords(text))}»</b>. Dá palavras ou emojis aos teus stickers no StickTag.` : 'Escreve uma frase no teu teclado normal e depois abre este teclado: aparecem aqui os stickers que combinam.');
+      if (text.trim()) addMsg(g, `Nenhum sticker para <b>«${esc(lastWords(text))}»</b>. Dá palavras ou emojis aos teus stickers no StickTag.`);
+      // sugestões pela hora do dia
+      const tw = timeWords();
+      const now = M.search(IDX, tw.q, 12);
+      if (now.length) { addMsg(g, `🕗 Para agora · ${tw.label}`, 'secl'); now.forEach(r => g.appendChild(tile(r.p, r.s))); }
+      else if (!text.trim()) addMsg(g, 'Escreve uma frase no teu teclado normal e depois abre este teclado: aparecem aqui os stickers que combinam. Ou toca em 🔍 para procurar.');
       renderRecent(g, true);
     }
   } else if (tab === 'fav') {
@@ -180,6 +213,52 @@ function flash(t) {
 }
 
 $('#back').onclick = () => K.back();
+
+/* ---- procurar com teclas próprias ---- */
+const ROWS = ['qwertyuiop', 'asdfghjklç', 'zxcvbnm'];
+function buildKeys() {
+  const k = $('#keys');
+  k.innerHTML = ROWS.map((r, i) => `<div class="krow">${r.split('').map(c => `<button class="k" data-c="${c}">${c}</button>`).join('')}${i === 2 ? '<button class="k w2" data-c="del">⌫</button>' : ''}</div>`).join('') +
+    `<div class="krow"><button class="k w2 dim" data-c="close">Fechar</button><button class="k w5 dim" data-c=" ">espaço</button><button class="k w2 acc" data-c="clear">Limpar</button></div>`;
+  k.querySelectorAll('.k').forEach(b => b.onclick = () => {
+    const c = b.dataset.c;
+    if (c === 'close') return setSearch(false);
+    if (c === 'del') sq = sq.slice(0, -1);
+    else if (c === 'clear') sq = '';
+    else sq += c;
+    renderTop(); renderGrid(); $('#grid').scrollLeft = 0;
+  });
+}
+function setSearch(on) {
+  searching = on; sq = on ? sq : '';
+  closePv();
+  $('#keys').classList.toggle('hidden', !on);
+  $('#tabs').classList.toggle('hidden', on);
+  $('#srch').classList.toggle('on', on);
+  renderTop(); renderGrid();
+}
+$('#srch').onclick = () => setSearch(!searching);
+buildKeys();
+
+/* ---- enviar vários seguidos ---- */
+function drawSend() {
+  const b = $('#sendn');
+  b.classList.toggle('hidden', !multi || !multi.length);
+  if (multi && multi.length) b.textContent = `Enviar ${multi.length} ➤`;
+}
+$('#multi').onclick = () => {
+  multi = multi ? null : [];
+  $('#multi').classList.toggle('on', !!multi);
+  flash(multi ? 'Toca nos stickers pela ordem em que os queres enviar' : 'Envio de vários desligado');
+  drawSend(); renderGrid();
+};
+$('#sendn').onclick = () => {
+  let list = (multi || []).map(x => findSticker(x.p, x.f)).filter(Boolean);
+  if (!direct && list.length > 1) { list = list.slice(0, 1); flash('Esta app só deixa partilhar um de cada vez'); }
+  multi = null; $('#multi').classList.remove('on'); drawSend();
+  list.forEach((x, i) => setTimeout(() => { if (i === 0) sendIt(x.p, x.s); else { pushRecent(x.p.id, x.s.f); K.send(x.p.id, x.s.f); } }, i * 900));
+  renderGrid();
+};
 $('#shuf').onclick = () => {
   DATA.kbShuffle = !DATA.kbShuffle;
   K.setOption('kbShuffle', !!DATA.kbShuffle);
@@ -192,9 +271,14 @@ $('#del').onclick = () => K.backspace();
 $('#del').oncontextmenu = e => { e.preventDefault(); K.clearText(); };
 
 window.KBApp = {
-  onOpen(o) { text = o.text || ''; direct = !!o.direct; tab = 'sug'; shufKey = null; closePv(); refresh(); $('#grid').scrollTop = 0; },
+  onOpen(o) {
+    text = o.text || ''; direct = !!o.direct; tab = 'sug'; shufKey = null; multi = null;
+    $('#multi').classList.remove('on'); drawSend();
+    if (searching) setSearch(false);
+    closePv(); refresh(); $('#grid').scrollTop = 0;
+  },
   onSaved(r) { flash(r && r.ok ? 'Guardado na galeria (Imagens/StickTag) ✓' : 'Não guardei: ' + ((r && r.error) || 'erro')); },
-  onText(t) { text = t || ''; renderTop(); if (tab === 'sug') renderGrid(); },
+  onText(t) { text = t || ''; if (searching) return; renderTop(); if (tab === 'sug' && !(multi && multi.length)) renderGrid(); },
   onSent(r) {
     if (!r || !r.ok) flash('Não consegui enviar');
     else if (r.mode === 'share') flash('A abrir a partilha…');

@@ -46,7 +46,7 @@ import java.util.zip.ZipOutputStream;
 
 public class MainActivity extends Activity {
     static final String HOST = Web.HOST;
-    static final int REQ_PICK = 11, REQ_WA = 12, REQ_EXPORT = 13, REQ_BACKUP = 14, REQ_RESTORE = 15, REQ_CREATE = 16;
+    static final int REQ_PICK = 11, REQ_WA = 12, REQ_EXPORT = 13, REQ_BACKUP = 14, REQ_RESTORE = 15, REQ_CREATE = 16, REQ_FOLDER = 17;
     static final String WA = "com.whatsapp", WA_B = "com.whatsapp.w4b";
 
     WebView web;
@@ -185,6 +185,7 @@ public class MainActivity extends Activity {
                             st.put("emojis", r.emojis);
                             st.put("words", new JSONArray());
                             if (r.animated) st.put("anim", true);
+                            st.put("src", Importer.srcKey(MainActivity.this, u));
                             p.getJSONArray("stickers").put(st);
                             Store.sync(MainActivity.this, data, p);
                             Store.save(MainActivity.this, data);
@@ -201,6 +202,88 @@ public class MainActivity extends Activity {
                 } catch (JSONException ignored) {}
             }
         });
+    }
+
+    /** Junta os ficheiros a packs novos, criados conforme for preciso. */
+    void autoImport(String urisJson, String kind, String baseName) {
+        boolean kb = !"wa".equals(kind);
+        int added = 0, dup = 0, fail = 0, created = 0;
+        String stop = null;
+        JSONArray a;
+        try { a = new JSONArray(urisJson); } catch (JSONException e) { a = new JSONArray(); }
+        java.util.HashSet<String> have = new java.util.HashSet<String>();
+        JSONObject d0 = Store.load(this);
+        JSONArray ps0 = d0.optJSONArray("packs");
+        if (ps0 != null) for (int i = 0; i < ps0.length(); i++) {
+            JSONArray st = ps0.optJSONObject(i).optJSONArray("stickers");
+            if (st != null) for (int k = 0; k < st.length(); k++) { String s = st.optJSONObject(k).optString("src", ""); if (s.length() > 0) have.add(s); }
+        }
+        String curStatic = null, curAnim = null;
+        for (int i = 0; i < a.length(); i++) {
+            js("onImportProgress", (i + 1) + "," + a.length());
+            try {
+                Uri u = Uri.parse(a.getString(i));
+                String src = Importer.srcKey(this, u);
+                if (have.contains(src)) { dup++; continue; }
+                InputStream in = getContentResolver().openInputStream(u);
+                byte[] b = Store.readAll(in, 30 * 1024 * 1024);
+                in.close();
+                Webp.Info info = Webp.info(b);
+                boolean anim = info != null && info.animated && info.frames > 1;
+                String target;
+                synchronized (Store.LOCK) {
+                    JSONObject d = Store.load(this);
+                    String want = kb || !anim ? curStatic : curAnim;
+                    JSONObject p = want == null ? null : Store.findPack(d, want);
+                    if (p == null || p.getJSONArray("stickers").length() >= Store.maxStickers(p)) {
+                        JSONArray ps = d.getJSONArray("packs");
+                        int wa = 0;
+                        for (int k = 0; k < ps.length(); k++) if (!Store.isKb(ps.getJSONObject(k))) wa++;
+                        if (!kb && wa >= Store.MAX_PACKS) { stop = "o WhatsApp só aceita 10 packs: o resto ficou de fora"; break; }
+                        created++;
+                        p = new JSONObject();
+                        String id = "p" + Long.toString(System.currentTimeMillis(), 36) + created;
+                        p.put("id", id);
+                        p.put("name", (baseName == null || baseName.length() == 0 ? "Importados" : baseName) + (kb ? "" : anim ? " (animados)" : "") + " " + created);
+                        p.put("publisher", d.optString("lastPublisher", "Eu"));
+                        p.put("animated", !kb && anim);
+                        p.put("kind", kb ? "kb" : "wa");
+                        p.put("version", 1);
+                        p.put("stickers", new JSONArray());
+                        p.put("created", System.currentTimeMillis());
+                        ps.put(p);
+                        Store.packDir(this, id);
+                        Store.save(this, d);
+                        if (kb || !anim) curStatic = id; else curAnim = id;
+                    }
+                    target = p.getString("id");
+                }
+                JSONObject dd = Store.load(this);
+                JSONObject tp = Store.findPack(dd, target);
+                Importer.Result r = Importer.importBytes(this, b, Importer.displayName(this, u), target, tp.optBoolean("animated"), dd.optBoolean("fill"), kb);
+                if (r.error != null) { fail++; continue; }
+                synchronized (Store.LOCK) {
+                    JSONObject d = Store.load(this);
+                    JSONObject p = Store.findPack(d, target);
+                    JSONObject st = new JSONObject();
+                    st.put("f", r.file);
+                    st.put("emojis", r.emojis);
+                    st.put("words", new JSONArray());
+                    if (r.animated) st.put("anim", true);
+                    st.put("src", src);
+                    p.getJSONArray("stickers").put(st);
+                    Store.sync(this, d, p);
+                    Store.save(this, d);
+                }
+                have.add(src);
+                added++;
+            } catch (Exception e) { fail++; }
+        }
+        try {
+            JSONObject res = new JSONObject().put("auto", true).put("added", added).put("dup", dup).put("fail", fail).put("created", created);
+            if (stop != null) res.put("stop", stop);
+            js("onAutoImported", res.toString());
+        } catch (JSONException ignored) {}
     }
 
     @Override
@@ -236,6 +319,27 @@ public class MainActivity extends Activity {
                     try { js("onBackup", new JSONObject(r).put("restore", isRestore).toString()); } catch (JSONException e) { js("onBackup", r); }
                 }
             });
+        } else if (req == REQ_FOLDER) {
+            Uri tree = (res == RESULT_OK && data != null) ? data.getData() : null;
+            if (tree == null) { js("onFolderAdded", "null"); return; }
+            try {
+                getContentResolver().takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            } catch (Exception e) {
+                try { getContentResolver().takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch (Exception ignored) {}
+            }
+            try {
+                JSONObject f = new JSONObject().put("uri", tree.toString()).put("name", Folders.name(this, tree));
+                synchronized (Store.LOCK) {
+                    JSONObject d = Store.load(this);
+                    JSONArray fs = d.optJSONArray("folders");
+                    if (fs == null) { fs = new JSONArray(); d.put("folders", fs); }
+                    boolean has = false;
+                    for (int i = 0; i < fs.length(); i++) if (tree.toString().equals(fs.getJSONObject(i).optString("uri"))) has = true;
+                    if (!has) fs.put(f);
+                    Store.save(this, d);
+                }
+                js("onFolderAdded", f.toString());
+            } catch (JSONException e) { js("onFolderAdded", "null"); }
         } else if (req == REQ_CREATE) {
             final Uri u = (res == RESULT_OK && data != null) ? data.getData() : null;
             if (u == null) { js("onCreatePicked", "null"); return; }
@@ -561,6 +665,73 @@ public class MainActivity extends Activity {
         public void toast(final String msg) {
             ui.post(new Runnable() {
                 @Override public void run() { Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show(); }
+            });
+        }
+
+        @JavascriptInterface
+        public void pickFolder() {
+            ui.post(new Runnable() {
+                @Override public void run() {
+                    Intent it = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                    it.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                    if (Build.VERSION.SDK_INT >= 26) it.putExtra("android.provider.extra.INITIAL_URI", Uri.parse(
+                            "content://com.android.externalstorage.documents/document/primary%3AAndroid%2Fmedia%2Fcom.whatsapp%2FWhatsApp%2FMedia%2FWhatsApp%20Stickers"));
+                    try { startActivityForResult(it, REQ_FOLDER); } catch (Exception e) { js("onFolderAdded", "null"); }
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public String listFolder(String uri) {
+            Uri tree = Uri.parse(uri);
+            if (!Folders.hasAccess(MainActivity.this, tree)) return "{\"ok\":false,\"error\":\"o acesso a esta pasta expirou: escolhe-a outra vez\"}";
+            return Folders.list(MainActivity.this, tree);
+        }
+
+        @JavascriptInterface
+        public String removeFolder(String uri) {
+            try { getContentResolver().releasePersistableUriPermission(Uri.parse(uri), Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION); } catch (Exception ignored) {}
+            synchronized (Store.LOCK) {
+                try {
+                    JSONObject d = Store.load(MainActivity.this);
+                    JSONArray fs = d.optJSONArray("folders"), n = new JSONArray();
+                    if (fs != null) for (int i = 0; i < fs.length(); i++) if (!uri.equals(fs.getJSONObject(i).optString("uri"))) n.put(fs.get(i));
+                    d.put("folders", n);
+                    Store.save(MainActivity.this, d);
+                    return d.toString();
+                } catch (JSONException e) { return err("erro"); }
+            }
+        }
+
+        /** Apaga de vez ficheiros da pasta. Devolve quantos foram apagados. */
+        @JavascriptInterface
+        public int deleteDocs(String urisJson) {
+            int n = 0;
+            try {
+                JSONArray a = new JSONArray(urisJson);
+                for (int i = 0; i < a.length(); i++) {
+                    Uri u = Uri.parse(a.getString(i));
+                    if (Folders.allowed(MainActivity.this, u) && Folders.delete(MainActivity.this, u)) n++;
+                }
+            } catch (JSONException ignored) {}
+            return n;
+        }
+
+        @JavascriptInterface
+        public void importDocs(String packId, String urisJson) {
+            List<Uri> l = new ArrayList<Uri>();
+            try {
+                JSONArray a = new JSONArray(urisJson);
+                for (int i = 0; i < a.length(); i++) l.add(Uri.parse(a.getString(i)));
+            } catch (JSONException ignored) {}
+            if (!l.isEmpty()) importUris(packId, l);
+        }
+
+        /** Importa vários ficheiros e cria os packs sozinho (sem repetidos). */
+        @JavascriptInterface
+        public void importAuto(final String urisJson, final String kind, final String baseName) {
+            exec.execute(new Runnable() {
+                @Override public void run() { autoImport(urisJson, kind, baseName); }
             });
         }
 

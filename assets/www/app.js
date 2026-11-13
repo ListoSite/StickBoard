@@ -172,13 +172,13 @@ function busy(text) {
 }
 
 /* ---------- navegação ---------- */
-function go(tab) { S.tab = tab; S.packId = null; S.sel = null; render(); $('#main').scrollTop = 0; }
+function go(tab) { S.tab = tab; S.packId = null; S.sel = null; S.folder = null; S.folders = false; render(); $('#main').scrollTop = 0; }
 $$('#nav button').forEach(b => b.onclick = () => go(b.dataset.tab));
 
 function render() {
   $$('#nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === S.tab || (S.tab === 'shortcuts' && b.dataset.tab === 'help')));
   const m = $('#main');
-  if (S.tab === 'packs') m.innerHTML = '', m.appendChild(S.packId ? viewPack() : viewPacks());
+  if (S.tab === 'packs') m.innerHTML = '', m.appendChild(S.folder ? viewFolder() : S.folders ? viewFolders() : S.packId ? viewPack() : viewPacks());
   else if (S.tab === 'words') m.innerHTML = '', m.appendChild(viewWords());
   else if (S.tab === 'shortcuts') m.innerHTML = '', m.appendChild(viewShortcuts());
   else if (S.tab === 'kb') m.innerHTML = '', m.appendChild(viewKeyboard());
@@ -188,7 +188,37 @@ function render() {
 /* ---------- lista de packs ---------- */
 function viewPacks() {
   const v = el('<section class="view"></section>');
-  v.appendChild(el(`<div class="top"><div style="flex:1;min-width:0"><h1>StickTag</h1><div class="sub">Os teus stickers com tags para o WhatsApp</div></div></div>`));
+  const tp = el(`<div class="top"><div style="flex:1;min-width:0"><h1>StickTag</h1><div class="sub">Os teus stickers com tags</div></div><button class="btn sm" id="fd">📁 Pastas</button></div>`);
+  tp.querySelector('#fd').onclick = () => { S.folders = true; render(); $('#main').scrollTop = 0; };
+  v.appendChild(tp);
+  // procurar em todos os packs
+  const total = S.data.packs.reduce((a, p) => a + p.stickers.length, 0);
+  const res = el('<div></div>');
+  const listBox = el('<div></div>');
+  if (total) {
+    const sb = el(`<div class="search" style="height:46px;margin-bottom:12px">${ICON.search}<input placeholder="Procurar stickers por palavra ou emoji" value="${esc(S.pq || '')}"></div>`);
+    const inp = $('input', sb);
+    const drawRes = () => {
+      S.pq = inp.value;
+      const q = inp.value.trim();
+      listBox.classList.toggle('hidden', !!q);
+      res.innerHTML = '';
+      if (!q) return;
+      const found = Match.search(Match.buildIndex(S.data, emoInfo), q, 80);
+      if (!found.length) { res.appendChild(el(`<div class="empty" style="padding-top:10px"><div>Nenhum sticker para “${esc(q)}”.</div></div>`)); return; }
+      res.appendChild(el(`<div class="sec" style="margin-top:0">${found.length} sticker${found.length > 1 ? 's' : ''}</div>`));
+      const g = el('<div class="mygrid"></div>');
+      found.forEach(r => { const im = el(`<img src="${imgUrl(r.p, r.s.f)}">`); im.onclick = () => closeAllAndEdit(r.p, r.s); g.appendChild(im); });
+      res.appendChild(g);
+    };
+    inp.addEventListener('input', drawRes);
+    v.appendChild(sb); v.appendChild(res);
+    setTimeout(drawRes, 0);
+  }
+  v.appendChild(listBox);
+  const vv = v;
+  return (function () {
+  const v = listBox;
   const n = A.sharedCount ? A.sharedCount() : 0;
   if (n > 0) {
     const b = el(`<div class="banner"><div style="font-size:26px">📥</div><div style="flex:1">Recebeste <b>${n} imagem${n > 1 ? 'ens' : ''}</b>. Escolhe para que pack vão.</div><button class="btn sm primary">Escolher</button></div>`);
@@ -211,7 +241,8 @@ function viewPacks() {
   const fab = el(`<button class="fab">${ICON.plus}Novo pack</button>`);
   fab.onclick = () => newPack();
   v.appendChild(fab);
-  return v;
+  return vv;
+  })();
 }
 
 async function newPack(thenShared) {
@@ -241,6 +272,7 @@ async function newPack(thenShared) {
   });
   if (!res) return null;
   store.set('pub', res.pub.trim());
+  try { A.setText('lastPublisher', res.pub.trim() || 'Eu'); } catch (e) {}
   let p;
   try { p = JSON.parse(A.createPack(res.name, res.pub, kind === 'kb' ? false : animated, kind)); } catch (e) { toast('Erro a criar'); return null; }
   if (p.error) { toast(p.error); return null; }
@@ -262,6 +294,118 @@ async function askSharedPack() {
   if (chosen) { busy('A importar…'); A.importShared(chosen); S.packId = chosen; S.tab = 'packs'; return; }
   if (r === 'drop') { A.clearShared(); render(); return; }
   if (r === 'new') { const p = await newPack(true); if (p) { busy('A importar…'); A.importShared(p.id); S.packId = p.id; S.tab = 'packs'; render(); } }
+}
+
+/* ---------- pastas do telemóvel ---------- */
+function viewFolders() {
+  const v = el('<section class="view"></section>');
+  const tp = el(`<div class="top"><button class="iconbtn" id="bk">${ICON.back}</button><div style="flex:1;min-width:0"><h1>Pastas</h1><div class="sub">Vê e organiza stickers que tens no telemóvel</div></div></div>`);
+  tp.querySelector('#bk').onclick = () => { S.folders = false; render(); };
+  v.appendChild(tp);
+  const fs = S.data.folders || [];
+  if (!fs.length) v.appendChild(el(`<div class="empty"><div class="big">📁</div><h2>Nenhuma pasta</h2><div>Escolhe uma pasta do telemóvel (por exemplo a dos stickers do WhatsApp) para veres todos os stickers dela aqui, importá-los ou apagar os que não queres.</div></div>`));
+  fs.forEach(f => {
+    const c = el(`<div class="pack"><div class="tray" style="font-size:28px">📁</div><div class="info"><div class="name">${esc(f.name)}</div><div class="meta" style="margin:0;word-break:break-all">${esc(decodeURIComponent(f.uri.split('/tree/')[1] || '').replace('primary:', 'Memória › ').replace(/\//g, ' › '))}</div></div><button class="iconbtn" data-x="1">${ICON.close}</button></div>`);
+    c.onclick = async e => {
+      if (e.target.closest('[data-x]')) {
+        if (!await confirmBox('Tirar esta pasta da app?', 'Os ficheiros continuam no telemóvel; só deixas de os ver aqui.', 'Tirar')) return;
+        try { S.data = JSON.parse(A.removeFolder(f.uri)); } catch (er) {}
+        render(); return;
+      }
+      S.folder = f; S.fsel = new Set(); S.ffiles = null; S.fonlyNew = false; render(); $('#main').scrollTop = 0;
+    };
+    v.appendChild(c);
+  });
+  const fab = el(`<button class="fab">${ICON.plus}Escolher pasta</button>`);
+  fab.onclick = () => A.pickFolder();
+  v.appendChild(fab);
+  return v;
+}
+
+function viewFolder() {
+  const f = S.folder;
+  const v = el('<section class="view"></section>');
+  if (!S.ffiles) {
+    let r;
+    try { r = JSON.parse(A.listFolder(f.uri)); } catch (e) { r = { ok: false, error: 'erro' }; }
+    if (!r.ok) { setTimeout(() => toast(r.error, 3500), 0); S.folder = null; return viewFolders(); }
+    S.ffiles = r.files.sort((a, b) => (b.time || 0) - (a.time || 0));
+  }
+  const have = new Set();
+  S.data.packs.forEach(p => p.stickers.forEach(s => { if (s.src) have.add(s.src); }));
+  const isIn = x => have.has(x.name + '|' + x.size);
+  const files = S.fonlyNew ? S.ffiles.filter(x => !isIn(x)) : S.ffiles;
+  const nNew = S.ffiles.filter(x => !isIn(x)).length;
+  const tp = el(`<div class="top"><button class="iconbtn" id="bk">${ICON.back}</button><div style="flex:1;min-width:0"><h1>${esc(f.name)}</h1><div class="sub">${S.ffiles.length} imagens · ${nNew} ainda não estão na app</div></div><button class="iconbtn" id="rf" title="Atualizar">⟳</button></div>`);
+  tp.querySelector('#bk').onclick = () => { S.folder = null; S.fsel = null; render(); };
+  tp.querySelector('#rf').onclick = () => { S.ffiles = null; render(); };
+  v.appendChild(tp);
+  const acts = el(`<div class="row" style="margin-bottom:12px"><button class="btn primary" id="ia" ${nNew ? '' : 'disabled'}>Importar tudo${nNew ? ` (${nNew})` : ''}</button><button class="btn" id="fl">${S.fonlyNew ? 'Ver todos' : 'Só os novos'}</button></div>`);
+  acts.querySelector('#fl').onclick = () => { S.fonlyNew = !S.fonlyNew; render(); };
+  acts.querySelector('#ia').onclick = () => autoImportDialog(f, S.ffiles.filter(x => !isIn(x)));
+  v.appendChild(acts);
+  v.appendChild(el(`<div class="hint" style="margin-bottom:10px">Toca para escolher. Os que têm ✓ já estão num pack.</div>`));
+  const grid = el('<div class="grid" style="grid-template-columns:repeat(4,1fr);gap:8px;margin-top:0"></div>');
+  files.forEach(x => {
+    const c = el(`<div class="st" style="padding:4px"><div class="im"><img loading="lazy" src="d/${encodeURIComponent(x.uri)}"></div>${isIn(x) ? '<span class="cv" style="color:var(--green);left:10px;right:auto">✓</span>' : ''}<span class="ck" style="${S.fsel.size ? '' : 'display:none'}"></span></div>`);
+    if (S.fsel.has(x.uri)) c.classList.add('sel');
+    c.onclick = () => {
+      S.fsel.has(x.uri) ? S.fsel.delete(x.uri) : S.fsel.add(x.uri);
+      c.classList.toggle('sel');
+      $$('.ck', grid).forEach(k => k.style.display = S.fsel.size ? '' : 'none');
+      drawBar();
+    };
+    grid.appendChild(c);
+  });
+  v.appendChild(grid);
+  const bar = el(`<div class="selbar hidden"><span class="n"></span><button class="btn sm" id="sa">Tudo</button><button class="btn sm primary" id="sp">Pôr num pack</button><button class="btn sm danger" id="sd">Apagar</button></div>`);
+  function drawBar() {
+    bar.classList.toggle('hidden', !S.fsel.size);
+    $('.n', bar).textContent = `${S.fsel.size} selec.`;
+    v.style.paddingBottom = S.fsel.size ? '76px' : '';
+  }
+  bar.querySelector('#sa').onclick = () => { if (S.fsel.size === files.length) S.fsel.clear(); else files.forEach(x => S.fsel.add(x.uri)); render(); };
+  bar.querySelector('#sp').onclick = () => folderToPack(Array.from(S.fsel));
+  bar.querySelector('#sd').onclick = async () => {
+    const n = S.fsel.size;
+    if (!await confirmBox(`Apagar ${n} ficheiro${n > 1 ? 's' : ''} do telemóvel?`, 'São apagados de vez desta pasta. Os que já estão nos teus packs continuam na app.')) return;
+    const del = A.deleteDocs(JSON.stringify(Array.from(S.fsel)));
+    toast(`${del} apagado${del === 1 ? '' : 's'}${del < n ? ` (${n - del} não deu)` : ''}`);
+    S.fsel = new Set(); S.ffiles = null; render();
+  };
+  v.appendChild(bar);
+  setTimeout(drawBar, 0);
+  return v;
+}
+
+async function folderToPack(uris) {
+  let chosen = null;
+  const packs = S.data.packs;
+  const html = `<div style="display:flex;flex-direction:column;gap:8px;max-height:50vh;overflow:auto;margin-bottom:12px">${packs.map(p => `<button class="pack" data-id="${esc(p.id)}" style="margin:0;text-align:left"><div class="tray" style="width:44px;height:44px">${p.stickers.length ? `<img src="${trayUrl(p)}">` : ''}</div><div class="info"><div class="name">${esc(p.name)}</div><div class="meta" style="margin:0">${countLabel(p)} · ${kindLabel(p)}</div></div></button>`).join('')}</div>`;
+  const pr = dialog({ title: `Pôr ${uris.length} sticker${uris.length > 1 ? 's' : ''} em…`, html, buttons: [{ label: 'Cancelar', cls: 'ghost', value: null }, { label: 'Novo pack', cls: 'primary', value: 'new' }] });
+  setTimeout(() => $$('.dialog .pack[data-id]').forEach(b => b.onclick = () => { chosen = b.dataset.id; closeOverlay(); }), 0);
+  const r = await pr;
+  if (r === 'new') { const p = await newPack(true); if (p) chosen = p.id; }
+  if (!chosen) return;
+  busy('A importar…');
+  A.importDocs(chosen, JSON.stringify(uris));
+}
+
+async function autoImportDialog(f, list) {
+  if (!list.length) return toast('Já está tudo na app');
+  let kind = 'kb';
+  const html = `<div class="field"><span>Para onde</span><div class="seg" id="ai-k"><button class="on" data-k="kb">Só teclado</button><button data-k="wa">WhatsApp</button></div></div>
+    <div class="hint" id="ai-h" style="margin:-4px 0 12px">Cria packs do teclado com até 300 stickers cada (animados e estáticos juntos).</div>
+    <label class="field"><span>Nome dos packs</span><input class="input" id="ai-n" maxlength="60" value="${esc(f.name)}"></label>`;
+  const pr = dialog({ title: `Importar ${list.length} sticker${list.length > 1 ? 's' : ''}`, html, buttons: [{ label: 'Cancelar', cls: 'ghost', value: null }, { label: 'Importar', cls: 'primary', value: d => $('#ai-n', d).value }] });
+  setTimeout(() => $$('#ai-k button').forEach(b => b.onclick = () => {
+    kind = b.dataset.k; $$('#ai-k button').forEach(x => x.classList.toggle('on', x === b));
+    $('#ai-h').textContent = kind === 'kb' ? 'Cria packs do teclado com até 300 stickers cada (animados e estáticos juntos).' : 'Cria packs de 30 para o WhatsApp, com animados e estáticos em packs separados (máximo 10 packs no total).';
+  }), 0);
+  const name = await pr;
+  if (name == null) return;
+  busy('A importar…');
+  A.importAuto(JSON.stringify(list.map(x => x.uri)), kind, name.trim() || f.name);
 }
 
 /* ---------- um pack ---------- */
@@ -294,9 +438,10 @@ function viewPack() {
   };
   v.appendChild(card);
 
-  const acts = el(`<div class="actions"><button class="btn" id="ia">${ICON.wa}Do WhatsApp</button><button class="btn" id="ig">${ICON.img}Galeria / ficheiros</button>${p.animated && !isKb(p) ? '' : `<button class="btn" id="ic" style="grid-column:1/-1">✂️ Criar sticker a partir de uma foto</button>`}</div>`);
-  const ic = acts.querySelector('#ic');
+  const acts = el(`<div class="actions"><button class="btn" id="ia">${ICON.wa}Do WhatsApp</button><button class="btn" id="ig">${ICON.img}Galeria / ficheiros</button>${p.animated && !isKb(p) ? '' : `<button class="btn" id="ic">✂️ Da foto</button><button class="btn" id="it">🔤 De texto</button>`}</div>`);
+  const ic = acts.querySelector('#ic'), itx = acts.querySelector('#it');
   if (ic) ic.onclick = () => { if (n >= maxOf(p)) return toast('Este pack já está cheio.'); S.createFor = p.id; A.pickForCreate(); };
+  if (itx) itx.onclick = () => { if (n >= maxOf(p)) return toast('Este pack já está cheio.'); openCreator(p.id, null); };
   const pick = wa => {
     if (n >= maxOf(p)) { toast(`Este pack já tem ${maxOf(p)} stickers (o máximo).`); return; }
     A.pickImages(p.id, wa);
@@ -564,25 +709,40 @@ function bulkEmoji(p) {
 function openCreator(packId, url) {
   const p = packOf(packId);
   if (!p) return;
-  const st = { zoom: 1, ox: 0, oy: 0, shape: 'sq', outline: true, top: '', bottom: '', size: 64, color: '#ffffff' };
-  const sheet = el(`<div class="sheet"><div class="hd"><h3>Criar sticker</h3><button class="iconbtn" id="x">${ICON.close}</button></div><div class="bd">
+  const textMode = !url;
+  const st = { zoom: 1, ox: 0, oy: 0, shape: textMode ? 'rr' : 'sq', outline: true, top: '', bottom: '', mid: '', size: 64, color: '#ffffff',
+    bg: textMode ? '#7C3AED' : 'none', tool: 'move', brush: 40 };
+  const BGS = [['none', 'Nenhum'], ['#ffffff', ''], ['#111111', ''], ['#25D366', ''], ['#FFE14D', ''], ['#FF5C8A', ''], ['#7C3AED', ''], ['grad', '']];
+  const sheet = el(`<div class="sheet"><div class="hd"><h3>${textMode ? 'Sticker de texto' : 'Criar sticker'}</h3><button class="iconbtn" id="x">${ICON.close}</button></div><div class="bd">
     <div style="display:grid;place-items:center"><canvas id="cv" width="512" height="512" style="width:min(300px,78vw);height:min(300px,78vw);border-radius:16px;touch-action:none;background-color:#1c2028;background-image:linear-gradient(45deg,#232832 25%,transparent 25%,transparent 75%,#232832 75%),linear-gradient(45deg,#232832 25%,transparent 25%,transparent 75%,#232832 75%);background-size:20px 20px;background-position:0 0,10px 10px"></canvas></div>
-    <div class="hint" style="text-align:center;margin:6px 0 10px">Arrasta a foto para a posicionar</div>
-    <label class="field"><span>Zoom</span><input type="range" id="zm" min="1" max="4" step="0.01" value="1" style="width:100%"></label>
-    <div class="field"><span>Forma</span><div class="seg" id="sh" style="grid-template-columns:repeat(4,1fr)"><button data-s="sq" class="on">Quadrado</button><button data-s="rd">Redondo</button><button data-s="rr">Cantos</button><button data-s="full">Livre</button></div></div>
-    <div class="opt" style="padding:4px 2px 12px"><div class="t"><b>Contorno branco</b></div><button class="sw on" id="ol"></button></div>
-    <label class="field"><span>Texto em cima</span><input class="input" id="tt" maxlength="40" placeholder="opcional"></label>
-    <label class="field"><span>Texto em baixo</span><input class="input" id="tb" maxlength="40" placeholder="opcional"></label>
-    <div class="field"><span>Tamanho e cor do texto</span><div class="row"><input type="range" id="ts" min="30" max="110" value="64" style="flex:1"><div class="seg" id="tc" style="grid-template-columns:repeat(3,44px)"><button data-c="#ffffff" class="on" style="color:#fff">A</button><button data-c="#FFE14D" style="color:#FFE14D">A</button><button data-c="#111111" style="color:#999">A</button></div></div></div>
+    ${textMode ? '' : `<div class="seg" id="tl" style="grid-template-columns:repeat(3,1fr);margin:10px 0 6px"><button data-t="move" class="on">✋ Mover</button><button data-t="erase">🧽 Borracha</button><button data-t="restore">↩ Repor</button></div>
+    <div class="row hidden" id="brow" style="margin-bottom:6px"><span class="small muted">Pincel</span><input type="range" id="bs" min="10" max="120" value="40" style="flex:1"><button class="btn sm" id="un">Desfazer</button></div>
+    <div class="hint" id="thint" style="text-align:center;margin:2px 0 10px">Arrasta a foto para a posicionar. Usa a borracha para apagar o fundo.</div>
+    <label class="field"><span>Zoom</span><input type="range" id="zm" min="1" max="4" step="0.01" value="1" style="width:100%"></label>`}
+    ${textMode ? `<label class="field" style="margin-top:12px"><span>Texto</span><textarea class="input" id="tm" rows="2" maxlength="80" placeholder="Ex.: BORA!" style="height:auto;padding:10px 14px;resize:none"></textarea></label>` : ''}
+    <div class="field"><span>Forma</span><div class="seg" id="sh" style="grid-template-columns:repeat(4,1fr)"><button data-s="sq">Quadrado</button><button data-s="rd">Redondo</button><button data-s="rr">Cantos</button><button data-s="full">${textMode ? 'Só texto' : 'Recorte'}</button></div></div>
+    <div class="field"><span>Fundo</span><div class="row" id="bgs" style="flex-wrap:wrap;gap:8px">${BGS.map(([c, l]) => `<button data-b="${c}" style="width:38px;height:38px;border-radius:12px;border:2px solid var(--line);${c === 'none' ? 'font-size:11px;width:auto;padding:0 8px' : c === 'grad' ? 'background:linear-gradient(135deg,#FF8A00,#E52E71,#7C3AED)' : 'background:' + c}">${l}</button>`).join('')}</div></div>
+    <div class="opt" style="padding:4px 2px 12px"><div class="t"><b>Contorno branco</b><div class="small muted">${textMode ? '' : 'Em “Recorte”, o contorno segue a forma do que ficou depois da borracha.'}</div></div><button class="sw on" id="ol"></button></div>
+    <label class="field"><span>${textMode ? 'Texto pequeno em cima' : 'Texto em cima'}</span><input class="input" id="tt" maxlength="40" placeholder="opcional"></label>
+    <label class="field"><span>${textMode ? 'Texto pequeno em baixo' : 'Texto em baixo'}</span><input class="input" id="tb" maxlength="40" placeholder="opcional"></label>
+    <div class="field"><span>Tamanho e cor do texto</span><div class="row"><input type="range" id="ts" min="30" max="${textMode ? 160 : 110}" value="${textMode ? 110 : 64}" style="flex:1"><div class="seg" id="tc" style="grid-template-columns:repeat(4,40px)"><button data-c="#ffffff" class="on" style="color:#fff">A</button><button data-c="#FFE14D" style="color:#FFE14D">A</button><button data-c="#111111" style="color:#999">A</button><button data-c="#25D366" style="color:#25D366">A</button></div></div></div>
     <label class="field"><span>Palavras para este sticker</span><input class="input" id="wd" placeholder="ex.: bom dia, bora"></label>
     <button class="btn primary block" id="sv">Guardar no pack “${esc(p.name)}”</button>
   </div></div>`);
+  if (textMode) st.size = 110;
   const ov = openOverlay(sheet, { modal: true, onClose: () => render() });
   $('#x', sheet).onclick = () => closeOverlay(ov);
   const cv = $('#cv', sheet), ctx = cv.getContext('2d');
+  const mk = () => { const c = document.createElement('canvas'); c.width = c.height = 512; return c; };
+  const layer = mk(), lctx = layer.getContext('2d');
+  const mask = mk(), mctx = mask.getContext('2d');
+  const sil = mk(), sctx = sil.getContext('2d');
+  mctx.fillStyle = '#fff'; mctx.fillRect(0, 0, 512, 512);
+  const undo = [];
   const im = new Image();
-  im.onload = () => draw();
-  im.src = url;
+  if (url) { im.onload = () => draw(); im.src = url; }
+  const mark = (sel, attr, val) => $$(sel + ' button', sheet).forEach(b => b.classList.toggle('on', b.dataset[attr] === val));
+  mark('#sh', 's', st.shape);
   function shapePath(c, inset) {
     const a = inset, b = 512 - inset;
     c.beginPath();
@@ -590,44 +750,143 @@ function openCreator(packId, url) {
     else if (st.shape === 'rr') { const r = 90; c.moveTo(a + r, a); c.arcTo(b, a, b, b, r); c.arcTo(b, b, a, b, r); c.arcTo(a, b, a, a, r); c.arcTo(a, a, b, a, r); c.closePath(); }
     else c.rect(a, a, b - a, b - a);
   }
-  function text(c, t, y, base) {
+  function fillBg(c) {
+    if (st.bg === 'none') return;
+    if (st.bg === 'grad') { const g = c.createLinearGradient(0, 0, 512, 512); g.addColorStop(0, '#FF8A00'); g.addColorStop(0.5, '#E52E71'); g.addColorStop(1, '#7C3AED'); c.fillStyle = g; }
+    else c.fillStyle = st.bg;
+    c.fillRect(0, 0, 512, 512);
+  }
+  function fitFont(c, t, size, maxW) {
+    c.font = `900 ${size}px Roboto, "Arial Black", sans-serif`;
+    while (c.measureText(t).width > maxW && size > 16) { size -= 2; c.font = `900 ${size}px Roboto, "Arial Black", sans-serif`; }
+    return size;
+  }
+  function strokeText(c, t, x, y, size) {
+    c.lineJoin = 'round'; c.lineWidth = Math.max(6, size / 6);
+    c.strokeStyle = st.color === '#111111' ? '#ffffff' : '#000000';
+    c.strokeText(t, x, y); c.fillStyle = st.color; c.fillText(t, x, y);
+  }
+  function text(c, t, y, base, size) {
     if (!t) return;
     c.save();
-    let size = st.size;
-    c.font = `900 ${size}px Roboto, "Arial Black", sans-serif`;
-    while (c.measureText(t).width > 470 && size > 18) { size -= 2; c.font = `900 ${size}px Roboto, "Arial Black", sans-serif`; }
-    c.textAlign = 'center'; c.textBaseline = base; c.lineJoin = 'round';
-    c.lineWidth = Math.max(6, size / 6);
-    c.strokeStyle = st.color === '#111111' ? '#ffffff' : '#000000';
-    c.strokeText(t, 256, y); c.fillStyle = st.color; c.fillText(t, 256, y);
+    size = fitFont(c, t, size, 460);
+    c.textAlign = 'center'; c.textBaseline = base;
+    strokeText(c, t, 256, y, size);
+    c.restore();
+  }
+  function midText(c) {
+    const t = st.mid.trim();
+    if (!t) return;
+    // divide em linhas e ajusta o tamanho para caber
+    const words = t.split(/\s+/);
+    let size = st.size, lines;
+    for (;;) {
+      c.font = `900 ${size}px Roboto, "Arial Black", sans-serif`;
+      lines = []; let line = '';
+      for (const w of words) {
+        const test = line ? line + ' ' + w : w;
+        if (c.measureText(test).width > 430 && line) { lines.push(line); line = w; } else line = test;
+      }
+      if (line) lines.push(line);
+      const tooWide = lines.some(l => c.measureText(l).width > 450);
+      if ((lines.length * size * 1.08 <= 400 && !tooWide) || size <= 24) break;
+      size -= 4;
+    }
+    c.save(); c.textAlign = 'center'; c.textBaseline = 'middle';
+    const h = lines.length * size * 1.08;
+    lines.forEach((l, i) => strokeText(c, l, 256, 256 - h / 2 + size * 1.08 * (i + 0.5), size));
     c.restore();
   }
   function draw() {
     ctx.clearRect(0, 0, 512, 512);
-    if (!im.width) return;
-    const inset = st.outline && st.shape !== 'full' ? 14 : 0;
-    const cover = Math.max(512 / im.width, 512 / im.height);
-    const sc = cover * st.zoom, w = im.width * sc, h = im.height * sc;
-    const maxX = Math.max(0, (w - 512) / 2), maxY = Math.max(0, (h - 512) / 2);
-    st.ox = Math.max(-maxX, Math.min(maxX, st.ox)); st.oy = Math.max(-maxY, Math.min(maxY, st.oy));
-    ctx.save();
-    if (st.shape !== 'full') { shapePath(ctx, inset); ctx.clip(); }
-    ctx.drawImage(im, 256 - w / 2 + st.ox, 256 - h / 2 + st.oy, w, h);
-    ctx.restore();
-    if (inset) { ctx.save(); shapePath(ctx, inset / 2); ctx.lineWidth = inset; ctx.strokeStyle = '#ffffff'; ctx.stroke(); ctx.restore(); }
-    text(ctx, st.top, 40, 'top');
-    text(ctx, st.bottom, 472, 'bottom');
+    const full = st.shape === 'full';
+    const inset = st.outline && !full ? 14 : 0;
+    // camada da foto, já com a borracha aplicada
+    lctx.clearRect(0, 0, 512, 512);
+    if (url && im.width) {
+      const cover = Math.max(512 / im.width, 512 / im.height);
+      const sc = cover * st.zoom, w = im.width * sc, h = im.height * sc;
+      const maxX = Math.max(0, (w - 512) / 2), maxY = Math.max(0, (h - 512) / 2);
+      st.ox = Math.max(-maxX, Math.min(maxX, st.ox)); st.oy = Math.max(-maxY, Math.min(maxY, st.oy));
+      lctx.globalCompositeOperation = 'source-over';
+      lctx.drawImage(im, 256 - w / 2 + st.ox, 256 - h / 2 + st.oy, w, h);
+      lctx.globalCompositeOperation = 'destination-in';
+      lctx.drawImage(mask, 0, 0);
+      lctx.globalCompositeOperation = 'source-over';
+    }
+    if (full) {
+      // recorte livre: fundo só se houver, contorno à volta da silhueta
+      if (st.bg !== 'none') { ctx.save(); fillBg(ctx); ctx.restore(); }
+      if (st.outline && url) {
+        sctx.clearRect(0, 0, 512, 512);
+        sctx.globalCompositeOperation = 'source-over'; sctx.drawImage(layer, 0, 0);
+        sctx.globalCompositeOperation = 'source-in'; sctx.fillStyle = '#fff'; sctx.fillRect(0, 0, 512, 512);
+        sctx.globalCompositeOperation = 'source-over';
+        for (let k = 0; k < 24; k++) { const a = k / 24 * Math.PI * 2; ctx.drawImage(sil, Math.cos(a) * 9, Math.sin(a) * 9); }
+      }
+      ctx.drawImage(layer, 0, 0);
+    } else {
+      ctx.save(); shapePath(ctx, inset); ctx.clip();
+      fillBg(ctx);
+      ctx.drawImage(layer, 0, 0);
+      ctx.restore();
+      if (inset) { ctx.save(); shapePath(ctx, inset / 2); ctx.lineWidth = inset; ctx.strokeStyle = '#ffffff'; ctx.stroke(); ctx.restore(); }
+    }
+    if (textMode) midText(ctx);
+    const small = textMode ? 46 : st.size;
+    text(ctx, st.top, 40, 'top', small);
+    text(ctx, st.bottom, 472, 'bottom', small);
   }
+  draw();
+  // arrastar / apagar
   let drag = null;
-  cv.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, ox: st.ox, oy: st.oy }; cv.setPointerCapture(e.pointerId); });
+  const pos = e => { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * 512 / r.width, y: (e.clientY - r.top) * 512 / r.height }; };
+  function brushAt(pt) {
+    mctx.save();
+    mctx.globalCompositeOperation = st.tool === 'erase' ? 'destination-out' : 'source-over';
+    mctx.fillStyle = '#fff';
+    mctx.beginPath(); mctx.arc(pt.x, pt.y, st.brush / 2, 0, Math.PI * 2); mctx.fill();
+    mctx.restore();
+  }
+  cv.addEventListener('pointerdown', e => {
+    if (!url) return;
+    cv.setPointerCapture(e.pointerId);
+    if (st.tool === 'move') drag = { x: e.clientX, y: e.clientY, ox: st.ox, oy: st.oy };
+    else {
+      undo.push(mctx.getImageData(0, 0, 512, 512)); if (undo.length > 15) undo.shift();
+      drag = { last: pos(e) }; brushAt(drag.last); draw();
+    }
+  });
   cv.addEventListener('pointermove', e => {
     if (!drag) return;
-    const k = 512 / cv.getBoundingClientRect().width;
-    st.ox = drag.ox + (e.clientX - drag.x) * k; st.oy = drag.oy + (e.clientY - drag.y) * k; draw();
+    if (st.tool === 'move') {
+      const k = 512 / cv.getBoundingClientRect().width;
+      st.ox = drag.ox + (e.clientX - drag.x) * k; st.oy = drag.oy + (e.clientY - drag.y) * k;
+    } else {
+      const pt = pos(e), l = drag.last;
+      const dist = Math.hypot(pt.x - l.x, pt.y - l.y), steps = Math.max(1, Math.ceil(dist / (st.brush / 4)));
+      for (let i = 1; i <= steps; i++) brushAt({ x: l.x + (pt.x - l.x) * i / steps, y: l.y + (pt.y - l.y) * i / steps });
+      drag.last = pt;
+    }
+    draw();
   });
   cv.addEventListener('pointerup', () => drag = null);
-  $('#zm', sheet).oninput = e => { st.zoom = +e.target.value; draw(); };
-  $$('#sh button', sheet).forEach(b => b.onclick = () => { st.shape = b.dataset.s; $$('#sh button', sheet).forEach(x => x.classList.toggle('on', x === b)); draw(); });
+  cv.addEventListener('pointercancel', () => drag = null);
+  if (!textMode) {
+    $$('#tl button', sheet).forEach(b => b.onclick = () => {
+      st.tool = b.dataset.t; mark('#tl', 't', st.tool);
+      $('#brow', sheet).classList.toggle('hidden', st.tool === 'move');
+      $('#thint', sheet).textContent = st.tool === 'move' ? 'Arrasta a foto para a posicionar. Usa a borracha para apagar o fundo.' : st.tool === 'erase' ? 'Passa o dedo por cima do que queres apagar. Escolhe “Recorte” em Forma para o contorno seguir o desenho.' : 'Passa o dedo para voltar a mostrar o que apagaste.';
+    });
+    $('#bs', sheet).oninput = e => { st.brush = +e.target.value; };
+    $('#un', sheet).onclick = () => { const d = undo.pop(); if (d) { mctx.putImageData(d, 0, 0); draw(); } };
+    $('#zm', sheet).oninput = e => { st.zoom = +e.target.value; draw(); };
+  } else {
+    $('#tm', sheet).oninput = e => { st.mid = e.target.value; draw(); };
+  }
+  $$('#sh button', sheet).forEach(b => b.onclick = () => { st.shape = b.dataset.s; mark('#sh', 's', st.shape); draw(); });
+  $$('#bgs button', sheet).forEach(b => b.onclick = () => { st.bg = b.dataset.b; $$('#bgs button', sheet).forEach(x => x.style.borderColor = x === b ? 'var(--green)' : 'var(--line)'); draw(); });
+  $$('#bgs button', sheet).forEach(x => x.style.borderColor = x.dataset.b === st.bg ? 'var(--green)' : 'var(--line)');
   $('#ol', sheet).onclick = e => { st.outline = !st.outline; e.currentTarget.classList.toggle('on', st.outline); draw(); };
   $('#tt', sheet).oninput = e => { st.top = e.target.value; draw(); };
   $('#tb', sheet).oninput = e => { st.bottom = e.target.value; draw(); };
@@ -635,7 +894,9 @@ function openCreator(packId, url) {
   $$('#tc button', sheet).forEach(b => b.onclick = () => { st.color = b.dataset.c; $$('#tc button', sheet).forEach(x => x.classList.toggle('on', x === b)); draw(); });
   $('#sv', sheet).onclick = () => {
     draw();
+    if (textMode && !st.mid.trim() && !st.top && !st.bottom) return toast('Escreve um texto primeiro');
     const words = $('#wd', sheet).value.split(',').map(x => x.trim()).filter(Boolean);
+    if (textMode && !words.length) Match.tokens(st.mid).filter(w => !Match.STOP.has(w)).slice(0, 4).forEach(w => words.push(w));
     let r;
     try { r = JSON.parse(A.saveCreated(packId, cv.toDataURL('image/png'), JSON.stringify(words))); } catch (e) { r = { error: 'erro' }; }
     if (r.error) { toast(r.error); return; }
@@ -948,8 +1209,8 @@ window.App = {
     busy(null);
     if (!r || r.cancelled) return;
     reload();
-    S.tab = 'packs'; S.packId = r.packId; S.sel = null;
-    render();
+    if (S.folder) { S.fsel = new Set(); render(); }
+    else { S.tab = 'packs'; S.packId = r.packId; S.sel = null; render(); }
     const added = r.added.length, errs = r.errors || [], notes = r.notes || [];
     if (errs.length || notes.length) {
       dialog({ title: added ? `${added} sticker${added > 1 ? 's' : ''} adicionado${added > 1 ? 's' : ''}` : 'Nada foi adicionado',
@@ -968,6 +1229,20 @@ window.App = {
     else if (r.error) dialog({ title: 'O WhatsApp recusou o pack', text: r.error, buttons: [{ label: 'OK', cls: 'primary' }] });
     render();
   },
+  onFolderAdded(f) {
+    if (!f) return;
+    reload();
+    S.folders = true; S.folder = f; S.fsel = new Set(); S.ffiles = null;
+    render();
+  },
+  onAutoImported(r) {
+    busy(null);
+    reload();
+    S.ffiles = null; render();
+    dialog({ title: `${r.added} sticker${r.added === 1 ? '' : 's'} importado${r.added === 1 ? '' : 's'}`,
+      html: `<ul class="list-err">${r.created ? `<li>${r.created} pack${r.created > 1 ? 's' : ''} novo${r.created > 1 ? 's' : ''}</li>` : ''}${r.dup ? `<li>${r.dup} já estavam na app (ignorados)</li>` : ''}${r.fail ? `<li>${r.fail} não deram para converter</li>` : ''}${r.stop ? `<li>${esc(r.stop)}</li>` : ''}</ul>`,
+      buttons: [{ label: 'OK', cls: 'primary' }] });
+  },
   onBackup(r) {
     busy(null);
     if (!r || r.cancelled) return;
@@ -985,6 +1260,8 @@ window.App = {
     if (busyEl) return true;
     if (S.ov.length) { closeOverlay(); return true; }
     if (S.sel) { S.sel = null; render(); return true; }
+    if (S.folder) { S.folder = null; S.fsel = null; render(); return true; }
+    if (S.folders) { S.folders = false; render(); return true; }
     if (S.packId) { S.packId = null; render(); return true; }
     if (S.tab !== 'packs') { go('packs'); return true; }
     return false;

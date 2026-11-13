@@ -40,3 +40,18 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0}
 .pv .acts button.pri{background:#25D366;color:#06210F}
 .pv .acts button.wide{grid-column:1/-1}
 .pv .x{position:absolute;top:6px;right:8px;width:32px;height:32px;border-radius:10px;font-size:18px;color:#9AA3B0}
+
+#srch,#multi{font-size:17px}
+#multi.on{background:rgba(37,211,102,.16)}
+.grid.strip{display:flex;flex:none;height:78px;overflow-x:auto;overflow-y:hidden;gap:4px;padding:5px 6px}
+.grid.strip .s{width:66px;height:66px;flex:none}
+.grid.strip .msg{white-space:nowrap}
+.keys{flex:1;display:flex;flex-direction:column;gap:5px;padding:4px 4px 6px;border-top:1px solid #20252E;min-height:0}
+.krow{display:flex;gap:4px;flex:1;min-height:30px}
+.k{flex:1;border-radius:8px;background:#20252E;font-size:17px;color:#EEF1F5;min-width:0}
+.k:active{background:#2E3540}
+.k.w2{flex:2.2}.k.w5{flex:5}.k.acc{background:#25D366;color:#06210F;font-weight:700;font-size:14px}.k.dim{font-size:13px;color:#9AA3B0}
+.s .num{position:absolute;top:2px;left:2px;min-width:20px;height:20px;border-radius:10px;background:#25D366;color:#06210F;font-size:12px;font-weight:800;display:grid;place-items:center;padding:0 5px}
+.s.sel{background:rgba(37,211,102,.14)}
+.sendn{position:fixed;right:10px;bottom:10px;height:40px;padding:0 16px;border-radius:20px;background:#25D366;color:#06210F;font-weight:800;font-size:14px;box-shadow:0 6px 18px rgba(0,0,0,.4);z-index:4}
+.secl{grid-column:1/-1;color:#6B7482;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;padding:6px 6px 0}

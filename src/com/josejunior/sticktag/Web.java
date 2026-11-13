@@ -40,7 +40,16 @@ public final class Web {
         try {
             InputStream in;
             Map<String, String> headers = new HashMap<String, String>();
-            if (path.startsWith("f/")) {
+            if (path.startsWith("d/")) {
+                // imagem de uma pasta escolhida pelo utilizador
+                Uri doc = Uri.parse(path.substring(2));
+                if (!Folders.allowed(c, doc)) return notFound();
+                in = c.getContentResolver().openInputStream(doc);
+                if (in == null) return notFound();
+                String n = path.toLowerCase();
+                mime = n.endsWith(".png") ? "image/png" : n.endsWith(".gif") ? "image/gif" : (n.endsWith(".jpg") || n.endsWith(".jpeg")) ? "image/jpeg" : "image/webp";
+                headers.put("Cache-Control", "max-age=600");
+            } else if (path.startsWith("f/")) {
                 File f = new File(Store.root(c), "packs/" + path.substring(2));
                 if (!f.exists()) return notFound();
                 in = new FileInputStream(f);
