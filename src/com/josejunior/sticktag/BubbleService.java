@@ -211,9 +211,9 @@ public class BubbleService extends AccessibilityService {
     void positionPanel() {
         if (!shown || lp == null) return;
         int sw = getResources().getDisplayMetrics().widthPixels;
-        int h = dp(196);
+        int h = dp(244);
         int top = imeRect.top > 0 ? imeRect.top : getResources().getDisplayMetrics().heightPixels / 2;
-        lp.width = sw; lp.height = h; lp.x = 0; lp.y = Math.max(0, top - h);
+        lp.width = sw - dp(12); lp.height = h; lp.x = dp(6); lp.y = Math.max(0, top - h - dp(4));
         try { wm.updateViewLayout(web, lp); } catch (Exception ignored) {}
     }
 

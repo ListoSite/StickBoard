@@ -6,31 +6,70 @@
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;background:transparent;color:#EEF1F5;font-family:Roboto,system-ui,sans-serif;font-size:14px;overflow:hidden;user-select:none;-webkit-user-select:none}
-button{font:inherit;color:inherit;background:none;border:0;padding:0}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
 .hidden{display:none!important}
-#bub{position:fixed;left:4px;top:4px;width:48px;height:48px;border-radius:50%;background:#25D366;display:grid;place-items:center;box-shadow:0 4px 14px rgba(0,0,0,.45);touch-action:none}
-#bub.dim{background:#2C323C}
-#bub .ic{font-size:24px;line-height:1}
-#bub .bd{position:absolute;top:-2px;right:-2px;min-width:20px;height:20px;border-radius:10px;background:#FF5C6C;color:#fff;font-size:12px;font-weight:800;display:grid;place-items:center;padding:0 5px;border:2px solid #0E1014}
-#pan{position:fixed;inset:0;background:#0E1014;border-radius:18px 18px 0 0;border-top:1px solid #2A303A;display:flex;flex-direction:column}
-.hd{height:42px;display:flex;align-items:center;gap:6px;padding:0 6px 0 14px;flex:none}
-.q{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#9AA3B0;font-size:13px}
-.q b{color:#25D366}
-.ib{height:32px;padding:0 10px;border-radius:10px;background:#20252E;font-size:13px;font-weight:600;white-space:nowrap}
-.ib.x{width:34px;padding:0;font-size:17px}
-.strip{flex:1;display:grid;grid-auto-flow:column;grid-template-rows:repeat(2,1fr);grid-auto-columns:72px;gap:4px;overflow-x:auto;overflow-y:hidden;padding:2px 8px 8px}
-.s{border-radius:12px;display:grid;place-items:center}
-.s:active{background:#1d2620}
-.s img{width:90%;height:90%;object-fit:contain}
-.msg{grid-row:1/-1;color:#9AA3B0;font-size:13px;padding:10px 8px;width:300px;white-space:normal;line-height:1.4}
-.lbl{grid-row:1/-1;writing-mode:vertical-rl;transform:rotate(180deg);color:#6B7482;font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;text-align:center}
+svg{display:block}
+
+/* bolha */
+#bub{position:fixed;left:4px;top:4px;width:48px;height:48px;border-radius:50%;display:grid;place-items:center;touch-action:none;
+  background:radial-gradient(circle at 30% 25%,#5BEA94,#25D366 55%,#12A44A);box-shadow:0 6px 16px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.35)}
+#bub.dim{background:radial-gradient(circle at 30% 25%,#4A525E,#2C323C 60%,#20252D)}
+#bub svg{width:24px;height:24px;color:#06210F}
+#bub.dim svg{color:#C9D1DC}
+#bub .bd{position:absolute;top:-3px;right:-3px;min-width:20px;height:20px;border-radius:10px;background:#FF4D5E;color:#fff;font-size:11.5px;font-weight:800;display:grid;place-items:center;padding:0 5px;border:2px solid #0E1014}
+#bub.pulse{animation:pulse 1.6s ease-out 2}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(37,211,102,.55),0 6px 16px rgba(0,0,0,.45)}100%{box-shadow:0 0 0 14px rgba(37,211,102,0),0 6px 16px rgba(0,0,0,.45)}}
+
+/* painel */
+#pan{position:fixed;inset:0;padding:2px}
+.card{height:100%;border-radius:22px;background:linear-gradient(180deg,#171B22,#111419);border:1px solid #2A303A;box-shadow:0 10px 30px rgba(0,0,0,.5);display:flex;flex-direction:column;overflow:hidden;animation:up .2s cubic-bezier(.2,.9,.3,1)}
+@keyframes up{from{transform:translateY(16px);opacity:0}}
+.hd{display:flex;align-items:center;gap:8px;padding:10px 10px 6px 12px;flex:none}
+.logo{width:30px;height:30px;border-radius:10px;background:#25D366;display:grid;place-items:center;flex:none}
+.logo svg{width:17px;height:17px;color:#06210F}
+.tt{flex:1;min-width:0}
+.tt .a{font-size:11px;color:#6B7482;font-weight:700;letter-spacing:.5px;text-transform:uppercase}
+.tt .b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px;font-weight:600;color:#EEF1F5;margin-top:1px}
+.tt .b.muted{color:#6B7482;font-weight:400}
+.ib{width:36px;height:36px;border-radius:12px;background:#20252E;display:grid;place-items:center;flex:none}
+.ib:active{background:#2C333E}
+.ib svg{width:19px;height:19px}
+.tabs{display:flex;gap:6px;padding:2px 12px 8px;flex:none;overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{height:30px;padding:0 12px;border-radius:15px;background:#1D222A;color:#9AA3B0;font-size:13px;font-weight:600;white-space:nowrap;display:flex;align-items:center;gap:5px}
+.tab.on{background:rgba(37,211,102,.16);color:#25D366}
+.tab .n{font-size:11px;background:#25D366;color:#06210F;border-radius:8px;padding:0 6px;line-height:16px}
+.strip{flex:1;display:grid;grid-auto-flow:column;grid-template-rows:repeat(2,1fr);grid-auto-columns:76px;gap:6px;overflow-x:auto;overflow-y:hidden;padding:0 12px 12px;scrollbar-width:none}
+.strip::-webkit-scrollbar{display:none}
+.s{border-radius:16px;background:#1A1F27;display:grid;place-items:center;position:relative;transition:transform .12s}
+.s:active{transform:scale(.92);background:#20302A}
+.s img{width:86%;height:86%;object-fit:contain;pointer-events:none}
+.s .fv{position:absolute;top:3px;right:5px;font-size:11px}
+.sep{grid-row:1/-1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:4px;width:44px;color:#6B7482;font-size:10.5px;font-weight:700;text-align:center;line-height:1.2}
+.sep .i{font-size:18px}
+.empty{grid-row:1/-1;width:calc(100vw - 30px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#9AA3B0;font-size:13px;text-align:center;padding:0 16px;line-height:1.4}
+.empty .i{font-size:28px}
+.empty b{color:#EEF1F5}
+.sending{position:absolute;inset:0;background:rgba(14,16,20,.82);display:grid;place-items:center;border-radius:22px;font-weight:700;font-size:15px;color:#25D366;animation:fade .15s}
+@keyframes fade{from{opacity:0}}
 </style>
 </head>
 <body>
-<div id="bub"><span class="ic">🏷️</span><span class="bd hidden" id="badge"></span></div>
+<div id="bub">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.6" fill="currentColor"/></svg>
+  <span class="bd hidden" id="badge"></span>
+</div>
 <div id="pan" class="hidden">
-  <div class="hd"><div class="q" id="q"></div><button class="ib" id="kb">⌨ Teclado de stickers</button><button class="ib x" id="x">✕</button></div>
-  <div class="strip" id="strip"></div>
+  <div class="card" id="card">
+    <div class="hd">
+      <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.6" fill="currentColor"/></svg></div>
+      <div class="tt"><div class="a" id="qa">Stickers para</div><div class="b" id="qb"></div></div>
+      <button class="ib" id="kb" title="Abrir o teclado de stickers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="13" rx="2.5"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 15h10"/></svg></button>
+      <button class="ib" id="x" title="Fechar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="tabs" id="tabs"></div>
+    <div class="strip" id="strip"></div>
+  </div>
 </div>
 <script src="match.js"></script>
 <script>
@@ -40,7 +79,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const EM = new Map();
 const info = e => EM.get(M.stripVS(e));
-let DATA = { packs: [] }, IDX = [], text = '', mode = 'bubble', lastLoad = 0;
+let DATA = { packs: [] }, IDX = [], text = '', mode = 'bubble', lastLoad = 0, tab = 'sug', lastCount = 0;
 const img = (p, f) => `f/${encodeURIComponent(p.id)}/${encodeURIComponent(f)}?v=${p.version || 0}`;
 
 function load(force) {
@@ -49,54 +88,80 @@ function load(force) {
   try { DATA = JSON.parse(B.getData()); } catch (e) {}
   IDX = M.buildIndex(DATA, info);
 }
-function results() {
-  let r = M.search(IDX, text, 40);
-  if (DATA.kbShuffle && r.length > 1) for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; }
-  return r;
-}
+function shuffle(r) { for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; } return r; }
+function results() { const r = M.search(IDX, text, 40); return DATA.kbShuffle ? shuffle(r) : r; }
 function timeWords() {
   const h = new Date().getHours();
-  if (h >= 5 && h < 12) return { label: 'Bom dia', q: 'bom dia manhã café' };
-  if (h >= 12 && h < 19) return { label: 'Boa tarde', q: 'boa tarde almoço' };
-  return { label: 'Boa noite', q: 'boa noite dormir sono' };
+  if (h >= 5 && h < 12) return { label: 'Bom dia', icon: '☀️', q: 'bom dia manhã café' };
+  if (h >= 12 && h < 19) return { label: 'Boa tarde', icon: '🌤️', q: 'boa tarde almoço' };
+  return { label: 'Boa noite', icon: '🌙', q: 'boa noite dormir sono' };
 }
 function getRecent() { try { return JSON.parse(localStorage.getItem('kbRecent') || '[]'); } catch (e) { return []; } }
 function pushRecent(p, f) { try { const r = getRecent().filter(x => !(x.p === p && x.f === f)); r.unshift({ p, f }); localStorage.setItem('kbRecent', JSON.stringify(r.slice(0, 40))); } catch (e) {} }
+function find(pid, f) { const p = DATA.packs.find(q => q.id === pid); const s = p && p.stickers.find(q => q.f === f); return s ? { p, s } : null; }
+const line = () => text.split('\n').pop().trim();
 
 function drawBadge() {
-  const n = text.trim() ? M.search(IDX, text, 99).length : 0;
-  const b = $('#badge');
+  const n = line() ? M.search(IDX, text, 99).length : 0;
+  const b = $('#badge'), bub = $('#bub');
   b.classList.toggle('hidden', !n);
   b.textContent = n > 9 ? '9+' : n;
-  $('#bub').classList.toggle('dim', !n);
+  bub.classList.toggle('dim', !n);
+  if (n > lastCount) { bub.classList.remove('pulse'); void bub.offsetWidth; bub.classList.add('pulse'); }
+  lastCount = n;
 }
 function tile(p, s) {
   const d = document.createElement('button');
   d.className = 's';
-  d.innerHTML = `<img loading="lazy" src="${img(p, s.f)}">`;
+  d.innerHTML = `<img loading="lazy" src="${img(p, s.f)}">${s.fav ? '<span class="fv">⭐</span>' : ''}`;
   d.onclick = () => {
     pushRecent(p.id, s.f);
     const w = M.queryTokens(text);
     if (w.length) { try { B.learn(p.id, s.f, JSON.stringify(w)); } catch (e) {} }
+    const ov = document.createElement('div'); ov.className = 'sending'; ov.textContent = 'A enviar…';
+    $('#card').appendChild(ov);
+    setTimeout(() => ov.remove(), 1200);
     B.send(p.id, s.f);
   };
   return d;
 }
-function msg(h, cls = 'msg') { const m = document.createElement('div'); m.className = cls; m.innerHTML = h; return m; }
+function sep(icon, label) { const d = document.createElement('div'); d.className = 'sep'; d.innerHTML = `<span class="i">${icon}</span>${esc(label)}`; return d; }
+function empty(icon, html) { const d = document.createElement('div'); d.className = 'empty'; d.innerHTML = `<span class="i">${icon}</span><div>${html}</div>`; return d; }
+
+function drawTabs(nSug) {
+  const favs = DATA.packs.reduce((a, p) => a + p.stickers.filter(s => s.fav).length, 0);
+  const T = [['sug', '✨ Sugestões', nSug], ['fav', '⭐ Favoritos', 0], ['rec', '🕘 Recentes', 0]];
+  if (!favs) T.splice(1, 1);
+  if (tab === 'fav' && !favs) tab = 'sug';
+  $('#tabs').innerHTML = T.map(([id, l, n]) => `<button class="tab ${tab === id ? 'on' : ''}" data-t="${id}">${l}${n ? `<span class="n">${n}</span>` : ''}</button>`).join('');
+  $('#tabs').querySelectorAll('.tab').forEach(b => b.onclick = () => { tab = b.dataset.t; drawPanel(); });
+}
 function drawPanel() {
-  const line = text.split('\n').pop().trim();
-  $('#q').innerHTML = line ? `<b>«${esc(line.length > 30 ? '…' + line.slice(-28) : line)}»</b>` : 'Escreve uma frase…';
+  const l = line();
+  $('#qa').textContent = l ? 'Stickers para' : 'Escreve uma frase';
+  const qb = $('#qb');
+  qb.textContent = l ? `«${l.length > 34 ? '…' + l.slice(-32) : l}»` : 'e os stickers aparecem aqui';
+  qb.classList.toggle("muted", !l);
+  const res = l ? results() : [];
+  drawTabs(res.length);
   const st = $('#strip');
   st.innerHTML = '';
-  const res = results();
-  res.forEach(r => st.appendChild(tile(r.p, r.s)));
-  if (!res.length) {
-    const tw = timeWords();
-    const now = M.search(IDX, tw.q, 10);
-    if (line) st.appendChild(msg(`Nenhum sticker para «${esc(line.slice(-30))}». Abaixo: sugestões e recentes.`));
-    if (now.length) { st.appendChild(msg(tw.label, 'lbl')); now.forEach(r => st.appendChild(tile(r.p, r.s))); }
-    const rec = getRecent().map(x => { const p = DATA.packs.find(q => q.id === x.p); const s = p && p.stickers.find(q => q.f === x.f); return s ? { p, s } : null; }).filter(Boolean);
-    if (rec.length) { st.appendChild(msg('Recentes', 'lbl')); rec.forEach(x => st.appendChild(tile(x.p, x.s))); }
+  if (tab === 'sug') {
+    if (res.length) res.forEach(r => st.appendChild(tile(r.p, r.s)));
+    else {
+      const tw = timeWords();
+      const now = M.search(IDX, tw.q, 12);
+      if (now.length) { st.appendChild(sep(tw.icon, tw.label)); now.forEach(r => st.appendChild(tile(r.p, r.s))); }
+      const rec = getRecent().map(x => find(x.p, x.f)).filter(Boolean).slice(0, 20);
+      if (rec.length) { st.appendChild(sep('🕘', 'Recentes')); rec.forEach(x => st.appendChild(tile(x.p, x.s))); }
+      if (!now.length && !rec.length) st.appendChild(empty('💬', l ? `Nada para <b>«${esc(l.slice(-30))}»</b> ainda.<br>Dá palavras aos teus stickers no StickTag.` : 'Escreve na conversa e eu mostro os stickers que combinam.'));
+    }
+  } else if (tab === 'fav') {
+    DATA.packs.forEach(p => p.stickers.forEach(s => { if (s.fav) st.appendChild(tile(p, s)); }));
+  } else {
+    const rec = getRecent().map(x => find(x.p, x.f)).filter(Boolean);
+    if (rec.length) rec.forEach(x => st.appendChild(tile(x.p, x.s)));
+    else st.appendChild(empty('🕘', 'Os stickers que enviares aparecem aqui.'));
   }
   st.scrollLeft = 0;
 }
@@ -116,7 +181,7 @@ bub.addEventListener('pointermove', e => {
 bub.addEventListener('pointerup', () => {
   if (!down) return;
   down = null;
-  if (moved <= 8) { load(true); B.expand(true); }
+  if (moved <= 8) { load(true); tab = 'sug'; B.expand(true); }
   else B.dragEnd();
 });
 $('#x').onclick = () => B.expand(false);
@@ -127,7 +192,8 @@ window.BubbleApp = {
     mode = m;
     $('#bub').classList.toggle('hidden', m !== 'bubble');
     $('#pan').classList.toggle('hidden', m !== 'panel');
-    if (m === 'panel') drawPanel(); else drawBadge();
+    if (m === 'panel') { const c = $('#card'); c.style.animation = 'none'; void c.offsetWidth; c.style.animation = ''; drawPanel(); }
+    else drawBadge();
   },
   onText(t) {
     text = t || '';
@@ -138,7 +204,7 @@ window.BubbleApp = {
     B.expand(true);
     const st = $('#strip');
     st.innerHTML = '';
-    st.appendChild(msg(why === 'old' ? 'Enviar pela bolha precisa do Android 11 ou mais recente. Usa o botão de mudar de teclado.' : 'Ativa primeiro o teclado “StickTag · Stickers” (no StickTag → separador Teclado).'));
+    st.appendChild(empty('⚠️', why === 'old' ? 'Enviar pela bolha precisa do Android 11 ou mais recente.<br>Usa o botão de mudar de teclado.' : 'Ativa primeiro o teclado <b>StickTag · Stickers</b><br>(no StickTag → separador Teclado).'));
   }
 };
 
