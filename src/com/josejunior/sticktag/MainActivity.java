@@ -889,6 +889,36 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String specialLog() { return Specials.logJson(); }
 
+        /** Troca a imagem de um sticker animado (ex.: depois de o suavizar), mantendo as tags. */
+        @JavascriptInterface
+        public String replaceSticker(String packId, String file, String dataUrl) {
+            try {
+                byte[] b = android.util.Base64.decode(dataUrl.substring(dataUrl.indexOf(',') + 1), android.util.Base64.DEFAULT);
+                Webp.Info wi = Webp.info(b);
+                if (wi == null || !wi.animated || wi.frames < 2) return err("não é um sticker animado");
+                if (wi.totalMs > 10000) return err("a animação passa dos 10 segundos");
+                if (wi.minFrameMs > 0 && wi.minFrameMs < 8) return err("a animação tem frames demasiado rápidos");
+                if (b.length > Store.ANIM_LIMIT) return err("ficou maior do que 500 KB");
+                synchronized (Store.LOCK) {
+                    JSONObject data = Store.load(MainActivity.this);
+                    JSONObject p = Store.findPack(data, packId);
+                    JSONObject st = p == null ? null : Store.findSticker(p, file);
+                    if (st == null) return err("sticker não encontrado");
+                    Store.writeFile(new File(Store.packDir(MainActivity.this, packId), file), b);
+                    st.remove("exif");
+                    st.put("anim", true);
+                    p.put("version", p.optInt("version", 0) + 1);
+                    if (file.equals(p.optString("trayFrom"))) p.remove("trayFrom");
+                    Store.sync(MainActivity.this, data, p);
+                    Store.save(MainActivity.this, data);
+                    JSONObject cache = Dupes.loadCache(MainActivity.this);
+                    cache.remove(packId + "/" + file);
+                    Dupes.saveCache(MainActivity.this, cache);
+                    return data.toString();
+                }
+            } catch (Exception e) { return err("não consegui guardar"); }
+        }
+
         /** Guarda o Eco (respostas automáticas a palavras). */
         @JavascriptInterface
         public String setEco(String json) {

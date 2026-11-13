@@ -813,7 +813,7 @@ function openEditor(packId, idx) {
       <div class="words"></div>
       <div class="hint" style="margin-top:6px">Quando escreveres uma destas palavras, o teclado de stickers sugere este sticker. As palavras dos emojis também contam.</div>
       ${Object.keys(s.learn || {}).length ? `<div class="sec" style="margin-top:16px">Aprendidas pelo teclado</div><div class="words" id="lw"></div><div class="hint" style="margin-top:6px">Palavras que escreveste antes de escolher este sticker. Toca no × para esquecer.</div>` : ''}
-      <div class="row" style="margin-top:16px;flex-wrap:wrap"><button class="btn sm" id="fv">${s.fav ? '⭐ Favorito' : '☆ Favorito'}</button><button class="btn sm" id="gl">💾 Galeria</button><button class="btn sm" id="cv">${p.cover === s.f ? '★ É a capa' : '☆ Capa'}</button><button class="btn sm" id="mv">Mover</button><button class="btn sm danger" id="dl">Apagar</button></div>`;
+      <div class="row" style="margin-top:16px;flex-wrap:wrap"><button class="btn sm" id="fv">${s.fav ? '⭐ Favorito' : '☆ Favorito'}</button><button class="btn sm" id="gl">💾 Galeria</button><button class="btn sm" id="cv">${p.cover === s.f ? '★ É a capa' : '☆ Capa'}</button><button class="btn sm" id="mv">Mover</button>${s.anim || p.animated ? '<button class="btn sm" id="smo">✨ Suavizar</button>' : ''}<button class="btn sm danger" id="dl">Apagar</button></div>`;
     const lw = $('#lw', bd);
     if (lw) {
       const L = s.learn || {};
@@ -825,6 +825,7 @@ function openEditor(packId, idx) {
     drawTop(); drawWords(); redrawPicker();
     $('#cv', bd).onclick = () => { p.cover = s.f; commit(); drawAll(); toast('Capa do pack atualizada'); };
     $('#mv', bd).onclick = async () => { const ok = await moveStickers(p, [s.f]); if (ok) closeOverlay(ov); };
+    const smo = $('#smo', bd); if (smo) smo.onclick = () => { closeOverlay(ov); openSmooth(p, s); };
     $('#dl', bd).onclick = async () => {
       if (!await confirmBox('Apagar este sticker?', 'Sai deste pack (e do WhatsApp, se o pack lá estiver).')) return;
       const r = JSON.parse(A.deleteSticker(p.id, s.f));
@@ -895,7 +896,7 @@ function openAnimCreator(packId, media, opts = {}) {
     <div class="row" style="justify-content:center;margin:8px 0"><button class="btn sm" id="pl">▶ Pré-visualizar</button><span class="hint" id="info">A carregar…</span></div>
     <label class="field"><span id="lst">Começa em 0,0 s</span><input type="range" id="ss" min="0" max="1" step="0.05" value="0" style="width:100%"></label>
     <label class="field"><span id="lln">Duração 3,0 s</span><input type="range" id="sl" min="0.5" max="8" step="0.1" value="3" style="width:100%"></label>
-    <div class="field"><span>Fluidez</span><div class="seg" id="fp" style="grid-template-columns:repeat(3,1fr)"><button data-f="8">Leve (8 fps)</button><button data-f="12" class="on">Normal (12)</button><button data-f="15">Suave (15)</button></div></div>
+    <div class="field"><span>Fluidez (imagens por segundo)</span><div class="seg" id="fp" style="grid-template-columns:repeat(5,1fr)"><button data-f="8">8</button><button data-f="12" class="on">12</button><button data-f="15">15</button><button data-f="24">24 ✨</button><button data-f="30">30 ✨</button></div><div class="hint" id="fph" style="margin-top:6px">12 = normal. 24 e 30 ficam muito lisos, mas só até 5 e 4 segundos para caber no WhatsApp.</div></div>
     <label class="field"><span>Zoom (arrasta para posicionar)</span><input type="range" id="zm" min="1" max="4" step="0.01" value="1" style="width:100%"></label>
     <div class="field"><span>Forma</span><div class="seg" id="sh" style="grid-template-columns:repeat(4,1fr)"><button data-s="sq">Quadrado</button><button data-s="rd">Redondo</button><button data-s="rr" class="on">Cantos</button><button data-s="full">Inteiro</button></div></div>
     <div class="opt" style="padding:4px 2px 12px"><div class="t"><b>Contorno branco</b></div><button class="sw on" id="ol"></button></div>
@@ -941,7 +942,7 @@ function openAnimCreator(packId, media, opts = {}) {
       }
       st.len = Math.min(3, st.dur); 
       $('#ss', sheet).max = Math.max(0, st.dur - 0.3);
-      $('#sl', sheet).max = Math.max(0.5, Math.min(8, st.dur));
+      $('#sl', sheet).max = Math.max(0.5, Math.min(8, st.dur, 120 / st.fps));
       $('#sl', sheet).value = st.len;
       $('#info', sheet).textContent = `${isVideo ? 'Vídeo' : media.mime.includes('webp') ? 'Animação' : 'GIF'} de ${fmt(st.dur)} s`;
       upd(); await showAt(st.start);
@@ -1002,7 +1003,14 @@ function openAnimCreator(packId, media, opts = {}) {
   }
   $('#ss', sheet).oninput = e => { st.start = +e.target.value; upd(); showAt(st.start); };
   $('#sl', sheet).oninput = e => { st.len = +e.target.value; upd(); };
-  $$('#fp button', sheet).forEach(b => b.onclick = () => { st.fps = +b.dataset.f; $$('#fp button', sheet).forEach(x => x.classList.toggle('on', x === b)); upd(); });
+  $$('#fp button', sheet).forEach(b => b.onclick = () => {
+    st.fps = +b.dataset.f; $$('#fp button', sheet).forEach(x => x.classList.toggle('on', x === b));
+    // no máximo 120 imagens: a mais fluidez, menos segundos
+    const maxLen = Math.max(0.5, Math.min(8, st.dur || 8, 120 / st.fps));
+    $('#sl', sheet).max = maxLen;
+    if (st.len > maxLen) { st.len = Math.floor(maxLen * 10) / 10; $('#sl', sheet).value = st.len; }
+    upd();
+  });
   $('#zm', sheet).oninput = e => { st.zoom = +e.target.value; redraw(); };
   $$('#sh button', sheet).forEach(b => b.onclick = () => { st.shape = b.dataset.s; $$('#sh button', sheet).forEach(x => x.classList.toggle('on', x === b)); redraw(); });
   $('#ol', sheet).onclick = e => { st.outline = !st.outline; e.currentTarget.classList.toggle('on', st.outline); redraw(); };
@@ -1042,7 +1050,7 @@ function openAnimCreator(packId, media, opts = {}) {
         raw.push(new Uint8Array(ctx.getImageData(0, 0, 512, 512).data.buffer.slice(0)));
       }
       // codifica e baixa a qualidade até caber em 500 KB
-      const tries = [[70, 1], [55, 1], [40, 1], [40, 2], [28, 2], [20, 3]];
+      const tries = [[70, 1], [58, 1], [48, 1], [38, 1], [30, 1], [24, 1], [30, 2], [22, 2], [18, 3]];
       let out = null;
       for (const [q, step] of tries) {
         busy(`A criar o sticker (qualidade ${q})…`);
@@ -1622,6 +1630,119 @@ function viewHelp() {
   v.appendChild(opts);
   v.appendChild(el(`<div class="note" style="text-align:center;margin:22px 0 4px">StickTag ${esc(A.appVersion ? A.appVersion() : '')} · os stickers ficam só neste telemóvel</div>`));
   return v;
+}
+
+/* ---------- suavizar um sticker animado (imagens intermédias) ---------- */
+async function openSmooth(p, s) {
+  if (!window.ImageDecoder) return toast('Este telemóvel não consegue abrir animados aqui (atualiza o Android System WebView).');
+  let src = [];
+  try {
+    busy('A ler o sticker…');
+    const buf = await (await fetch(imgUrl(p, s.f))).arrayBuffer();
+    const dec = new ImageDecoder({ data: buf, type: 'image/webp' });
+    await dec.tracks.ready;
+    const n = dec.tracks.selectedTrack.frameCount;
+    const cv = document.createElement('canvas'); cv.width = cv.height = 512;
+    const c = cv.getContext('2d', { willReadFrequently: true });
+    for (let i = 0; i < n && i < 150; i++) {
+      busy(`A ler ${i + 1} de ${n}…`);
+      const { image } = await dec.decode({ frameIndex: i });
+      c.clearRect(0, 0, 512, 512);
+      c.drawImage(image, 0, 0, 512, 512);
+      src.push({ px: c.getImageData(0, 0, 512, 512).data, d: Math.max(20, Math.round((image.duration || 100000) / 1000)) });
+      image.close();
+    }
+    dec.close();
+  } catch (e) { busy(null); return toast('Não consegui ler este sticker: ' + (e.message || e)); }
+  busy(null);
+  if (src.length < 2) return toast('Este sticker não é animado');
+  const total = src.reduce((a, f) => a + f.d, 0);
+  const fps0 = src.length / (total / 1000);
+  // quantas imagens novas entre cada par (1 = 2×, 2 = 3×), sem passar de ~30 fps nem de 150 imagens
+  const maxK = k => { while (k > 0 && (src.length * (k + 1) > 150 || Math.min(...src.map(f => f.d)) / (k + 1) < 33)) k--; return k; };
+  const autoK = maxK(Math.max(1, Math.min(3, Math.round(25 / fps0) - 1)));
+  let k = autoK, out = null, stop = false;
+  const fmtF = v => String(Math.round(v * 10) / 10).replace('.', ',');
+  const sheet = el(`<div class="sheet"><div class="hd"><h3>✨ Suavizar</h3><button class="iconbtn" id="x">${ICON.close}</button></div><div class="bd">
+    <div class="sm-cmp"><div><canvas id="ca" width="512" height="512"></canvas><b>Antes</b><span>${fmtF(fps0)} fps</span></div><div><canvas id="cb" width="512" height="512"></canvas><b>Depois</b><span id="fb"></span></div></div>
+    <div class="field" style="margin-top:14px"><span>Quanto mais suave</span><div class="seg" id="kk" style="grid-template-columns:repeat(3,1fr)"><button data-k="1">2×</button><button data-k="2">3×</button><button data-k="3">4×</button></div></div>
+    <div class="hint" id="sh"></div>
+    <div class="note" style="margin-top:8px">Cria imagens novas a misturar as vizinhas. Em movimentos lentos fica bem mais liso; em movimentos rápidos pode aparecer um ligeiro rasto.</div>
+    </div><div class="row" style="padding:10px 16px 14px"><button class="btn" id="nw">Guardar como novo</button><button class="btn primary" id="rp">Substituir</button></div></div>`);
+  const ov = openOverlay(sheet, { modal: true, onClose: () => { stop = true; } });
+  $('#x', sheet).onclick = () => closeOverlay(ov);
+  // mistura duas imagens (com transparência) na proporção t
+  function blend(a, b, t) {
+    const o = new Uint8ClampedArray(a.length);
+    for (let i = 0; i < a.length; i += 4) {
+      const aa = a[i + 3] * (1 - t), ba = b[i + 3] * t, al = aa + ba;
+      o[i + 3] = al;
+      if (al < 0.5) continue;
+      o[i] = (a[i] * aa + b[i] * ba) / al; o[i + 1] = (a[i + 1] * aa + b[i + 1] * ba) / al; o[i + 2] = (a[i + 2] * aa + b[i + 2] * ba) / al;
+    }
+    return o;
+  }
+  function build() {
+    const r = [];
+    for (let i = 0; i < src.length; i++) {
+      const a = src[i], b = src[(i + 1) % src.length];
+      const d = a.d / (k + 1);
+      r.push({ px: a.px, d });
+      for (let j = 1; j <= k; j++) r.push({ px: blend(a.px, b.px, j / (k + 1)), d });
+    }
+    return r;
+  }
+  function play(canvas, frames) {
+    const c = canvas.getContext('2d');
+    const imgs = frames.map(f => new ImageData(new Uint8ClampedArray(f.px), 512, 512));
+    let i = 0, t0 = performance.now(), my = {};
+    canvas._run = my;
+    (function tick(now) {
+      if (stop || canvas._run !== my) return;
+      if (now - t0 >= frames[i].d) { t0 = now; i = (i + 1) % frames.length; }
+      c.putImageData(imgs[i], 0, 0);
+      requestAnimationFrame(tick);
+    })(performance.now());
+  }
+  function redo() {
+    $$('#kk button', sheet).forEach(b => { const kb = +b.dataset.k; b.classList.toggle('on', kb === k); b.disabled = maxK(kb) < kb; b.style.opacity = b.disabled ? .35 : 1; });
+    out = build();
+    $('#fb', sheet).textContent = `${fmtF(out.length / (total / 1000))} fps`;
+    $('#sh', sheet).textContent = fps0 >= 24 ? 'Este sticker já é bastante suave: a diferença vai ser pequena.' : `${src.length} imagens passam a ${out.length}.`;
+    play($('#cb', sheet), out);
+  }
+  play($('#ca', sheet), src);
+  if (!autoK) { $('#sh', sheet).textContent = 'Este sticker já está no máximo de fluidez que o WhatsApp aguenta.'; $$('#kk button', sheet).forEach(b => b.disabled = true); $('#nw', sheet).disabled = $('#rp', sheet).disabled = true; return; }
+  $$('#kk button', sheet).forEach(b => b.onclick = () => { if (b.disabled) return; k = +b.dataset.k; redo(); });
+  redo();
+  async function encode() {
+    const mod = await import('./webp/index.js');
+    let bytes = null;
+    for (const q of [75, 62, 50, 40, 32, 25]) {
+      busy(`A criar o sticker (qualidade ${q})…`);
+      const fr = out.map(f => ({ data: new Uint8Array(f.px.buffer.slice(0)), duration: Math.max(20, Math.round(f.d)), config: { lossless: 0, quality: q } }));
+      bytes = await mod.encodeAnimation(512, 512, true, fr);
+      if (bytes && bytes.length <= 490 * 1024) break;
+    }
+    busy(null);
+    if (!bytes || bytes.length > 500 * 1024) { toast('Ficou grande demais para o WhatsApp: experimenta menos suavidade.', 3500); return null; }
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return 'data:image/webp;base64,' + btoa(bin);
+  }
+  $('#rp', sheet).onclick = async () => {
+    const url = await encode(); if (!url) return;
+    let r; try { r = JSON.parse(A.replaceSticker(p.id, s.f, url)); } catch (e) { r = { error: 'erro' }; }
+    if (r.error) return toast(r.error);
+    S.data = r; closeOverlay(ov); toast('Sticker suavizado ✨'); render();
+  };
+  $('#nw', sheet).onclick = async () => {
+    if (p.stickers.length >= maxOf(p)) return toast('Este pack já está cheio');
+    const url = await encode(); if (!url) return;
+    let r; try { r = JSON.parse(A.saveCreated(p.id, url, JSON.stringify(s.words || []))); } catch (e) { r = { error: 'erro' }; }
+    if (r.error) return toast(r.error);
+    S.data = r.data; closeOverlay(ov); toast('Guardado como sticker novo ✨'); render();
+  };
 }
 
 /* ---------- stickers repetidos ---------- */
