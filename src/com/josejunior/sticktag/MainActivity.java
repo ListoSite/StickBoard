@@ -46,7 +46,7 @@ import java.util.zip.ZipOutputStream;
 
 public class MainActivity extends Activity {
     static final String HOST = Web.HOST;
-    static final int REQ_PICK = 11, REQ_WA = 12, REQ_EXPORT = 13, REQ_BACKUP = 14, REQ_RESTORE = 15, REQ_CREATE = 16, REQ_FOLDER = 17;
+    static final int REQ_PICK = 11, REQ_WA = 12, REQ_EXPORT = 13, REQ_BACKUP = 14, REQ_RESTORE = 15, REQ_CREATE = 16, REQ_FOLDER = 17, REQ_ANIM = 18;
     static final String WA = "com.whatsapp", WA_B = "com.whatsapp.w4b";
 
     WebView web;
@@ -340,6 +340,28 @@ public class MainActivity extends Activity {
                 }
                 js("onFolderAdded", f.toString());
             } catch (JSONException e) { js("onFolderAdded", "null"); }
+        } else if (req == REQ_ANIM) {
+            final Uri u = (res == RESULT_OK && data != null) ? data.getData() : null;
+            if (u == null) { js("onAnimPicked", "null"); return; }
+            exec.execute(new Runnable() {
+                @Override public void run() {
+                    try {
+                        String mime = getContentResolver().getType(u);
+                        if (mime == null) mime = "video/mp4";
+                        String ext = mime.contains("gif") ? "gif" : mime.contains("webp") ? "webp" : mime.contains("webm") ? "webm" : mime.contains("quicktime") ? "mov" : mime.contains("3gp") ? "3gp" : "mp4";
+                        File dir = new File(getCacheDir(), "create");
+                        Store.deleteDir(dir);
+                        dir.mkdirs();
+                        String name = "in" + System.currentTimeMillis() + "." + ext;
+                        InputStream in = getContentResolver().openInputStream(u);
+                        java.io.FileOutputStream out = new java.io.FileOutputStream(new File(dir, name));
+                        byte[] buf = new byte[65536]; int r; long total = 0;
+                        while ((r = in.read(buf)) > 0) { out.write(buf, 0, r); total += r; if (total > 150L * 1024 * 1024) break; }
+                        in.close(); out.close();
+                        js("onAnimPicked", new JSONObject().put("url", "c/" + name).put("mime", mime).toString());
+                    } catch (Exception e) { js("onAnimPicked", "null"); }
+                }
+            });
         } else if (req == REQ_CREATE) {
             final Uri u = (res == RESULT_OK && data != null) ? data.getData() : null;
             if (u == null) { js("onCreatePicked", "null"); return; }
@@ -801,6 +823,19 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void pickMediaForAnim() {
+            ui.post(new Runnable() {
+                @Override public void run() {
+                    Intent it = new Intent(Intent.ACTION_GET_CONTENT);
+                    it.addCategory(Intent.CATEGORY_OPENABLE);
+                    it.setType("*/*");
+                    it.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"video/*", "image/gif", "image/webp"});
+                    try { startActivityForResult(it, REQ_ANIM); } catch (Exception e) { js("onAnimPicked", "null"); }
+                }
+            });
+        }
+
+        @JavascriptInterface
         public void pickForCreate() {
             ui.post(new Runnable() {
                 @Override public void run() {
@@ -822,8 +857,11 @@ public class MainActivity extends Activity {
                 JSONObject p = Store.findPack(data, packId);
                 if (p == null) return err("pack não encontrado");
                 if (p.getJSONArray("stickers").length() >= Store.maxStickers(p)) return err("O pack já está cheio.");
-                if (p.optBoolean("animated") && !Store.isKb(p)) return err("Este pack é só de animados.");
-                Importer.Result r = Importer.importBytes(MainActivity.this, png, "criado.png", packId, false, data.optBoolean("fill"), Store.isKb(p));
+                Webp.Info wi = Webp.info(png);
+                boolean isAnim = wi != null && wi.animated && wi.frames > 1;
+                if (!Store.isKb(p) && p.optBoolean("animated") != isAnim)
+                    return err(isAnim ? "Este pack do WhatsApp é de estáticos: guarda o animado num pack animado ou “Só teclado”." : "Este pack é só de animados.");
+                Importer.Result r = Importer.importBytes(MainActivity.this, png, isAnim ? "criado.webp" : "criado.png", packId, p.optBoolean("animated"), data.optBoolean("fill"), Store.isKb(p));
                 if (r.error != null) return err(r.error);
                 synchronized (Store.LOCK) {
                     data = Store.load(MainActivity.this);
@@ -834,6 +872,7 @@ public class MainActivity extends Activity {
                     JSONArray w = new JSONArray();
                     try { if (wordsJson != null && wordsJson.length() > 0) w = new JSONArray(wordsJson); } catch (JSONException ignored) {}
                     st.put("words", w);
+                    if (r.animated) st.put("anim", true);
                     p.getJSONArray("stickers").put(st);
                     Store.sync(MainActivity.this, data, p);
                     Store.save(MainActivity.this, data);

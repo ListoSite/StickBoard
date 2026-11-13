@@ -21,7 +21,8 @@ public final class Web {
     static {
         MIME.put("html", "text/html"); MIME.put("js", "application/javascript"); MIME.put("css", "text/css");
         MIME.put("json", "application/json"); MIME.put("png", "image/png"); MIME.put("webp", "image/webp");
-        MIME.put("svg", "image/svg+xml");
+        MIME.put("svg", "image/svg+xml"); MIME.put("wasm", "application/wasm"); MIME.put("mp4", "video/mp4");
+        MIME.put("webm", "video/webm"); MIME.put("gif", "image/gif"); MIME.put("mov", "video/quicktime"); MIME.put("3gp", "video/3gpp");
     }
 
     static WebResourceResponse notFound() {
@@ -49,6 +50,12 @@ public final class Web {
                 String n = path.toLowerCase();
                 mime = n.endsWith(".png") ? "image/png" : n.endsWith(".gif") ? "image/gif" : (n.endsWith(".jpg") || n.endsWith(".jpeg")) ? "image/jpeg" : "image/webp";
                 headers.put("Cache-Control", "max-age=600");
+            } else if (path.startsWith("c/")) {
+                // ficheiro temporário escolhido para criar um sticker animado
+                File f = new File(c.getCacheDir(), "create/" + path.substring(2));
+                if (!f.exists()) return notFound();
+                in = new FileInputStream(f);
+                headers.put("Cache-Control", "no-store");
             } else if (path.startsWith("f/")) {
                 File f = new File(Store.root(c), "packs/" + path.substring(2));
                 if (!f.exists()) return notFound();
