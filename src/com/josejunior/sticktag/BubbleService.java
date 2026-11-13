@@ -87,6 +87,30 @@ public class BubbleService extends AccessibilityService {
         return 0;
     }
 
+    /** Toca na caixa de texto da conversa para o teclado abrir. */
+    void focusEntry(String pkg) {
+        try {
+            AccessibilityNodeInfo root = getRootInActiveWindow();
+            if (root == null) return;
+            AccessibilityNodeInfo t = null;
+            List<AccessibilityNodeInfo> l = root.findAccessibilityNodeInfosByViewId(pkg + ":id/entry");
+            if (l != null && !l.isEmpty()) t = l.get(0);
+            if (t == null) {
+                List<AccessibilityNodeInfo> q = new java.util.ArrayList<AccessibilityNodeInfo>();
+                q.add(root);
+                for (int i = 0; i < q.size() && i < 1500 && t == null; i++) {
+                    AccessibilityNodeInfo n = q.get(i);
+                    if (n == null) continue;
+                    if (n.isEditable()) t = n;
+                    for (int k = 0; k < n.getChildCount(); k++) q.add(n.getChild(k));
+                }
+            }
+            if (t == null) return;
+            t.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+            t.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+        } catch (Exception ignored) {}
+    }
+
     String chatTitle(String pkg) {
         try { return Specials.chatTitle(getRootInActiveWindow(), pkg); } catch (Exception e) { return null; }
     }

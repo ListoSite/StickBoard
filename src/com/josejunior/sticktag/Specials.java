@@ -57,6 +57,10 @@ public final class Specials {
     static final class Run {
         int gen; String id, name, type, pkg, chat;
         long nextGap;
+        int waitGen, qIndex, score, nudged;
+        String then;
+        ChatDiff.Row late;
+        boolean focused;
         JSONObject def;
         boolean waiting, busy;
         long started, waitUntil, ignoreOut;
@@ -120,6 +124,20 @@ public final class Specials {
 
     /* ---------- começar / acabar ---------- */
 
+    /** Tipos que esperam pela resposta da outra pessoa. */
+    static boolean waitsReply(String t) {
+        return t.equals("reply") || t.equals("choice") || t.equals("quiz") || t.equals("game") || t.equals("nudge");
+    }
+
+    static final Random RND = new Random();
+
+    static Pending.Item pick(JSONArray a, long gap) {
+        List<Pending.Item> l = items(a, gap, gap);
+        if (l.isEmpty()) return null;
+        Pending.Item x = l.get(RND.nextInt(l.size()));
+        return new Pending.Item(x.pack, x.file, gap);
+    }
+
     /** Chamado pelo teclado depois de enviar o 1.º sticker de um especial. */
     static void start(Context c, String id, String pkg) {
         ctx = c.getApplicationContext();
@@ -133,51 +151,75 @@ public final class Specials {
         r.ignoreOut = r.started + 3500;
         BubbleService b = BubbleService.inst;
         r.chat = b != null ? b.chatTitle(r.pkg) : null;
+        if (waitsReply(r.type) && b == null) {
+            toast("⚡ Para o StickTag ler a resposta, liga a bolha (StickTag › Teclado)");
+            return;
+        }
         run = r;
         log("▶ «" + r.name + "» (" + r.type + ") em " + r.pkg + (r.chat != null ? " · conversa «" + r.chat + "»" : "") + (b == null ? " · bolha desligada" : ""));
-        if (r.type.equals("seq")) {
+        if (r.type.equals("seq") || r.type.equals("typing")) {
             r.queue.addAll(items(d.optJSONArray("steps"), 2000, 2000));
         } else if (r.type.equals("random")) {
-            List<Pending.Item> pool = items(d.optJSONArray("pool"), 0, 0);
-            if (!pool.isEmpty()) {
-                Pending.Item x = pool.get(new Random().nextInt(pool.size()));
-                r.queue.add(new Pending.Item(x.pack, x.file, Math.round(d.optDouble("delay", 2) * 1000)));
-            }
+            Pending.Item x = pick(d.optJSONArray("pool"), Math.round(d.optDouble("delay", 2) * 1000));
+            if (x != null) r.queue.add(x);
         } else {
-            if (b == null) {
-                run = null;
-                toast("⚡ Para o StickTag ler a resposta, liga a bolha (StickTag › Teclado)");
-                return;
-            }
-            r.waiting = true;
-            r.waitUntil = r.started + Math.max(30, d.optInt("maxWait", 300)) * 1000L;
-            final int gen = r.gen;
             H.postDelayed(new Runnable() { @Override public void run() { scan(); } }, 300);
-            JSONObject nr = d.optJSONObject("noReply");
-            if (nr != null && nr.optInt("secs", 0) > 0 && nr.optJSONArray("stickers") != null && nr.optJSONArray("stickers").length() > 0) {
-                H.postDelayed(new Runnable() {
-                    @Override public void run() {
-                        if (run == null || run.gen != gen || !run.waiting) return;
-                        run.waiting = false;
-                        run.queue.addAll(items(run.def.optJSONObject("noReply").optJSONArray("stickers"), 0, 700));
-                        notifyState();
-                        pump();
-                    }
-                }, nr.optInt("secs") * 1000L);
-            }
-            H.postDelayed(new Runnable() {
-                @Override public void run() {
-                    if (run == null || run.gen != gen || !run.waiting) return;
-                    String n = run.name;
-                    log("■ sem resposta a tempo");
-                    end();
-                    toast("⚡ «" + n + "» terminou: não chegou resposta");
-                }
-            }, r.waitUntil - r.started);
+            beginWait(r, true);
         }
         notifyState();
         toast(r.waiting ? "⚡ «" + r.name + "» à espera da resposta…" : "⚡ «" + r.name + "» a correr…");
         pump();
+    }
+
+    /** Começa (ou volta) a esperar pela resposta, com os tempos de desistir, contagem e insistência. */
+    static void beginWait(final Run r, boolean first) {
+        r.waiting = true;
+        final int wg = ++r.waitGen;
+        final JSONObject d = r.def;
+        long maxWait = Math.max(30, d.optInt("maxWait", 300)) * 1000L;
+        if (r.type.equals("nudge")) {
+            JSONArray nl = d.optJSONArray("nudges");
+            int n = nl == null ? 0 : nl.length();
+            maxWait = Math.max(maxWait, d.optInt("every", 60) * 1000L * (n + 1) + 60000);
+        }
+        H.postDelayed(new Runnable() {
+            @Override public void run() {
+                if (run != r || r.waitGen != wg || !r.waiting) return;
+                log("■ sem resposta a tempo");
+                end();
+                toast("⚡ «" + r.name + "» terminou: não chegou resposta");
+            }
+        }, maxWait);
+        JSONObject nr = d.optJSONObject("noReply");
+        if (first && (r.type.equals("reply") || r.type.equals("choice")) && nr != null && nr.optInt("secs", 0) > 0
+                && nr.optJSONArray("stickers") != null && nr.optJSONArray("stickers").length() > 0) {
+            H.postDelayed(new Runnable() {
+                @Override public void run() {
+                    if (run != r || r.waitGen != wg || !r.waiting) return;
+                    r.waiting = false;
+                    log("💣 não respondeu a tempo: spam!");
+                    r.queue.addAll(items(d.optJSONObject("noReply").optJSONArray("stickers"), 0, 700));
+                    notifyState();
+                    pump();
+                }
+            }, nr.optInt("secs") * 1000L);
+        }
+        if (r.type.equals("nudge")) {
+            H.postDelayed(new Runnable() {
+                @Override public void run() {
+                    if (run != r || r.waitGen != wg || !r.waiting) return;
+                    List<Pending.Item> l = items(d.optJSONArray("nudges"), 0, 0);
+                    if (r.nudged >= l.size()) return; // já insistiu tudo: só espera
+                    Pending.Item x = l.get(r.nudged++);
+                    log("🔔 insistir " + r.nudged + "/" + l.size());
+                    r.waiting = false;
+                    r.queue.add(new Pending.Item(x.pack, x.file, 0));
+                    r.then = "wait";
+                    notifyState();
+                    pump();
+                }
+            }, Math.max(15, d.optInt("every", 60)) * 1000L);
+        }
     }
 
     static void end() {
@@ -215,11 +257,17 @@ public final class Specials {
         final Run r = run;
         if (r == null || r.busy) return;
         if (r.queue.isEmpty()) {
+            if ("wait".equals(r.then)) {
+                r.then = null; beginWait(r, false); notifyState();
+                if (r.late != null) { ChatDiff.Row l = r.late; r.late = null; onReply(l); }
+                return;
+            }
             if (!r.waiting) {
                 String n = r.name;
+                boolean eco = r.type.equals("eco");
                 log("■ terminado");
                 end();
-                toast("⚡ «" + n + "» terminado ✓");
+                if (!eco) toast("⚡ «" + n + "» terminado ✓");
             }
             return;
         }
@@ -234,10 +282,10 @@ public final class Specials {
         H.postDelayed(new Runnable() { @Override public void run() { dispatch(gen, batch); } }, head.gap);
     }
 
-    static void dispatch(final int gen, List<Pending.Item> batch) {
+    static void dispatch(final int gen, final List<Pending.Item> batch) {
         final Run r = run;
         if (r == null || r.gen != gen) return;
-        BubbleService b = BubbleService.inst;
+        final BubbleService b = BubbleService.inst;
         if (b != null) {
             String cur = b.activePackage();
             if (cur != null && !cur.equals(r.pkg)) { cancel("saíste da conversa"); return; }
@@ -248,17 +296,28 @@ public final class Specials {
         for (Pending.Item x : batch) total += x.gap;
         r.ignoreOut = System.currentTimeMillis() + 3500 + total;
         KeyboardService k = KeyboardService.inst;
-        log("➤ a enviar " + batch.size() + " sticker" + (batch.size() > 1 ? "s" : "") + (k != null && k.canDirect(r.pkg) ? " (teclado aberto)" : " (pela bolha)"));
-        if (k != null && k.canDirect(r.pkg)) {
+        boolean direct = k != null && k.canDirect(r.pkg);
+        // teclado fechado: toca na caixa de texto para o abrir e tenta outra vez
+        if (!direct && b != null && !r.focused && b.imeHeight() == 0) {
+            r.focused = true;
+            log("teclado fechado: a abrir a caixa de texto");
+            b.focusEntry(r.pkg);
+            H.postDelayed(new Runnable() { @Override public void run() { dispatch(gen, batch); } }, 900);
+            return;
+        }
+        r.focused = false;
+        log("➤ a enviar " + batch.size() + " sticker" + (batch.size() > 1 ? "s" : "") + (direct ? " (teclado aberto)" : " (pela bolha)"));
+        if (direct) {
             k.runBatch(batch, k.engineHolding, gen);
         } else if (b != null) {
             Pending.setBatch(batch, gen, b.imeHeight(), "⚡ " + r.name);
             if (!b.switchToStickers()) { Pending.clear(); cancel("não consegui abrir o teclado de stickers"); return; }
+            final long tt = total;
             H.postDelayed(new Runnable() {
                 @Override public void run() {
                     if (run != null && run.gen == gen && run.busy) { Pending.clear(); cancel("o teclado de stickers não respondeu"); }
                 }
-            }, 6000 + total);
+            }, 6000 + tt);
         } else {
             cancel("o teclado de stickers fechou (liga a bolha para correr em segundo plano)");
         }
@@ -276,20 +335,28 @@ public final class Specials {
 
     /* ---------- ler a conversa ---------- */
 
+    static boolean isWhatsApp(String pkg) { return pkg.equals("com.whatsapp") || pkg.equals("com.whatsapp.w4b"); }
+
     static void onA11y(BubbleService b, AccessibilityEvent e, String pkg) {
-        Run r = run;
-        if (r == null) return;
         if (ctx == null) ctx = b.getApplicationContext();
+        Run r = run;
+        if (r == null) {
+            if (isWhatsApp(pkg) && ecoOn(b)) queueScan();
+            return;
+        }
         if (!pkg.equals(r.pkg)) return;
         int type = e.getEventType();
         if (type == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED && isEditable(e)) {
             String t = b.readText(e);
             if (t != null && t.trim().length() > 0 && System.currentTimeMillis() - r.started > 1500) { cancel("começaste a escrever"); return; }
         }
-        if (!scanQueued) {
-            scanQueued = true;
-            H.postDelayed(new Runnable() { @Override public void run() { scanQueued = false; scan(); } }, 450);
-        }
+        queueScan();
+    }
+
+    static void queueScan() {
+        if (scanQueued) return;
+        scanQueued = true;
+        H.postDelayed(new Runnable() { @Override public void run() { scanQueued = false; scan(); } }, 450);
     }
 
     /** Só conta o que escreves na caixa de texto (não outras partes do ecrã que mudam). */
@@ -300,7 +367,8 @@ public final class Specials {
     static void scan() {
         final Run r = run;
         BubbleService b = BubbleService.inst;
-        if (r == null || b == null) return;
+        if (b == null) return;
+        if (r == null) { ecoScan(b); return; }
         AccessibilityNodeInfo root;
         try { root = b.getRootInActiveWindow(); } catch (Exception e) { return; }
         if (root == null || root.getPackageName() == null || !r.pkg.equals(root.getPackageName().toString())) return;
@@ -329,7 +397,92 @@ public final class Specials {
             log("nova: " + rowStr(x) + (x.dir < 0 && ignoring ? " (enviada pelo StickTag)" : ""));
             if (x.dir < 0 && !ignoring) { cancel("respondeste na conversa"); return; }
             if (x.dir > 0 && r.waiting && onReply(x)) return;
+            if (x.dir > 0 && !r.waiting && "wait".equals(r.then) && r.late == null) r.late = x; // respondeu enquanto o StickTag enviava
         }
+    }
+
+    /* ---------- Eco: responde sozinho quando a pessoa escreve certas palavras ---------- */
+
+    static JSONObject ecoCfg;
+    static long ecoMtime = -1;
+    static final java.util.HashMap<String, List<ChatDiff.Row>> ECO_BASE = new java.util.HashMap<String, List<ChatDiff.Row>>();
+    static final java.util.HashMap<String, Long> ECO_LAST = new java.util.HashMap<String, Long>();
+
+    static JSONObject eco(Context c) {
+        java.io.File f = new java.io.File(Store.root(c), "data.json");
+        long m = f.lastModified();
+        if (m != ecoMtime) { ecoMtime = m; ecoCfg = Store.load(c).optJSONObject("eco"); }
+        return ecoCfg;
+    }
+
+    static boolean ecoOn(Context c) {
+        JSONObject e = eco(c);
+        return e != null && e.optBoolean("on") && e.optJSONArray("rules") != null && e.optJSONArray("rules").length() > 0;
+    }
+
+    static boolean chatAllowed(String filter, String chat) {
+        if (filter == null || filter.trim().length() == 0) return true;
+        String c = ChatDiff.norm(chat);
+        for (String x : filter.split("[,;\\n]")) {
+            String n = ChatDiff.norm(x);
+            if (n.length() > 0 && c.contains(n)) return true;
+        }
+        return false;
+    }
+
+    static void ecoScan(BubbleService b) {
+        if (!ecoOn(b)) return;
+        AccessibilityNodeInfo root;
+        try { root = b.getRootInActiveWindow(); } catch (Exception e) { return; }
+        if (root == null || root.getPackageName() == null) return;
+        String pkg = root.getPackageName().toString();
+        if (!isWhatsApp(pkg)) return;
+        String chat = chatTitle(root, pkg);
+        if (chat == null) return;
+        String key = pkg + "|" + chat;
+        float dens = b.getResources().getDisplayMetrics().density;
+        List<ChatDiff.Row> rows = snapshot(root, Math.round(24 * dens));
+        if (rows.isEmpty()) return;
+        List<ChatDiff.Row> base = ECO_BASE.get(key);
+        if (ECO_BASE.size() > 60) ECO_BASE.clear();
+        ECO_BASE.put(key, rows);
+        if (base == null) return; // acabaste de abrir a conversa: o que já lá estava não conta
+        List<ChatDiff.Row> nw = ChatDiff.newRows(base, rows);
+        if (nw == null) return;
+        JSONArray rules = eco(b).optJSONArray("rules");
+        for (ChatDiff.Row x : nw) {
+            if (x.dir <= 0) continue;
+            for (int i = 0; rules != null && i < rules.length(); i++) {
+                JSONObject rule = rules.optJSONObject(i);
+                if (rule == null || rule.optBoolean("off")) continue;
+                if (!chatAllowed(rule.optString("chats"), chat)) continue;
+                if (!(ChatDiff.matches(x.text, rule.optString("words")) || ChatDiff.matches(x.alt, rule.optString("words")))) continue;
+                String lk = key + "|" + rule.optString("id");
+                Long last = ECO_LAST.get(lk);
+                if (last != null && System.currentTimeMillis() - last < 20000) { log("Eco: «" + rule.optString("words") + "» ignorado (enviado há pouco)"); continue; }
+                Pending.Item it = pick(rule.optJSONArray("stickers"), 1200);
+                if (it == null) continue;
+                ECO_LAST.put(lk, System.currentTimeMillis());
+                startEco(b, rule, it, pkg, chat, x);
+                return;
+            }
+        }
+    }
+
+    static void startEco(Context c, JSONObject rule, Pending.Item it, String pkg, String chat, ChatDiff.Row row) {
+        ctx = c.getApplicationContext();
+        Run r = new Run();
+        r.gen = ++GEN; r.id = "eco"; r.def = rule; r.pkg = pkg; r.chat = chat;
+        String w = rule.optString("words");
+        if (w.length() > 24) w = w.substring(0, 24) + "…";
+        r.name = "Eco «" + w + "»"; r.type = "eco";
+        r.started = System.currentTimeMillis();
+        r.ignoreOut = r.started + 3500;
+        r.queue.add(it);
+        run = r;
+        log("🔁 Eco: " + rowStr(row) + " → sticker");
+        notifyState();
+        pump();
     }
 
     /** Chegou uma mensagem. Devolve true se o especial avançou. */
@@ -338,6 +491,7 @@ public final class Specials {
         if (r == null) return false;
         JSONObject d = r.def;
         long first = Math.round(d.optDouble("replyDelay", 1) * 1000);
+        String txt = row.readable();
         if (r.type.equals("choice")) {
             JSONArray ops = d.optJSONArray("options");
             List<Pending.Item> got = null;
@@ -355,6 +509,51 @@ public final class Specials {
             }
             r.waiting = false;
             r.queue.addAll(got);
+        } else if (r.type.equals("quiz")) {
+            JSONArray qs = d.optJSONArray("questions");
+            int n = qs == null ? 0 : qs.length();
+            JSONObject q = qs == null ? null : qs.optJSONObject(r.qIndex);
+            boolean ok = q != null && (ChatDiff.matches(row.text, q.optString("answers")) || ChatDiff.matches(row.alt, q.optString("answers")));
+            if (ok) r.score++;
+            log((ok ? "✓ certo" : "✗ errado") + " na pergunta " + (r.qIndex + 1) + " («" + txt + "») · " + r.score + "/" + n);
+            r.waiting = false;
+            Pending.Item fb = pick(d.optJSONArray(ok ? "right" : "wrong"), first);
+            long gap = first;
+            if (fb != null) { r.queue.add(fb); gap = Math.round(d.optDouble("qDelay", 2) * 1000); }
+            r.qIndex++;
+            if (r.qIndex < n) {
+                JSONObject next = qs.optJSONObject(r.qIndex).optJSONObject("sticker");
+                if (next != null) r.queue.add(new Pending.Item(next.optString("p"), next.optString("f"), gap));
+                r.then = "wait";
+            } else {
+                String b = r.score == n ? "resAll" : r.score * 2 >= n ? "resHalf" : "resLow";
+                log("🏁 resultado: " + r.score + "/" + n);
+                List<Pending.Item> res = items(d.optJSONArray(b), gap, 1500);
+                r.queue.addAll(res);
+            }
+        } else if (r.type.equals("game")) {
+            JSONArray mv = d.optJSONArray("moves");
+            int theirs = -1;
+            for (int i = 0; mv != null && i < mv.length() && theirs < 0; i++) {
+                JSONObject m = mv.optJSONObject(i);
+                String ans = m.optString("answers") + "," + m.optString("name");
+                if (ChatDiff.matches(row.text, ans) || ChatDiff.matches(row.alt, ans)) theirs = i;
+            }
+            if (theirs < 0) { log("· «" + txt + "» não é uma jogada: continua à espera"); return false; }
+            int mine = RND.nextInt(mv.length());
+            JSONObject my = mv.optJSONObject(mine), th = mv.optJSONObject(theirs);
+            boolean iWin = beats(my, theirs), youWin = beats(th, mine);
+            String res = iWin && !youWin ? "iwin" : youWin && !iWin ? "youwin" : "draw";
+            log("🎮 a pessoa: " + th.optString("name") + " · eu: " + my.optString("name") + " → " + (res.equals("iwin") ? "ganho eu" : res.equals("youwin") ? "ganha a pessoa" : "empate"));
+            r.waiting = false;
+            JSONObject ms = my.optJSONObject("sticker");
+            if (ms != null) r.queue.add(new Pending.Item(ms.optString("p"), ms.optString("f"), first));
+            Pending.Item rs = pick(d.optJSONArray(res), 1500);
+            if (rs != null) r.queue.add(rs);
+        } else if (r.type.equals("nudge")) {
+            r.waiting = false;
+            log("✓ respondeu depois de " + r.nudged + " insistência" + (r.nudged == 1 ? "" : "s"));
+            r.queue.addAll(items(d.optJSONArray("then"), first, 1500));
         } else {
             r.waiting = false;
             r.queue.addAll(items(d.optJSONArray("then"), first, 1500));
@@ -362,6 +561,12 @@ public final class Specials {
         notifyState();
         pump();
         return true;
+    }
+
+    static boolean beats(JSONObject move, int other) {
+        JSONArray b = move.optJSONArray("beats");
+        for (int i = 0; b != null && i < b.length(); i++) if (b.optInt(i, -1) == other) return true;
+        return false;
     }
 
     /** Nome da conversa aberta (só no WhatsApp; nas outras apps devolve null). */

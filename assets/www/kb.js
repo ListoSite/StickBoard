@@ -212,7 +212,7 @@ function renderGrid() {
 }
 
 /* ---- stickers especiais ---- */
-const SP_IC = { seq: '⏱️', reply: '💬', choice: '🔢', random: '🎲' };
+const SP_IC = { seq: '⏱️', reply: '💬', choice: '🔢', random: '🎲', quiz: '🧠', game: '🎮', nudge: '🔔', typing: '💭' };
 function spState() { try { return JSON.parse(K.specialState()); } catch (e) { return null; } }
 function renderSpecials(g) {
   const st = spState();

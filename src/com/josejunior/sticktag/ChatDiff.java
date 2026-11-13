@@ -59,11 +59,17 @@ public final class ChatDiff {
 
     /** A mensagem corresponde a alguma das respostas (separadas por vírgulas)? */
     public static boolean matches(String msg, String answers) {
+        if (msg == null || answers == null) return false;
         String m = " " + norm(msg) + " ";
-        if (m.trim().length() == 0 || answers == null) return false;
+        String raw = msg.replace("\uFE0F", "");
         for (String a : answers.split("[,;\\n]")) {
             String x = norm(a);
-            if (x.length() == 0) continue;
+            if (x.length() == 0) {
+                // só emojis (ex.: ✊): procura-os tal e qual
+                String e = a.trim().replace("\uFE0F", "");
+                if (e.length() > 0 && raw.contains(e)) return true;
+                continue;
+            }
             if (m.contains(" " + x + " ")) return true;
         }
         return false;

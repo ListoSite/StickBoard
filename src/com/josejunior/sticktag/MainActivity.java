@@ -134,8 +134,9 @@ public class MainActivity extends Activity {
     /** Troca as referências a um sticker apagado pelas do que ficou, nos especiais. */
     static void relinkSpecials(JSONObject data, String op, String of, String np, String nf) throws JSONException {
         JSONArray sp = data.optJSONArray("specials");
-        if (sp == null) return;
-        for (int i = 0; i < sp.length(); i++) relink(sp.get(i), op, of, np, nf);
+        if (sp != null) for (int i = 0; i < sp.length(); i++) relink(sp.get(i), op, of, np, nf);
+        JSONObject eco = data.optJSONObject("eco");
+        if (eco != null) relink(eco, op, of, np, nf);
     }
 
     static void relink(Object o, String op, String of, String np, String nf) throws JSONException {
@@ -887,6 +888,19 @@ public class MainActivity extends Activity {
         /** O que o motor dos especiais viu ultimamente (para perceber falhas). */
         @JavascriptInterface
         public String specialLog() { return Specials.logJson(); }
+
+        /** Guarda o Eco (respostas automáticas a palavras). */
+        @JavascriptInterface
+        public String setEco(String json) {
+            synchronized (Store.LOCK) {
+                try {
+                    JSONObject d = Store.load(MainActivity.this);
+                    d.put("eco", new JSONObject(json));
+                    Store.save(MainActivity.this, d);
+                    return d.toString();
+                } catch (JSONException e) { return err("erro a guardar"); }
+            }
+        }
 
         /** Guarda a lista de stickers especiais. */
         @JavascriptInterface

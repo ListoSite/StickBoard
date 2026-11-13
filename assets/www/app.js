@@ -1736,6 +1736,10 @@ const SP_TYPES = {
   reply: { icon: '💬', name: 'Resposta', desc: 'Mandas uma pergunta e, quando a pessoa responder qualquer coisa, vai o sticker seguinte.' },
   choice: { icon: '🔢', name: 'Escolha', desc: 'Pergunta com opções (1, 2, 3…): o StickTag lê a resposta e manda o sticker certo.' },
   random: { icon: '🎲', name: 'Ao calhas', desc: 'Mandas um e, passado um bocado, vai um ao calhas de uma lista (dado, bola mágica…).' },
+  quiz: { icon: '🧠', name: 'Quiz', desc: 'Várias perguntas seguidas. No fim vai um sticker conforme a pessoa acertou muito ou pouco.' },
+  game: { icon: '🎮', name: 'Jogo', desc: 'Pedra, papel, tesoura ou um jogo teu: a pessoa escolhe, o StickTag joga ao calhas e diz quem ganhou.' },
+  nudge: { icon: '🔔', name: 'Insistente', desc: 'Se a pessoa não responder, manda outro sticker de minuto a minuto (até acabar a lista).' },
+  typing: { icon: '💭', name: 'A escrever…', desc: 'Um sticker que parece que estás a escrever… e depois vem a piada.' },
   secret: { icon: '🤫', name: 'Não cliques', desc: 'Quem tocar no sticker vê uma mensagem tua escondida no nome do pack.' }
 };
 const specials = () => S.data.specials || [];
@@ -1750,6 +1754,10 @@ function spSummary(sp) {
   if (sp.type === 'reply') return `Responde com ${n(sp.then)} sticker${n(sp.then) === 1 ? '' : 's'}${sp.noReply && sp.noReply.secs ? ` · sem resposta em ${sp.noReply.secs} s: ${n(sp.noReply.stickers)}` : ''}`;
   if (sp.type === 'choice') return `${(sp.options || []).length} opções${n(sp.other) ? ' + outra resposta' : ''}${sp.noReply && sp.noReply.secs ? ` · sem resposta em ${sp.noReply.secs} s` : ''}`;
   if (sp.type === 'random') return `Um ao calhas de ${n(sp.pool)}`;
+  if (sp.type === 'quiz') return `${(sp.questions || []).length} pergunta${(sp.questions || []).length === 1 ? '' : 's'}`;
+  if (sp.type === 'game') return `${(sp.moves || []).length} jogadas`;
+  if (sp.type === 'nudge') return `Insiste até ${n(sp.nudges)} vez${n(sp.nudges) === 1 ? '' : 'es'}, de ${sp.every || 60} em ${sp.every || 60} s`;
+  if (sp.type === 'typing') return `Piada ao fim de ${String((sp.steps[0] || {}).d || 3).replace('.', ',')} s`;
   return '';
 }
 
@@ -1763,6 +1771,7 @@ function viewSpecials() {
     w.querySelector('button').onclick = () => go('kb');
     v.appendChild(w);
   }
+  v.appendChild(ecoCard());
   const list = specials();
   const secrets = [];
   S.data.packs.forEach(p => p.stickers.forEach(s => { if (s.secretName || s.secretPub) secrets.push({ p, s }); }));
@@ -1796,8 +1805,93 @@ function viewSpecials() {
   return v;
 }
 
+/* ---------- Eco: responde sozinho a palavras ---------- */
+const ecoData = () => S.data.eco || { on: false, rules: [] };
+function saveEco(e) {
+  try { const d = JSON.parse(A.setEco(JSON.stringify(e))); if (d.error) return toast(d.error); S.data = d; } catch (er) { toast('Erro a guardar'); }
+}
+function ecoCard() {
+  const e = ecoData();
+  const c = el(`<div class="card eco"><div class="opt" style="padding:0;border:0"><div class="t"><b>🔁 Eco</b><div class="small muted">Quando alguém te escreve certas palavras, o StickTag responde sozinho com um sticker ao calhas.</div></div><button class="sw ${e.on ? 'on' : ''}" id="eco-on"></button></div><div class="eco-rules"></div><button class="btn sm ghost block" id="eco-add" style="margin-top:10px">＋ Nova palavra</button></div>`);
+  const rl = $('.eco-rules', c);
+  (e.rules || []).forEach(r => {
+    const imgs = (r.stickers || []).filter(stRef).slice(0, 4).map(x => `<img src="${refImg(x)}">`).join('');
+    const it = el(`<button class="eco-r ${r.off ? 'off' : ''}"><div class="w">«${esc(r.words)}»</div><div class="ims">${imgs}${(r.stickers || []).length > 4 ? `<span>+${r.stickers.length - 4}</span>` : ''}</div>${r.chats ? `<div class="small muted">só: ${esc(r.chats)}</div>` : ''}</button>`);
+    it.onclick = () => editEcoRule(JSON.parse(JSON.stringify(r)));
+    rl.appendChild(it);
+  });
+  $('#eco-on', c).onclick = ev => {
+    const d = ecoData();
+    if (!d.on && !(d.rules || []).length) { editEcoRule(null); return; }
+    d.on = !d.on; saveEco(d); ev.currentTarget.classList.toggle('on', d.on);
+    toast(d.on ? 'Eco ligado 🔁' : 'Eco desligado');
+  };
+  $('#eco-add', c).onclick = () => editEcoRule(null);
+  return c;
+}
+function editEcoRule(r) {
+  const isNew = !r;
+  r = r || { id: 'e' + Date.now().toString(36), words: '', stickers: [], chats: '' };
+  const sheet = el(`<div class="sheet"><div class="hd"><h3>🔁 Eco</h3><button class="iconbtn" id="x">${ICON.close}</button></div><div class="bd">
+    <label class="field"><span>Quando a pessoa escrever (separa com vírgulas)</span><input class="input" id="ew" value="${esc(r.words)}" placeholder="Ex.: te amo, amo-te"></label>
+    <div class="field"><span>Responde com um destes ao calhas</span><div id="esl"></div><button class="btn sm block" id="eauto" style="margin-top:10px">✨ Juntar os meus stickers com estas palavras</button></div>
+    <label class="field"><span>Só nestas conversas (opcional, separa com vírgulas)</span><input class="input" id="ec" value="${esc(r.chats || '')}" placeholder="Ex.: Ana, Grupo da malta (vazio = todas)"></label>
+    <div class="opt" style="padding:4px 2px 12px"><div class="t"><b>Ligada</b><div class="small muted">Desliga só esta palavra sem a apagar</div></div><button class="sw ${r.off ? '' : 'on'}" id="eon"></button></div>
+    <div class="note" style="margin-top:0">Só funciona com a conversa aberta no ecrã e a bolha ligada. Não responde mais do que uma vez a cada 20 segundos à mesma palavra na mesma conversa.</div>
+    </div><div class="row" style="padding:10px 16px 14px">${isNew ? '' : '<button class="btn danger" id="edl" style="flex:none;width:52px;padding:0">🗑️</button>'}<button class="btn primary" id="esv">Guardar</button></div></div>`);
+  const ov = openOverlay(sheet, { modal: true });
+  $('#x', sheet).onclick = () => closeOverlay(ov);
+  const list = r.stickers;
+  const holder = $('#esl', sheet);
+  const drawList = () => {
+    holder.innerHTML = '';
+    const w = el('<div class="splist"></div>');
+    list.forEach((x, i) => {
+      const it = el(`<div class="spi"><div class="spim">${stRef(x) ? `<img src="${refImg(x)}">` : '❔'}<button class="spx">×</button></div></div>`);
+      $('.spx', it).onclick = () => { list.splice(i, 1); drawList(); };
+      w.appendChild(it);
+    });
+    const add = el(`<button class="spadd"><span>＋</span>Sticker</button>`);
+    add.onclick = async () => { const x = await pickSticker('Escolhe um sticker'); if (x) { list.push(x); drawList(); } };
+    w.appendChild(add);
+    holder.appendChild(w);
+  };
+  drawList();
+  $('#eauto', sheet).onclick = () => {
+    const words = $('#ew', sheet).value.split(',').map(x => x.trim()).filter(Boolean);
+    if (!words.length) return toast('Escreve primeiro as palavras');
+    const idx = Match.buildIndex(S.data, emoInfo);
+    let n = 0;
+    for (const w of words) for (const res of Match.search(idx, w, 40)) {
+      if (list.some(x => x.p === res.p.id && x.f === res.s.f) || list.length >= 40) continue;
+      list.push({ p: res.p.id, f: res.s.f }); n++;
+    }
+    drawList();
+    toast(n ? `${n} sticker${n > 1 ? 's' : ''} juntado${n > 1 ? 's' : ''}` : 'Nenhum sticker tem estas palavras (dá-lhes tags primeiro)');
+  };
+  let off = !!r.off;
+  $('#eon', sheet).onclick = ev => { off = !off; ev.currentTarget.classList.toggle('on', !off); };
+  const dl = $('#edl', sheet);
+  if (dl) dl.onclick = async () => {
+    if (!await confirmBox('Apagar esta palavra?', '', 'Apagar')) return;
+    const e = ecoData(); e.rules = (e.rules || []).filter(x => x.id !== r.id); if (!e.rules.length) e.on = false;
+    saveEco(e); closeOverlay(ov); render();
+  };
+  $('#esv', sheet).onclick = () => {
+    r.words = $('#ew', sheet).value.trim();
+    r.chats = $('#ec', sheet).value.trim();
+    if (off) r.off = true; else delete r.off;
+    if (!r.words) return toast('Escreve as palavras');
+    if (!list.length) return toast('Escolhe pelo menos um sticker');
+    const e = ecoData(); e.rules = (e.rules || []).slice();
+    const i = e.rules.findIndex(x => x.id === r.id);
+    if (i >= 0) e.rules[i] = r; else { e.rules.push(r); e.on = true; }
+    saveEco(e); closeOverlay(ov); toast(isNew ? 'Eco ligado para «' + r.words + '» 🔁' : 'Guardado'); render();
+  };
+}
+
 async function newSpecial() {
-  const html = `<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">${Object.entries(SP_TYPES).map(([k, t]) => `<button class="pack" data-k="${k}" style="margin:0;text-align:left;align-items:flex-start"><div style="font-size:26px;line-height:1.2">${t.icon}</div><div class="info"><div class="name">${t.name}</div><div class="meta" style="margin:2px 0 0;white-space:normal">${t.desc}</div></div></button>`).join('')}</div>`;
+  const html = `<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;max-height:62vh;overflow-y:auto">${Object.entries(SP_TYPES).map(([k, t]) => `<button class="pack" data-k="${k}" style="margin:0;text-align:left;align-items:flex-start"><div style="font-size:26px;line-height:1.2">${t.icon}</div><div class="info"><div class="name">${t.name}</div><div class="meta" style="margin:2px 0 0;white-space:normal">${t.desc}</div></div></button>`).join('')}</div>`;
   let chosen = null;
   const pr = dialog({ title: 'Que tipo de especial?', html, buttons: [{ label: 'Cancelar', cls: 'ghost', value: null }] });
   setTimeout(() => $$('.dialog .pack[data-k]').forEach(b => b.onclick = () => { chosen = b.dataset.k; closeOverlay(); }), 0);
@@ -1813,7 +1907,53 @@ async function newSpecial() {
   if (chosen === 'reply') Object.assign(base, { then: [], replyDelay: 1, maxWait: 300, noReply: { secs: 0, stickers: [] } });
   if (chosen === 'choice') Object.assign(base, { options: [{ answers: '1', stickers: [] }, { answers: '2', stickers: [] }], other: [], replyDelay: 1, maxWait: 300, noReply: { secs: 0, stickers: [] } });
   if (chosen === 'random') Object.assign(base, { pool: [], delay: 2 });
+  if (chosen === 'quiz') Object.assign(base, { questions: [{ sticker: null, answers: '' }, { sticker: null, answers: '' }], right: [], wrong: [], resAll: [], resHalf: [], resLow: [], qDelay: 2, replyDelay: 1, maxWait: 300 });
+  if (chosen === 'game') Object.assign(base, { moves: [], iwin: [], youwin: [], draw: [], replyDelay: 1, maxWait: 300 });
+  if (chosen === 'nudge') Object.assign(base, { nudges: [], every: 60, then: [], replyDelay: 1 });
+  if (chosen === 'typing') Object.assign(base, { steps: [] });
   editSpecial(base, true);
+}
+
+/* cria um sticker animado «a escrever…» (balão com três pontos a saltar) */
+async function makeTypingSticker(packId) {
+  try {
+    busy('A desenhar o sticker…');
+    const mod = await import('./webp/index.js');
+    const cv = document.createElement('canvas'); cv.width = cv.height = 512;
+    const c = cv.getContext('2d');
+    const N = 18, frames = [];
+    const rr = (x, y, w, h, r) => { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); };
+    for (let i = 0; i < N; i++) {
+      c.clearRect(0, 0, 512, 512);
+      c.save();
+      c.shadowColor = 'rgba(0,0,0,.25)'; c.shadowBlur = 18; c.shadowOffsetY = 6;
+      c.fillStyle = '#ECEDEF';
+      rr(76, 166, 360, 170, 85); c.fill();
+      c.beginPath(); c.arc(98, 330, 30, 0, Math.PI * 2); c.fill();
+      c.beginPath(); c.arc(64, 372, 15, 0, Math.PI * 2); c.fill();
+      c.restore();
+      for (let k = 0; k < 3; k++) {
+        const ph = ((i / N) - k * 0.16 + 1) % 1;
+        const up = ph < 0.35 ? Math.sin(ph / 0.35 * Math.PI) : 0;
+        c.fillStyle = `rgba(110,114,122,${0.45 + 0.55 * up})`;
+        c.beginPath(); c.arc(176 + k * 80, 251 - up * 26, 26, 0, Math.PI * 2); c.fill();
+      }
+      frames.push({ data: new Uint8Array(c.getImageData(0, 0, 512, 512).data.buffer.slice(0)), duration: 70, config: { lossless: 0, quality: 75 } });
+    }
+    busy('A criar o sticker…');
+    const out = await mod.encodeAnimation(512, 512, true, frames);
+    let bin = '';
+    for (let i = 0; i < out.length; i += 0x8000) bin += String.fromCharCode.apply(null, out.subarray(i, i + 0x8000));
+    const r = JSON.parse(A.saveCreated(packId, 'data:image/webp;base64,' + btoa(bin), JSON.stringify(['a escrever'])));
+    busy(null);
+    if (r.error) { toast(r.error, 3500); return null; }
+    S.data = r.data;
+    return { p: packId, f: r.file };
+  } catch (e) {
+    busy(null);
+    toast('Não consegui criar: ' + (e.message || e));
+    return null;
+  }
 }
 
 /* escolher um sticker de qualquer pack */
@@ -1876,7 +2016,20 @@ function editSpecial(sp, isNew) {
   }
   const field = (label, node, hint) => { const f = el(`<div class="field"><span>${label}</span></div>`); f.appendChild(node); if (hint) f.appendChild(el(`<div class="hint" style="margin-top:6px">${hint}</div>`)); return f; };
   bd.appendChild(el(`<label class="field"><span>Nome (aparece no teclado)</span><input class="input" id="nm" maxlength="40" placeholder="Ex.: ${t.name} da pizza" value="${esc(sp.name)}"></label>`));
-  bd.appendChild(field('1.º sticker', firstPicker()));
+  if (sp.type === 'typing') {
+    const w = el('<div></div>');
+    w.appendChild(firstPicker());
+    const mk = el(`<button class="btn sm block" style="margin-top:10px">✨ Criar um sticker «a escrever…» animado</button>`);
+    mk.onclick = async () => {
+      const pid = await choosePack('Guardar o sticker «a escrever…» em');
+      if (!pid) return;
+      const r = await makeTypingSticker(pid);
+      if (r) { sp.first = r; w.replaceChild(firstPicker(), w.firstChild); toast('Sticker «a escrever…» criado ✓'); }
+    };
+    w.appendChild(mk);
+    bd.appendChild(field('Sticker «a escrever…» (o 1.º)', w, 'Os packs do WhatsApp não misturam animados com estáticos: guarda-o num pack «Só teclado» ou num pack animado.'));
+    bd.appendChild(field('Depois vem a piada', stickerList(sp.steps, true, 'Piada'), '⏱ = quanto tempo «está a escrever» antes de mandar.'));
+  } else if (sp.type !== 'quiz') bd.appendChild(field(sp.type === 'game' ? '1.º sticker (a pergunta, ex.: «pedra, papel ou tesoura?»)' : '1.º sticker', firstPicker()));
   if (sp.type === 'seq') {
     bd.appendChild(field('Depois vão estes, por ordem', stickerList(sp.steps, true, 'Próximo'), '⏱ = quanto tempo espera antes de mandar esse sticker.'));
   }
@@ -1909,6 +2062,91 @@ function editSpecial(sp, isNew) {
     bd.appendChild(field('Opções', ow, 'As respostas comparam palavras inteiras, sem ligar a maiúsculas nem acentos: «1» não apanha «10».'));
     bd.appendChild(field('Se responder outra coisa (opcional)', stickerList(sp.other, false, 'Sticker'), 'Se deixares vazio, o StickTag ignora e continua à espera de uma resposta certa.'));
   }
+  if (sp.type === 'quiz') {
+    const qw = el('<div></div>');
+    function drawQs() {
+      qw.innerHTML = '';
+      sp.questions.forEach((q, i) => {
+        const c = el(`<div class="card spop"><div class="row" style="margin-bottom:8px"><b style="flex:1">Pergunta ${i + 1}</b>${sp.questions.length > 1 ? '<button class="iconbtn sm" data-r="1">' + ICON.close + '</button>' : ''}</div>
+          <div class="row" style="align-items:flex-start;gap:12px"><div class="qpick"></div><label class="field" style="flex:1;margin:0"><span>Resposta certa (separa com vírgulas)</span><input class="input" value="${esc(q.answers)}" placeholder="Ex.: lisboa, lx"></label></div></div>`);
+        $('input', c).oninput = e => { q.answers = e.target.value; };
+        const r = c.querySelector('[data-r]'); if (r) r.onclick = () => { sp.questions.splice(i, 1); drawQs(); };
+        const pk = $('.qpick', c);
+        const drawPk = () => { const rr = stRef(q.sticker); pk.innerHTML = `<div class="spim">${rr ? `<img src="${imgUrl(rr.p, rr.s.f)}">` : '<span style="font-size:24px">＋</span>'}</div>`; };
+        pk.onclick = async () => { const x = await pickSticker(`Sticker da pergunta ${i + 1}`); if (x) { q.sticker = x; drawPk(); } };
+        drawPk();
+        qw.appendChild(c);
+      });
+      if (sp.questions.length < 15) {
+        const a = el(`<button class="btn sm ghost block" style="margin-top:8px">＋ Mais uma pergunta</button>`);
+        a.onclick = () => { sp.questions.push({ sticker: null, answers: '' }); drawQs(); };
+        qw.appendChild(a);
+      }
+    }
+    drawQs();
+    bd.appendChild(field('Perguntas (um sticker com a pergunta + a resposta certa)', qw, 'A 1.ª pergunta é o sticker que mandas para começar. Qualquer resposta conta como tentativa.'));
+    bd.appendChild(field('Quando acerta, manda um destes (opcional)', stickerList(sp.right, false, 'Sticker')));
+    bd.appendChild(field('Quando falha, manda um destes (opcional)', stickerList(sp.wrong, false, 'Sticker')));
+    bd.appendChild(field('Espera até à próxima pergunta', el(`<div>${delaySel(sp.qDelay, 'big qd')}</div>`)));
+    bd.appendChild(field('🏆 Acertou tudo', stickerList(sp.resAll, false, 'Sticker')));
+    bd.appendChild(field('👍 Acertou metade ou mais', stickerList(sp.resHalf, false, 'Sticker')));
+    bd.appendChild(field('😅 Acertou menos de metade', stickerList(sp.resLow, false, 'Sticker')));
+  }
+  if (sp.type === 'game') {
+    const mw = el('<div></div>');
+    function drawMoves() {
+      mw.innerHTML = '';
+      if (!sp.moves.length) {
+        const pre = el(`<button class="btn sm block" style="margin-bottom:8px">✊✋✌️ Começar com pedra, papel, tesoura</button>`);
+        pre.onclick = () => {
+          sp.moves = [{ name: 'Pedra', answers: 'pedra, ✊', sticker: null, beats: [2] }, { name: 'Papel', answers: 'papel, ✋', sticker: null, beats: [0] }, { name: 'Tesoura', answers: 'tesoura, ✌️', sticker: null, beats: [1] }];
+          if (!$('#nm', bd).value) $('#nm', bd).value = 'Pedra, papel, tesoura';
+          drawMoves();
+        };
+        mw.appendChild(pre);
+      }
+      sp.moves.forEach((m, i) => {
+        const others = sp.moves.map((o, j) => j === i ? '' : `<button class="mchip ${(m.beats || []).includes(j) ? 'on' : ''}" data-j="${j}">${esc(o.name || 'Jogada ' + (j + 1))}</button>`).join('');
+        const c = el(`<div class="card spop"><div class="row" style="margin-bottom:8px"><input class="input mvn" style="flex:1;height:38px;font-weight:700" value="${esc(m.name)}" placeholder="Nome da jogada"><button class="iconbtn sm" data-r="1">${ICON.close}</button></div>
+          <div class="row" style="align-items:flex-start;gap:12px"><div class="qpick"></div><label class="field" style="flex:1;margin:0"><span>A pessoa escreve (separa com vírgulas)</span><input class="input mva" value="${esc(m.answers)}" placeholder="Ex.: pedra, ✊"></label></div>
+          <div class="field" style="margin:10px 0 0"><span>Ganha a</span><div class="chips">${others || '<span class="small muted">junta mais jogadas</span>'}</div></div></div>`);
+        $('.mvn', c).oninput = e => { m.name = e.target.value; };
+        $('.mvn', c).onchange = drawMoves;
+        $('.mva', c).oninput = e => { m.answers = e.target.value; };
+        c.querySelector('[data-r]').onclick = () => {
+          sp.moves.splice(i, 1);
+          sp.moves.forEach(o => o.beats = (o.beats || []).filter(j => j !== i).map(j => j > i ? j - 1 : j));
+          drawMoves();
+        };
+        $$('.mchip', c).forEach(b => b.onclick = () => {
+          const j = +b.dataset.j; m.beats = m.beats || [];
+          if (m.beats.includes(j)) m.beats = m.beats.filter(x => x !== j); else m.beats.push(j);
+          b.classList.toggle('on');
+        });
+        const pk = $('.qpick', c);
+        const drawPk = () => { const rr = stRef(m.sticker); pk.innerHTML = `<div class="spim">${rr ? `<img src="${imgUrl(rr.p, rr.s.f)}">` : '<span style="font-size:24px">＋</span>'}</div><div class="spd" style="text-align:center">o meu sticker</div>`; };
+        pk.onclick = async () => { const x = await pickSticker(`O teu sticker para «${m.name || 'esta jogada'}»`); if (x) { m.sticker = x; drawPk(); } };
+        drawPk();
+        mw.appendChild(c);
+      });
+      if (sp.moves.length < 8) {
+        const a = el(`<button class="btn sm ghost block" style="margin-top:8px">＋ Mais uma jogada</button>`);
+        a.onclick = () => { sp.moves.push({ name: '', answers: '', sticker: null, beats: [] }); drawMoves(); };
+        mw.appendChild(a);
+      }
+    }
+    drawMoves();
+    bd.appendChild(field('Jogadas', mw, 'O StickTag escolhe uma jogada ao calhas, manda o sticker dela e depois o resultado.'));
+    bd.appendChild(field('🏆 Se eu ganhar, manda um destes', stickerList(sp.iwin, false, 'Sticker')));
+    bd.appendChild(field('😭 Se a pessoa ganhar', stickerList(sp.youwin, false, 'Sticker')));
+    bd.appendChild(field('🤝 Empate', stickerList(sp.draw, false, 'Sticker')));
+  }
+  if (sp.type === 'nudge') {
+    bd.appendChild(field('Se não responder, manda (um de cada vez)', stickerList(sp.nudges, false, 'Sticker'), 'Insiste tantas vezes quantos stickers puseres aqui (3 é bom).'));
+    const EV = [[30, '30 segundos'], [60, '1 minuto'], [120, '2 minutos'], [300, '5 minutos']];
+    bd.appendChild(field('De quanto em quanto tempo', el(`<div><select class="dsel big" id="ev">${EV.map(([v, l]) => `<option value="${v}" ${(sp.every || 60) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`)));
+    bd.appendChild(field('Quando finalmente responder (opcional)', stickerList(sp.then, false, 'Sticker'), 'Ex.: um sticker «finalmente!».'));
+  }
   if (sp.type === 'reply' || sp.type === 'choice') {
     bd.appendChild(field('Espera depois da resposta', el(`<div>${delaySel(sp.replyDelay, 'big rd')}</div>`)));
     const nr = sp.noReply || (sp.noReply = { secs: 0, stickers: [] });
@@ -1933,6 +2171,22 @@ function editSpecial(sp, isNew) {
     const rd = $('.rd', bd); if (rd) sp.replyDelay = +rd.value;
     const big = $('.dsel.big:not(.rd):not(#mw)', bd); if (big && sp.type === 'random') sp.delay = +big.value;
     const mw = $('#mw', bd); if (mw) sp.maxWait = +mw.value;
+    const qd = $('.qd', bd); if (qd) sp.qDelay = +qd.value;
+    const ev = $('#ev', bd); if (ev) sp.every = +ev.value;
+    if (sp.type === 'quiz') {
+      sp.questions = sp.questions.filter(q => q.sticker || q.answers.trim());
+      if (!sp.questions.length || sp.questions.some(q => !stRef(q.sticker) || !q.answers.trim())) { if (!sp.questions.length) sp.questions.push({ sticker: null, answers: '' }); return toast('Cada pergunta precisa de um sticker e da resposta certa'); }
+      if (![sp.resAll, sp.resHalf, sp.resLow].some(a => a.length)) return toast('Escolhe pelo menos um sticker para o resultado');
+      sp.first = sp.questions[0].sticker;
+    }
+    if (sp.type === 'game') {
+      if (sp.moves.length < 2) return toast('Precisas de pelo menos 2 jogadas');
+      if (sp.moves.some(m => !m.name.trim() || !stRef(m.sticker))) return toast('Cada jogada precisa de nome e do teu sticker');
+      sp.moves.forEach(m => { if (!m.answers.trim()) m.answers = m.name; });
+      if (![sp.iwin, sp.youwin, sp.draw].every(a => a.length)) return toast('Escolhe os stickers de ganhar, perder e empate');
+    }
+    if (sp.type === 'nudge' && !sp.nudges.length) return toast('Escolhe os stickers para insistir');
+    if (sp.type === 'typing' && !sp.steps.length) return toast('Escolhe o sticker da piada');
     if (!stRef(sp.first)) return toast('Escolhe o 1.º sticker');
     if (sp.type === 'seq' && !sp.steps.length) return toast('Junta pelo menos mais um sticker à sequência');
     if (sp.type === 'random' && !sp.pool.length) return toast('Junta os stickers que podem sair');

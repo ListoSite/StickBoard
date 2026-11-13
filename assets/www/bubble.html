@@ -169,7 +169,7 @@ function drawPanel() {
       if (!now.length && !rec.length) st.appendChild(empty('💬', l ? `Nada para <b>«${esc(l.slice(-30))}»</b> ainda.<br>Dá palavras aos teus stickers no StickTag.` : 'Escreve na conversa e eu mostro os stickers que combinam.'));
     }
   } else if (tab === 'spc') {
-    const SP_IC = { seq: '⏱️', reply: '💬', choice: '🔢', random: '🎲' };
+    const SP_IC = { seq: '⏱️', reply: '💬', choice: '🔢', random: '🎲', quiz: '🧠', game: '🎮', nudge: '🔔', typing: '💭' };
     (DATA.specials || []).forEach(sp => {
       const x = sp.first && find(sp.first.p, sp.first.f);
       if (!x) return;

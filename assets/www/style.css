@@ -292,3 +292,17 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;paddin
 .di .ks{position:absolute;top:-7px;right:-7px;background:var(--green);color:#06210F;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:800}
 .di .an{position:absolute;bottom:2px;left:4px;font-size:11px}
 .di .dl{font-size:11px;color:var(--muted);text-align:center;line-height:1.25;max-width:92px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.mchip{height:32px;padding:0 12px;border-radius:16px;background:var(--card2);color:var(--muted);font-size:13px;font-weight:600;border:1px solid var(--line)}
+.mchip.on{background:var(--greenSoft);color:var(--green);border-color:var(--green)}
+.qpick{cursor:pointer;flex:none}
+.card.eco{margin-bottom:12px}
+.eco-rules{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.eco-r{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--card2);border-radius:12px;padding:8px 10px;text-align:left}
+.eco-r.off{opacity:.5}
+.eco-r .w{font-weight:700;flex:1;min-width:100px}
+.eco-r .ims{display:flex;gap:3px;align-items:center}
+.eco-r .ims img{width:30px;height:30px;object-fit:contain}
+.eco-r .ims span{font-size:11px;color:var(--muted);margin-left:2px}
+.eco-r .small{width:100%}
