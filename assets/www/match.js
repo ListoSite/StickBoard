@@ -130,6 +130,12 @@
         if (!cache.has(k)) cache.set(k, effectiveWords(e, data, emoInfo));
         for (const w of cache.get(k)) { const t = prep(w); if (t.length) kws.push({ t, w: 1.5, src: w }); }
       }
+      // palavras que o teclado aprendeu contigo
+      const learn = st.learn || {};
+      for (const w of Object.keys(learn)) {
+        const c = learn[w] || 1;
+        kws.push({ t: [{ w, s: stem(w) }], w: 1 + Math.min(c, 4) * 0.6, src: w, learned: true });
+      }
       items.push({ p, s: st, kws, emo: (st.emojis || []).map(stripVS) });
     }
     return items;
@@ -179,5 +185,11 @@
     return res.slice(0, limit || 30);
   }
 
-  window.Match = { norm, stripVS, tokens, stem, defaultWords, effectiveWords, buildIndex, search, emojisIn, STOP };
+  /** As palavras com significado da frase (para o teclado aprender). */
+  function queryTokens(text) {
+    const line = String(text || '').split('\n').pop();
+    return Array.from(new Set(tokens(line).slice(-8).filter(x => !STOP.has(x) && x.length >= 2)));
+  }
+
+  window.Match = { queryTokens, norm, stripVS, tokens, stem, defaultWords, effectiveWords, buildIndex, search, emojisIn, STOP };
 })();

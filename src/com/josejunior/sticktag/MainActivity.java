@@ -46,7 +46,7 @@ import java.util.zip.ZipOutputStream;
 
 public class MainActivity extends Activity {
     static final String HOST = Web.HOST;
-    static final int REQ_PICK = 11, REQ_WA = 12, REQ_EXPORT = 13;
+    static final int REQ_PICK = 11, REQ_WA = 12, REQ_EXPORT = 13, REQ_BACKUP = 14, REQ_RESTORE = 15, REQ_CREATE = 16;
     static final String WA = "com.whatsapp", WA_B = "com.whatsapp.w4b";
 
     WebView web;
@@ -226,6 +226,41 @@ public class MainActivity extends Activity {
                 }
             } catch (JSONException ignored) {}
             js("onWa", o.toString());
+        } else if (req == REQ_BACKUP || req == REQ_RESTORE) {
+            final Uri u = (res == RESULT_OK && data != null) ? data.getData() : null;
+            final boolean isRestore = req == REQ_RESTORE;
+            if (u == null) { js("onBackup", "{\"cancelled\":true}"); return; }
+            exec.execute(new Runnable() {
+                @Override public void run() {
+                    String r = isRestore ? Backup.restore(MainActivity.this, u) : Backup.export(MainActivity.this, u);
+                    try { js("onBackup", new JSONObject(r).put("restore", isRestore).toString()); } catch (JSONException e) { js("onBackup", r); }
+                }
+            });
+        } else if (req == REQ_CREATE) {
+            final Uri u = (res == RESULT_OK && data != null) ? data.getData() : null;
+            if (u == null) { js("onCreatePicked", "null"); return; }
+            exec.execute(new Runnable() {
+                @Override public void run() {
+                    try {
+                        InputStream in = getContentResolver().openInputStream(u);
+                        byte[] b = Store.readAll(in, 30 * 1024 * 1024);
+                        in.close();
+                        android.graphics.Bitmap bm = Importer.decode(b);
+                        if (bm == null) { js("onCreatePicked", "null"); return; }
+                        int max = 1280, w = bm.getWidth(), h = bm.getHeight();
+                        if (Math.max(w, h) > max) {
+                            float s = max / (float) Math.max(w, h);
+                            android.graphics.Bitmap sc = android.graphics.Bitmap.createScaledBitmap(bm, Math.round(w * s), Math.round(h * s), true);
+                            bm.recycle(); bm = sc;
+                        }
+                        java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
+                        bm.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, o);
+                        bm.recycle();
+                        String url = "data:image/png;base64," + android.util.Base64.encodeToString(o.toByteArray(), android.util.Base64.NO_WRAP);
+                        js("onCreatePicked", JSONObject.quote(url));
+                    } catch (Exception e) { js("onCreatePicked", "null"); }
+                }
+            });
         } else if (req == REQ_EXPORT) {
             boolean ok = false;
             if (res == RESULT_OK && data != null && data.getData() != null && exportText != null) {
@@ -328,6 +363,8 @@ public class MainActivity extends Activity {
                             }
                             s.put("emojis", em);
                             s.put("words", wd);
+                            if (u.optBoolean("fav")) s.put("fav", true); else s.remove("fav");
+                            if (u.has("learn")) { JSONObject l = u.optJSONObject("learn"); if (l == null || l.length() == 0) s.remove("learn"); else s.put("learn", l); }
                             neu.put(s);
                         }
                         for (int i = 0; i < old.length(); i++) {
@@ -525,6 +562,80 @@ public class MainActivity extends Activity {
             ui.post(new Runnable() {
                 @Override public void run() { Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show(); }
             });
+        }
+
+        @JavascriptInterface
+        public String saveToGallery(String packId, String file) {
+            String e = Gallery.save(MainActivity.this, packId, file);
+            return e == null ? "{\"ok\":true}" : err(e);
+        }
+
+        @JavascriptInterface
+        public void exportBackup() {
+            ui.post(new Runnable() {
+                @Override public void run() {
+                    Intent it = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                    it.addCategory(Intent.CATEGORY_OPENABLE);
+                    it.setType("application/zip");
+                    it.putExtra(Intent.EXTRA_TITLE, "StickTag-copia-" + new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date()) + ".zip");
+                    try { startActivityForResult(it, REQ_BACKUP); } catch (Exception e) { js("onBackup", "{\"cancelled\":true}"); }
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void importBackup() {
+            ui.post(new Runnable() {
+                @Override public void run() {
+                    Intent it = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                    it.addCategory(Intent.CATEGORY_OPENABLE);
+                    it.setType("*/*");
+                    it.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/zip", "application/x-zip-compressed", "application/octet-stream"});
+                    try { startActivityForResult(it, REQ_RESTORE); } catch (Exception e) { js("onBackup", "{\"cancelled\":true}"); }
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void pickForCreate() {
+            ui.post(new Runnable() {
+                @Override public void run() {
+                    Intent it = new Intent(Intent.ACTION_GET_CONTENT);
+                    it.addCategory(Intent.CATEGORY_OPENABLE);
+                    it.setType("image/*");
+                    try { startActivityForResult(it, REQ_CREATE); } catch (Exception e) { js("onCreatePicked", "null"); }
+                }
+            });
+        }
+
+        /** Recebe o sticker criado no editor (PNG em base64) e junta-o ao pack. */
+        @JavascriptInterface
+        public String saveCreated(String packId, String dataUrl, String wordsJson) {
+            try {
+                String b64 = dataUrl.substring(dataUrl.indexOf(',') + 1);
+                byte[] png = android.util.Base64.decode(b64, android.util.Base64.DEFAULT);
+                JSONObject data = Store.load(MainActivity.this);
+                JSONObject p = Store.findPack(data, packId);
+                if (p == null) return err("pack não encontrado");
+                if (p.getJSONArray("stickers").length() >= Store.maxStickers(p)) return err("O pack já está cheio.");
+                if (p.optBoolean("animated") && !Store.isKb(p)) return err("Este pack é só de animados.");
+                Importer.Result r = Importer.importBytes(MainActivity.this, png, "criado.png", packId, false, data.optBoolean("fill"), Store.isKb(p));
+                if (r.error != null) return err(r.error);
+                synchronized (Store.LOCK) {
+                    data = Store.load(MainActivity.this);
+                    p = Store.findPack(data, packId);
+                    JSONObject st = new JSONObject();
+                    st.put("f", r.file);
+                    st.put("emojis", new JSONArray());
+                    JSONArray w = new JSONArray();
+                    try { if (wordsJson != null && wordsJson.length() > 0) w = new JSONArray(wordsJson); } catch (JSONException ignored) {}
+                    st.put("words", w);
+                    p.getJSONArray("stickers").put(st);
+                    Store.sync(MainActivity.this, data, p);
+                    Store.save(MainActivity.this, data);
+                    return new JSONObject().put("ok", true).put("file", r.file).put("data", data).toString();
+                }
+            } catch (Exception e) { return err("não consegui guardar o sticker"); }
         }
 
         @JavascriptInterface

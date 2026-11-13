@@ -269,6 +269,29 @@ public class KeyboardService extends InputMethodService {
             });
         }
 
+        @JavascriptInterface public String setFav(String packId, String file, boolean on) {
+            String d = Store.setFlag(KeyboardService.this, packId, file, "fav", on);
+            return d == null ? "{}" : d;
+        }
+
+        @JavascriptInterface public void learn(String packId, String file, String wordsJson) {
+            try { Store.learn(KeyboardService.this, packId, file, new JSONArray(wordsJson)); } catch (Exception ignored) {}
+        }
+
+        @JavascriptInterface public String addWords(String packId, String file, String wordsJson) {
+            try { String d = Store.addWords(KeyboardService.this, packId, file, new JSONArray(wordsJson)); return d == null ? "{}" : d; }
+            catch (Exception e) { return "{}"; }
+        }
+
+        @JavascriptInterface public void saveToGallery(final String packId, final String file) {
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    String e = Gallery.save(KeyboardService.this, packId, file);
+                    js("onSaved", e == null ? "{\"ok\":true}" : "{\"ok\":false,\"error\":" + JSONObject.quote(e) + "}");
+                }
+            }).start();
+        }
+
         @JavascriptInterface public void setOption(String key, boolean value) {
             synchronized (Store.LOCK) {
                 try {

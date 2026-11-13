@@ -35,7 +35,7 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;paddin
 #nav .pill{padding:3px 16px;border-radius:20px;display:grid;place-items:center}
 
 /* buttons */
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:46px;padding:0 18px;border-radius:14px;font-weight:600;background:var(--card2);color:var(--text);font-size:15px}
+.btn{white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;gap:8px;height:46px;padding:0 18px;border-radius:14px;font-weight:600;background:var(--card2);color:var(--text);font-size:15px}
 .btn svg{width:20px;height:20px}
 .btn:active{filter:brightness(1.15)}
 .btn.primary{background:var(--green);color:#06210F}

@@ -227,6 +227,72 @@ public final class Store {
         } catch (Exception e) { return false; }
     }
 
+    /** Liga/desliga uma marca num sticker (ex.: fav). */
+    public static String setFlag(Context c, String packId, String file, String key, boolean value) {
+        synchronized (LOCK) {
+            try {
+                JSONObject data = load(c);
+                JSONObject p = findPack(data, packId);
+                JSONObject s = p == null ? null : findSticker(p, file);
+                if (s == null) return null;
+                if (value) s.put(key, true); else s.remove(key);
+                save(c, data);
+                return data.toString();
+            } catch (JSONException e) { return null; }
+        }
+    }
+
+    /** O teclado aprende: estas palavras levaram a este sticker. */
+    public static void learn(Context c, String packId, String file, JSONArray words) {
+        synchronized (LOCK) {
+            try {
+                JSONObject data = load(c);
+                JSONObject p = findPack(data, packId);
+                JSONObject s = p == null ? null : findSticker(p, file);
+                if (s == null || words == null) return;
+                JSONObject l = s.optJSONObject("learn");
+                if (l == null) { l = new JSONObject(); s.put("learn", l); }
+                for (int i = 0; i < words.length(); i++) {
+                    String w = words.optString(i, "").trim();
+                    if (w.length() < 2 || w.length() > 30) continue;
+                    l.put(w, l.optInt(w, 0) + 1);
+                }
+                // no máximo 40 palavras aprendidas por sticker: tira as menos usadas
+                while (l.length() > 40) {
+                    String min = null; int mv = Integer.MAX_VALUE;
+                    java.util.Iterator<String> it = l.keys();
+                    while (it.hasNext()) { String k = it.next(); if (l.optInt(k) < mv) { mv = l.optInt(k); min = k; } }
+                    l.remove(min);
+                }
+                save(c, data);
+            } catch (JSONException ignored) {}
+        }
+    }
+
+    /** Junta palavras a um sticker (a partir do teclado). */
+    public static String addWords(Context c, String packId, String file, JSONArray words) {
+        synchronized (LOCK) {
+            try {
+                JSONObject data = load(c);
+                JSONObject p = findPack(data, packId);
+                JSONObject s = p == null ? null : findSticker(p, file);
+                if (s == null || words == null) return null;
+                JSONArray w = s.optJSONArray("words");
+                if (w == null) { w = new JSONArray(); s.put("words", w); }
+                for (int i = 0; i < words.length(); i++) {
+                    String n = words.optString(i, "").trim();
+                    if (n.length() == 0) continue;
+                    boolean has = false;
+                    for (int k = 0; k < w.length(); k++) if (w.optString(k).equalsIgnoreCase(n)) has = true;
+                    if (!has) w.put(n);
+                }
+                sync(c, data, p);
+                save(c, data);
+                return data.toString();
+            } catch (JSONException e) { return null; }
+        }
+    }
+
     static void deleteDir(File f) {
         File[] l = f.listFiles();
         if (l != null) for (File x : l) { if (x.isDirectory()) deleteDir(x); else x.delete(); }

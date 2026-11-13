@@ -83,7 +83,7 @@ function usage() {
 
 function savePack(p) {
   const payload = { id: p.id, name: p.name, publisher: p.publisher, cover: p.cover || '',
-    stickers: p.stickers.map(s => ({ f: s.f, emojis: s.emojis || [], words: s.words || [] })) };
+    stickers: p.stickers.map(s => ({ f: s.f, emojis: s.emojis || [], words: s.words || [], fav: !!s.fav, learn: s.learn || {} })) };
   let r;
   try { r = JSON.parse(A.updatePack(JSON.stringify(payload))); } catch (e) { toast('Erro a guardar'); return p; }
   if (r.error) { toast(r.error); return p; }
@@ -294,7 +294,9 @@ function viewPack() {
   };
   v.appendChild(card);
 
-  const acts = el(`<div class="actions"><button class="btn" id="ia">${ICON.wa}Do WhatsApp</button><button class="btn" id="ig">${ICON.img}Galeria / ficheiros</button></div>`);
+  const acts = el(`<div class="actions"><button class="btn" id="ia">${ICON.wa}Do WhatsApp</button><button class="btn" id="ig">${ICON.img}Galeria / ficheiros</button>${p.animated && !isKb(p) ? '' : `<button class="btn" id="ic" style="grid-column:1/-1">✂️ Criar sticker a partir de uma foto</button>`}</div>`);
+  const ic = acts.querySelector('#ic');
+  if (ic) ic.onclick = () => { if (n >= maxOf(p)) return toast('Este pack já está cheio.'); S.createFor = p.id; A.pickForCreate(); };
   const pick = wa => {
     if (n >= maxOf(p)) { toast(`Este pack já tem ${maxOf(p)} stickers (o máximo).`); return; }
     A.pickImages(p.id, wa);
@@ -518,7 +520,16 @@ function openEditor(packId, idx) {
       <div class="sec" style="margin-top:18px">Palavras para este sticker</div>
       <div class="words"></div>
       <div class="hint" style="margin-top:6px">Quando escreveres uma destas palavras, o teclado de stickers sugere este sticker. As palavras dos emojis também contam.</div>
-      <div class="row" style="margin-top:16px;flex-wrap:wrap"><button class="btn sm" id="cv">${p.cover === s.f ? '★ É a capa' : '☆ Usar como capa'}</button><button class="btn sm" id="mv">Mover</button><button class="btn sm danger" id="dl">Apagar</button></div>`;
+      ${Object.keys(s.learn || {}).length ? `<div class="sec" style="margin-top:16px">Aprendidas pelo teclado</div><div class="words" id="lw"></div><div class="hint" style="margin-top:6px">Palavras que escreveste antes de escolher este sticker. Toca no × para esquecer.</div>` : ''}
+      <div class="row" style="margin-top:16px;flex-wrap:wrap"><button class="btn sm" id="fv">${s.fav ? '⭐ Favorito' : '☆ Favorito'}</button><button class="btn sm" id="gl">💾 Galeria</button><button class="btn sm" id="cv">${p.cover === s.f ? '★ É a capa' : '☆ Capa'}</button><button class="btn sm" id="mv">Mover</button><button class="btn sm danger" id="dl">Apagar</button></div>`;
+    const lw = $('#lw', bd);
+    if (lw) {
+      const L = s.learn || {};
+      lw.innerHTML = Object.keys(L).sort((a, b) => L[b] - L[a]).map(w => `<span class="wchip" style="background:var(--greenSoft);color:var(--green)">${esc(w)} <small style="opacity:.6">×${L[w]}</small><button data-w="${esc(w)}" style="background:rgba(37,211,102,.25);color:var(--green)">×</button></span>`).join('');
+      $$('button', lw).forEach(b => b.onclick = () => { const c = cur(); delete c.learn[b.dataset.w]; commit(); drawAll(); });
+    }
+    $('#fv', bd).onclick = () => { const c = cur(); c.fav = !c.fav; commit(); drawAll(); toast(c.fav ? 'Nos favoritos do teclado ⭐' : 'Tirado dos favoritos'); };
+    $('#gl', bd).onclick = () => { const r = JSON.parse(A.saveToGallery(p.id, s.f)); toast(r.error ? 'Não guardei: ' + r.error : 'Guardado em Imagens/StickTag ✓'); };
     drawTop(); drawWords(); redrawPicker();
     $('#cv', bd).onclick = () => { p.cover = s.f; commit(); drawAll(); toast('Capa do pack atualizada'); };
     $('#mv', bd).onclick = async () => { const ok = await moveStickers(p, [s.f]); if (ok) closeOverlay(ov); };
@@ -547,6 +558,93 @@ function bulkEmoji(p) {
     p = savePack(p);
     toast(n ? `${e} adicionado a ${n} sticker${n > 1 ? 's' : ''}` : 'Nenhum sticker mudou');
   }));
+}
+
+/* ---------- Criar sticker a partir de uma foto ---------- */
+function openCreator(packId, url) {
+  const p = packOf(packId);
+  if (!p) return;
+  const st = { zoom: 1, ox: 0, oy: 0, shape: 'sq', outline: true, top: '', bottom: '', size: 64, color: '#ffffff' };
+  const sheet = el(`<div class="sheet"><div class="hd"><h3>Criar sticker</h3><button class="iconbtn" id="x">${ICON.close}</button></div><div class="bd">
+    <div style="display:grid;place-items:center"><canvas id="cv" width="512" height="512" style="width:min(300px,78vw);height:min(300px,78vw);border-radius:16px;touch-action:none;background-color:#1c2028;background-image:linear-gradient(45deg,#232832 25%,transparent 25%,transparent 75%,#232832 75%),linear-gradient(45deg,#232832 25%,transparent 25%,transparent 75%,#232832 75%);background-size:20px 20px;background-position:0 0,10px 10px"></canvas></div>
+    <div class="hint" style="text-align:center;margin:6px 0 10px">Arrasta a foto para a posicionar</div>
+    <label class="field"><span>Zoom</span><input type="range" id="zm" min="1" max="4" step="0.01" value="1" style="width:100%"></label>
+    <div class="field"><span>Forma</span><div class="seg" id="sh" style="grid-template-columns:repeat(4,1fr)"><button data-s="sq" class="on">Quadrado</button><button data-s="rd">Redondo</button><button data-s="rr">Cantos</button><button data-s="full">Livre</button></div></div>
+    <div class="opt" style="padding:4px 2px 12px"><div class="t"><b>Contorno branco</b></div><button class="sw on" id="ol"></button></div>
+    <label class="field"><span>Texto em cima</span><input class="input" id="tt" maxlength="40" placeholder="opcional"></label>
+    <label class="field"><span>Texto em baixo</span><input class="input" id="tb" maxlength="40" placeholder="opcional"></label>
+    <div class="field"><span>Tamanho e cor do texto</span><div class="row"><input type="range" id="ts" min="30" max="110" value="64" style="flex:1"><div class="seg" id="tc" style="grid-template-columns:repeat(3,44px)"><button data-c="#ffffff" class="on" style="color:#fff">A</button><button data-c="#FFE14D" style="color:#FFE14D">A</button><button data-c="#111111" style="color:#999">A</button></div></div></div>
+    <label class="field"><span>Palavras para este sticker</span><input class="input" id="wd" placeholder="ex.: bom dia, bora"></label>
+    <button class="btn primary block" id="sv">Guardar no pack “${esc(p.name)}”</button>
+  </div></div>`);
+  const ov = openOverlay(sheet, { modal: true, onClose: () => render() });
+  $('#x', sheet).onclick = () => closeOverlay(ov);
+  const cv = $('#cv', sheet), ctx = cv.getContext('2d');
+  const im = new Image();
+  im.onload = () => draw();
+  im.src = url;
+  function shapePath(c, inset) {
+    const a = inset, b = 512 - inset;
+    c.beginPath();
+    if (st.shape === 'rd') c.arc(256, 256, 256 - inset, 0, Math.PI * 2);
+    else if (st.shape === 'rr') { const r = 90; c.moveTo(a + r, a); c.arcTo(b, a, b, b, r); c.arcTo(b, b, a, b, r); c.arcTo(a, b, a, a, r); c.arcTo(a, a, b, a, r); c.closePath(); }
+    else c.rect(a, a, b - a, b - a);
+  }
+  function text(c, t, y, base) {
+    if (!t) return;
+    c.save();
+    let size = st.size;
+    c.font = `900 ${size}px Roboto, "Arial Black", sans-serif`;
+    while (c.measureText(t).width > 470 && size > 18) { size -= 2; c.font = `900 ${size}px Roboto, "Arial Black", sans-serif`; }
+    c.textAlign = 'center'; c.textBaseline = base; c.lineJoin = 'round';
+    c.lineWidth = Math.max(6, size / 6);
+    c.strokeStyle = st.color === '#111111' ? '#ffffff' : '#000000';
+    c.strokeText(t, 256, y); c.fillStyle = st.color; c.fillText(t, 256, y);
+    c.restore();
+  }
+  function draw() {
+    ctx.clearRect(0, 0, 512, 512);
+    if (!im.width) return;
+    const inset = st.outline && st.shape !== 'full' ? 14 : 0;
+    const cover = Math.max(512 / im.width, 512 / im.height);
+    const sc = cover * st.zoom, w = im.width * sc, h = im.height * sc;
+    const maxX = Math.max(0, (w - 512) / 2), maxY = Math.max(0, (h - 512) / 2);
+    st.ox = Math.max(-maxX, Math.min(maxX, st.ox)); st.oy = Math.max(-maxY, Math.min(maxY, st.oy));
+    ctx.save();
+    if (st.shape !== 'full') { shapePath(ctx, inset); ctx.clip(); }
+    ctx.drawImage(im, 256 - w / 2 + st.ox, 256 - h / 2 + st.oy, w, h);
+    ctx.restore();
+    if (inset) { ctx.save(); shapePath(ctx, inset / 2); ctx.lineWidth = inset; ctx.strokeStyle = '#ffffff'; ctx.stroke(); ctx.restore(); }
+    text(ctx, st.top, 40, 'top');
+    text(ctx, st.bottom, 472, 'bottom');
+  }
+  let drag = null;
+  cv.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, ox: st.ox, oy: st.oy }; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const k = 512 / cv.getBoundingClientRect().width;
+    st.ox = drag.ox + (e.clientX - drag.x) * k; st.oy = drag.oy + (e.clientY - drag.y) * k; draw();
+  });
+  cv.addEventListener('pointerup', () => drag = null);
+  $('#zm', sheet).oninput = e => { st.zoom = +e.target.value; draw(); };
+  $$('#sh button', sheet).forEach(b => b.onclick = () => { st.shape = b.dataset.s; $$('#sh button', sheet).forEach(x => x.classList.toggle('on', x === b)); draw(); });
+  $('#ol', sheet).onclick = e => { st.outline = !st.outline; e.currentTarget.classList.toggle('on', st.outline); draw(); };
+  $('#tt', sheet).oninput = e => { st.top = e.target.value; draw(); };
+  $('#tb', sheet).oninput = e => { st.bottom = e.target.value; draw(); };
+  $('#ts', sheet).oninput = e => { st.size = +e.target.value; draw(); };
+  $$('#tc button', sheet).forEach(b => b.onclick = () => { st.color = b.dataset.c; $$('#tc button', sheet).forEach(x => x.classList.toggle('on', x === b)); draw(); });
+  $('#sv', sheet).onclick = () => {
+    draw();
+    const words = $('#wd', sheet).value.split(',').map(x => x.trim()).filter(Boolean);
+    let r;
+    try { r = JSON.parse(A.saveCreated(packId, cv.toDataURL('image/png'), JSON.stringify(words))); } catch (e) { r = { error: 'erro' }; }
+    if (r.error) { toast(r.error); return; }
+    S.data = r.data;
+    closeOverlay(ov);
+    const pk = packOf(packId);
+    toast('Sticker criado ✓ — agora dá-lhe um emoji');
+    if (pk) openEditor(packId, pk.stickers.findIndex(x => x.f === r.file));
+  };
 }
 
 /* ---------- Palavras ---------- */
@@ -782,6 +880,7 @@ function viewKeyboard() {
   const ho = d.kbHeight || 'm';
   const op = el(`<div class="card" style="padding:4px 14px">
     <div class="opt"><div class="t"><b>Apagar a frase ao enviar</b><div class="small muted">Depois de enviares o sticker, o texto que estava escrito é apagado.</div></div><button class="sw ${d.kbDelete !== false ? 'on' : ''}" data-k="kbDelete"></button></div>
+    <div class="opt"><div class="t"><b>Ordem aleatória nas sugestões</b><div class="small muted">Os stickers que combinam aparecem por ordem diferente de cada vez (também há o botão 🔀 no teclado).</div></div><button class="sw ${d.kbShuffle ? 'on' : ''}" data-k="kbShuffle"></button></div>
     <div class="opt" style="display:block"><b>Altura do teclado</b><div class="seg" id="kh" style="grid-template-columns:repeat(3,1fr);margin-top:8px">${[['s', 'Baixo'], ['m', 'Médio'], ['l', 'Alto']].map(([k, l]) => `<button data-h="${k}" class="${k === ho ? 'on' : ''}">${l}</button>`).join('')}</div></div>
   </div>`);
   $$('.sw', op).forEach(b => b.onclick = () => {
@@ -815,6 +914,14 @@ function viewHelp() {
     <li>Depois de mudares emojis, fecha e volta a abrir o WhatsApp.</li>
     <li>As sugestões vêm do emoji, não da palavra. Para usares palavras tuas, vê o separador <b>Atalhos</b>.</li></ol></div>`));
   const d = S.data;
+  v.appendChild(el(`<div class="sec">Cópia de segurança</div>`));
+  const bk = el(`<div class="card"><div class="hint" style="margin-bottom:10px">Guarda todos os packs, stickers, palavras e favoritos num ficheiro .zip. Para não perderes nada se mudares de telemóvel.</div><div class="row"><button class="btn primary" id="be">Exportar</button><button class="btn" id="bi">Restaurar</button></div></div>`);
+  bk.querySelector('#be').onclick = () => A.exportBackup();
+  bk.querySelector('#bi').onclick = async () => {
+    if (!await confirmBox('Restaurar uma cópia?', 'Os packs da cópia juntam-se aos teus. Se um pack da cópia já existir aqui, é substituído pela versão da cópia.', 'Escolher ficheiro')) return;
+    A.importBackup();
+  };
+  v.appendChild(bk);
   v.appendChild(el(`<div class="sec">Atalhos para o Gboard</div>`));
   const ab = el(`<div class="card"><div class="hint" style="margin-bottom:10px">Se usares o Gboard ou o Teclado Samsung: transforma as palavras dos teus stickers em atalhos que sugerem o emoji certo.</div><button class="btn block">Abrir atalhos</button></div>`);
   ab.querySelector('button').onclick = () => go('shortcuts');
@@ -860,6 +967,17 @@ window.App = {
     if (r.ok) toast('Pack adicionado ao WhatsApp ✓', 3000);
     else if (r.error) dialog({ title: 'O WhatsApp recusou o pack', text: r.error, buttons: [{ label: 'OK', cls: 'primary' }] });
     render();
+  },
+  onBackup(r) {
+    busy(null);
+    if (!r || r.cancelled) return;
+    if (!r.ok) { dialog({ title: 'Não deu', text: r.error || 'Erro', buttons: [{ label: 'OK', cls: 'primary' }] }); return; }
+    if (r.restore) { reload(); render(); toast(`${r.packs} pack${r.packs === 1 ? '' : 's'} restaurado${r.packs === 1 ? '' : 's'} ✓`, 3000); }
+    else toast('Cópia guardada ✓', 3000);
+  },
+  onCreatePicked(url) {
+    if (!url) return;
+    openCreator(S.createFor, url);
   },
   onExported(ok) { toast(ok ? 'Ficheiro guardado. Agora importa-o no Gboard.' : 'Não foi guardado', 3200); },
   onShared() { reload(); render(); askSharedPack(); },

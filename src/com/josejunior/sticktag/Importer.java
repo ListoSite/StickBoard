@@ -41,17 +41,23 @@ public final class Importer {
 
     /** mixed = pack só do teclado: aceita estáticos e animados juntos. */
     public static Result importUri(Context c, Uri uri, String packId, boolean animatedPack, boolean fill, boolean mixed) {
-        Result r = new Result();
-        r.name = displayName(c, uri);
+        String name = displayName(c, uri);
         byte[] b;
         try {
             InputStream in = c.getContentResolver().openInputStream(uri);
-            if (in == null) { r.error = "não consegui abrir o ficheiro"; return r; }
+            if (in == null) { Result r = new Result(); r.name = name; r.error = "não consegui abrir o ficheiro"; return r; }
             try { b = Store.readAll(in, 30 * 1024 * 1024); } finally { in.close(); }
         } catch (Exception e) {
+            Result r = new Result(); r.name = name;
             r.error = "não consegui ler o ficheiro";
             return r;
         }
+        return importBytes(c, b, name, packId, animatedPack, fill, mixed);
+    }
+
+    public static Result importBytes(Context c, byte[] b, String name, String packId, boolean animatedPack, boolean fill, boolean mixed) {
+        Result r = new Result();
+        r.name = name;
         Webp.Info info = Webp.info(b);
         // emojis que já vinham no sticker (metadados de stickers do WhatsApp)
         if (info != null) {
@@ -104,9 +110,9 @@ public final class Importer {
             }
         }
         try {
-            String name = newName();
-            Store.writeFile(new File(Store.packDir(c, packId), name), out);
-            r.file = name;
+            String fname = newName();
+            Store.writeFile(new File(Store.packDir(c, packId), fname), out);
+            r.file = fname;
         } catch (Exception e) {
             r.error = "não consegui guardar";
         }

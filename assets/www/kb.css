@@ -23,3 +23,20 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0}
 .msg b{color:#EEF1F5}
 .lbl{grid-column:1/-1;color:#6B7482;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;padding:6px 6px 0}
 .flash{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);background:#2C323C;padding:8px 14px;border-radius:12px;font-size:13px}
+
+#shuf{font-size:17px;opacity:.35}
+#shuf.on{opacity:1;background:rgba(37,211,102,.16)}
+.s .fv{position:absolute;top:2px;right:4px;font-size:12px}
+.pv{position:fixed;inset:0;background:rgba(14,16,20,.97);display:flex;gap:12px;padding:10px 12px;z-index:5}
+.pv .big{width:44%;max-width:190px;aspect-ratio:1;align-self:center;display:grid;place-items:center;background:#171B22;border-radius:16px;flex:none}
+.pv .big img{width:94%;height:94%;object-fit:contain}
+.pv .side{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
+.pv .ws{display:flex;flex-wrap:wrap;gap:4px}
+.pv .ws span{font-size:12px;padding:2px 8px;border-radius:10px;background:#20252E;color:#9AA3B0}
+.pv .ws span.own{background:rgba(92,168,255,.16);color:#5CA8FF}
+.pv .ws span.lr{background:rgba(37,211,102,.14);color:#25D366}
+.pv .acts{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:auto}
+.pv .acts button{height:38px;border-radius:11px;background:#20252E;font-size:13px;font-weight:600}
+.pv .acts button.pri{background:#25D366;color:#06210F}
+.pv .acts button.wide{grid-column:1/-1}
+.pv .x{position:absolute;top:6px;right:8px;width:32px;height:32px;border-radius:10px;font-size:18px;color:#9AA3B0}
