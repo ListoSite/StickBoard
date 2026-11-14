@@ -1249,6 +1249,12 @@ public class MainActivity extends Activity {
             return d == null ? err("erro") : d;
         }
 
+        @JavascriptInterface
+        public String forgetEmojiLearned(String emoji, String word) {
+            String d = Store.forgetEmoji(MainActivity.this, emoji, word);
+            return d == null ? err("erro") : d;
+        }
+
         /** Cópia automática: escolher a pasta. */
         @JavascriptInterface
         public void pickBackupFolder() {

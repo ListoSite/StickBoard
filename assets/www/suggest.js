@@ -58,7 +58,7 @@
 
   function buildLex() {
     if (L) return L;
-    L = { cl: [], term: new Map(), tok: new Map(), emo: new Map(), disp: new Map(), ph: [], phBy: new Map(), byStart: new Map(), phr: new Set() };
+    L = { cl: [], term: new Map(), tok: new Map(), emo: new Map(), disp: new Map(), ph: [], phBy: new Map(), byStart: new Map(), phr: new Set(), stemIdx: new Map() };
     const nAll = (window.LEX || []).length;
     for (const line of (window.LEX || []).concat(window.LEX_ADULT || [])) {
       const bar = line.indexOf('|');
@@ -92,8 +92,53 @@
         if (!L.byStart.has(k)) L.byStart.set(k, []);
         L.byStart.get(k).push(n);
       }
+      if (!n.includes(' ') && n.length >= 3) {
+        const k = pstem(n);
+        if (k.length >= 3) { if (!L.stemIdx.has(k)) L.stemIdx.set(k, []); L.stemIdx.get(k).push(n); }
+      }
     }
     return L;
+  }
+
+  // verbos irregulares mais usados em conversa → infinitivo
+  const IRR = { fez: 'fazer', fiz: 'fazer', faz: 'fazer', fazes: 'fazer', fizeste: 'fazer', vi: 'ver', viu: 'ver', viste: 'ver', ves: 'ver', ve: 'ver',
+    vejo: 'ver', foi: 'ir', fui: 'ir', foste: 'ir', vou: 'ir', vais: 'ir', vai: 'ir', vamos: 'ir', disse: 'dizer', disseste: 'dizer', diz: 'dizer',
+    dizes: 'dizer', digo: 'dizer', pode: 'poder', posso: 'poder', podes: 'poder', quis: 'querer', quer: 'querer', queres: 'querer', quero: 'querer',
+    tive: 'ter', teve: 'ter', tens: 'ter', tenho: 'ter', vim: 'vir', veio: 'vir', vens: 'vir', venho: 'vir', pus: 'por', pos: 'por', sei: 'saber',
+    sabes: 'saber', soube: 'saber', da: 'dar', deu: 'dar', dei: 'dar', dou: 'dar', traz: 'trazer', trouxe: 'trazer', durmo: 'dormir', dorme: 'dormir',
+    sinto: 'sentir', sente: 'sentir', minto: 'mentir', mente: 'mentir', peco: 'pedir', pede: 'pedir', ouco: 'ouvir', ouve: 'ouvir', perco: 'perder',
+    perdeste: 'perder', perdi: 'perder', caiu: 'cair', cai: 'cair', sai: 'sair', saiu: 'sair', morreu: 'morrer', morri: 'morrer', morro: 'morrer' };
+  const VERB_END = ['ariamos', 'eriamos', 'iriamos', 'assemos', 'essemos', 'issemos', 'avamos', 'aramos', 'eramos', 'iramos', 'astes', 'estes', 'istes',
+    'ando', 'endo', 'indo', 'aste', 'este', 'iste', 'aram', 'eram', 'iram', 'avam', 'ava', 'avas', 'ia', 'ias', 'iam', 'amos', 'emos', 'imos', 'arei',
+    'erei', 'irei', 'ara', 'era', 'ira', 'aria', 'eria', 'iria', 'asse', 'esse', 'isse', 'ado', 'ada', 'ados', 'adas', 'ido', 'ida', 'idos', 'idas',
+    'ei', 'ou', 'eu', 'iu', 'am', 'em', 'as', 'es', 'a', 'e', 'o', 'i'];
+  /** Outras formas da mesma palavra que existem na base ou nos sinónimos (chupa → chupar, comeu → comer, miúdas → miúda). */
+  function sisters(n) {
+    const lex = buildLex();
+    const out = new Set();
+    const known = x => lex.term.has(x) || (SYN && SYN.has(x));
+    if (IRR[n]) out.add(IRR[n]);
+    for (const e of VERB_END) if (n.endsWith(e) && n.length - e.length >= 2) {
+      const r = n.slice(0, n.length - e.length);
+      for (const v of [r + 'ar', r + 'er', r + 'ir']) if (v !== n && known(v)) out.add(v);
+    }
+    if (n.endsWith('oes')) out.add(n.slice(0, -3) + 'ao');
+    if (n.endsWith('s') && known(n.slice(0, -1))) out.add(n.slice(0, -1));
+    for (const [a, b] of [['inho', 'o'], ['inha', 'a'], ['zinho', ''], ['zinha', ''], ['a', 'o'], ['o', 'a'], ['as', 'o'], ['os', 'o']])
+      if (n.endsWith(a) && n.length - a.length >= 2) { const v = n.slice(0, n.length - a.length) + b; if (v !== n && known(v)) out.add(v); }
+    // palavras da base com a mesma raiz
+    const k = pstem(n);
+    if (k.length >= 3) for (const t of (lex.stemIdx.get(k) || [])) if (t !== n) out.add(t);
+    out.delete(n);
+    return [...out].slice(0, 8);
+  }
+  /** Expressões da base que têm esta palavra (ou outra forma dela). */
+  function phrasesWith(n, extra) {
+    const lex = buildLex();
+    const keys = new Set([pstem(n)].concat((extra || []).map(pstem)).filter(x => x.length >= 3));
+    const out = new Map();
+    for (const k of keys) for (const id of (lex.phBy.get(k) || [])) { const f = lex.ph[id]; if (!out.has(f.n)) out.set(f.n, f.tk.length); }
+    return [...out].sort((a, b) => a[1] - b[1]).slice(0, 30).map(x => x[0]);
   }
 
   /**
@@ -147,6 +192,12 @@
         if (!w || seen.has(w)) return; seen.add(w);
         if (!EIDX.kw.has(w)) EIDX.kw.set(w, []);
         EIDX.kw.get(w).push([i, k === 0 ? 1 : 0.7]);
+        const parts = toks(w);
+        if (parts.length > 1) for (const t of parts) if (t.length >= 4 && !STOP.has(t) && !GENERIC.has(t)) {
+          const key = '~' + t;
+          if (!EIDX.kw.has(key)) EIDX.kw.set(key, []);
+          EIDX.kw.get(key).push([i, 0.4]);
+        }
       });
     });
     return EIDX;
@@ -229,7 +280,7 @@
       if (!n.includes(' ') && n.length >= 4 && haveStems.has(stem(n))) return;
       if (n.includes(' ') && (haveSt.has('f:' + ptoks(n).map(pstem).join(' ')) || near.has(n))) return;
       let c = C.get(n);
-      if (!c) { c = { w: lex.disp.get(n) || w, s: 0, src: {}, sup: new Set() }; C.set(n, c); }
+      if (!c) { c = { w, s: 0, src: {}, sup: new Set() }; C.set(n, c); }
       c.s += sc; c.src[src] = (c.src[src] || 0) + sc; c.sup.add(seed);
     };
     const adultOk = !!ctx.adult;
@@ -251,13 +302,19 @@
           for (const ci of (lex.tok.get(x) || [])) addCluster(ci, 0.3, 'w:' + seed);
         }
       }
-      // sinónimos
+      const single = !seed.includes(' ');
+      const sis = single ? sisters(seed) : [];
+      // outras formas da palavra (chupa → chupar): os grupos delas contam quase como a própria
+      if (!lex.term.has(seed)) for (const t of sis) for (const [ci, pos] of (lex.term.get(t) || [])) addCluster(ci, 0.8 * (1 - 0.5 * pos / lex.cl[ci].terms.length), 'w:' + seed);
+      // sinónimos (da palavra e das outras formas dela)
       if (SYN) {
-        const ss = SYN.get(seed) || (seed.includes(' ') ? [] : SYN.get(stem(seed)) || []);
-        ss.forEach((w, i) => add(w, 0.55 * (1 - i * 0.06), 'sin', 'w:' + seed));
+        const ss = (SYN.get(seed) || []).concat(...sis.map(t => SYN.get(t) || []));
+        ss.slice(0, 16).forEach((w, i) => add(w, 0.55 * (1 - Math.min(i, 10) * 0.05), 'sin', 'w:' + seed));
       }
+      // expressões que têm esta palavra ("chupa" → "chupa esta", "toma que é para aprenderes")
+      if (single) phrasesWith(seed, sis).forEach((t, i) => add(lex.disp.get(t) || t, 0.42 * (1 - i * 0.015), 'grupo', 'w:' + seed));
       // emojis Unicode que têm esta palavra → as outras palavras deles
-      const hits = (emoIndex().kw.get(seed) || []).slice(0, 6);
+      const hits = (emoIndex().kw.get(seed) || emoIndex().kw.get('~' + seed) || []).slice(0, 6);
       for (const [i, wt] of hits) {
         const o = EM[i];
         emoKeywords(o.e).slice(0, 8).forEach(w => add(w, 0.22 * wt, 'unicode', 'w:' + seed));
@@ -277,6 +334,8 @@
         for (const w of s.words || []) add(w, 0.6, 'teu', 'e:' + k);
         for (const l of M.learned(s)) add(l.w, 0.45 + 0.1 * Math.min(l.eff, 5), 'teu', 'e:' + k);
       }
+      // o que este emoji aprendeu contigo
+      for (const l of M.emojiLearned(data, k, true).slice(0, 20)) add(l.w, 0.5 + 0.12 * Math.min(l.eff, 6) + (l.d >= 2 ? 0.3 : 0), 'teu', 'e:' + k);
     }
 
     const out = [];
@@ -381,14 +440,16 @@
       const n = norm(word);
       if (!okWord(n)) return;
       let cls = [];
-      for (const [t, v] of matchTerms(n)) for (const [ci, pos] of lex.term.get(t)) if (ctx.adult || !lex.cl[ci].adult) cls.push([ci, pos, v]);
+      let mt = matchTerms(n);
+      if (!mt.length && !n.includes(' ')) mt = sisters(n).filter(t => lex.term.has(t)).map(t => [t, 0.8]);
+      for (const [t, v] of mt) for (const [ci, pos] of lex.term.get(t)) if (ctx.adult || !lex.cl[ci].adult) cls.push([ci, pos, v]);
       for (const [ci, pos, v] of cls) {
         const cl = lex.cl[ci];
         const k = wt * Math.pow(v, 1.6) * (1 - 0.5 * pos / cl.terms.length) / Math.pow(cls.length, 0.25);
         cl.emos.forEach((e, i) => add(e, k * (i === 0 ? 1 : 0.7), 'w:' + n, txt));
       }
       for (const x of P.emoWords) if (x.n.includes(n)) add(x.e, wt * 1.3, 'w:' + n, txt);
-      const hits = n.length >= 4 || n.length >= 3 && cls.length ? EI.kw.get(n) || [] : [];
+      const hits = n.length >= 4 || n.length >= 3 && cls.length ? EI.kw.get(n) || EI.kw.get('~' + n) || [] : [];
       const k = hits.length > 10 ? 10 / hits.length : 1;
       hits.slice(0, 30).forEach(([i, w]) => add(EM[i].e, wt * 0.75 * w * k, 'w:' + n, txt));
     }
@@ -516,6 +577,11 @@
       if (best >= 0 && bf >= 0.35 && (!better || bf >= 0.9)) { if (!has(best)) per[best].items.push({ w: ph.w, src: ph.src, fit: bf, like }); }
       else if (!better && ctx.focus != null) { const i = ems.findIndex(x => stripVS(x) === stripVS(ctx.focus)); if (i >= 0 && !has(i)) per[i].items.push({ w: ph.w, src: ph.src, fit: bf, like }); }
     }
+    // o que cada emoji aprendeu contigo e ainda não está nas palavras dele
+    per.forEach(x => {
+      const have = new Set((wordsOf(x.e) || []).map(norm).concat(x.items.map(i => norm(i.w))));
+      for (const l of M.emojiLearned(ctx.data, x.e).slice(0, 5)) if (!have.has(norm(l.w))) x.items.push({ w: l.w, src: 'aprendi', fit: 3 + l.eff, like: '' });
+    });
     per.forEach(x => {
       x.items.sort((a, b) => b.fit - a.fit);
       const seeds = (wordsOf(x.e) || []).concat(x.items.map(i => i.w));
@@ -525,5 +591,5 @@
     return { per, elsewhere };
   }
 
-  window.Suggest = { teach, fit, words, complete, emojis, setEmojis, loadSyn, mainColour, matchTerms, phraseSim, isPhrase, _lex: buildLex };
+  window.Suggest = { sisters, phrasesWith, teach, fit, words, complete, emojis, setEmojis, loadSyn, mainColour, matchTerms, phraseSim, isPhrase, _lex: buildLex };
 })();

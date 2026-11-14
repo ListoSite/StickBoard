@@ -149,10 +149,27 @@
     return t.map(x => ({ w: x, s: stem(x) }));
   }
 
+  /**
+   * O que um emoji aprendeu contigo (palavras que escreves antes de mandar stickers com ele).
+   * Só conta quando já aconteceu com 2+ stickers diferentes, para não ser sorte de um só.
+   */
+  function emojiLearned(data, e, all) {
+    const m = data && data.emojiLrn && data.emojiLrn[stripVS(e)];
+    if (!m) return [];
+    const today = Math.floor(Date.now() / DAY), out = [];
+    for (const w in m) {
+      const x = m[w] || [];
+      const eff = (x[0] || 0) * Math.pow(0.5, Math.max(0, today - (x[1] || today)) / HALF);
+      const d = x[3] || 1;
+      if (all ? eff >= 0.25 : eff >= 1.5 && d >= 2) out.push({ w, eff, n: x[2] || 0, d });
+    }
+    return out.sort((a, b) => b.eff - a.eff);
+  }
+
   /** Prepara a lista de stickers com as palavras de cada um. */
   function buildIndex(data, emoInfo) {
     const items = [];
-    const cache = new Map();
+    const cache = new Map(), ecache = new Map();
     for (const p of (data.packs || [])) for (const st of (p.stickers || [])) {
       const kws = [];
       for (const w of (st.words || [])) { const t = prep(w), ph = phraseKey(w); if (t.length || ph) kws.push({ t, ph, w: 3, src: w }); }
@@ -160,6 +177,19 @@
         const k = stripVS(e);
         if (!cache.has(k)) cache.set(k, effectiveWords(e, data, emoInfo));
         for (const w of cache.get(k)) { const t = prep(w), ph = phraseKey(w); if (t.length || ph) kws.push({ t, ph, w: 1.5, src: w }); }
+      }
+      // o que os emojis deste sticker aprenderam (também vale para stickers novos com o mesmo emoji)
+      const seenW = new Set(kws.map(k => norm(k.src)));
+      for (const e of (st.emojis || [])) {
+        const k = stripVS(e);
+        if (!ecache.has(k)) ecache.set(k, emojiLearned(data, k).slice(0, 25));
+        for (const l of ecache.get(k)) {
+          const n = norm(l.w);
+          if (seenW.has(n)) continue; seenW.add(n);
+          const t = l.w.includes(' ') ? prep(l.w) : [{ w: n, s: stem(n) }];
+          const ph = l.w.includes(' ') ? phraseKey(l.w) : null;
+          if (t.length || ph) kws.push({ t, ph, w: 0.5 + Math.min(l.eff, 6) * 0.15, src: l.w, learned: true });
+        }
       }
       // palavras que o teclado aprendeu contigo (perdem força se deixares de as usar)
       for (const l of learned(st)) {
@@ -301,5 +331,5 @@
     return Object.assign({}, data, { packs });
   }
 
-  window.Match = { CUR, CANON, canonToks, phraseKey, learned, habitual, habitBoost, queryTokens, isAdult, modeData, norm, stripVS, tokens, stem, defaultWords, effectiveWords, buildIndex, search, emojisIn, STOP };
+  window.Match = { emojiLearned, CUR, CANON, canonToks, phraseKey, learned, habitual, habitBoost, queryTokens, isAdult, modeData, norm, stripVS, tokens, stem, defaultWords, effectiveWords, buildIndex, search, emojisIn, STOP };
 })();

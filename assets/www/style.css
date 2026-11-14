@@ -502,3 +502,27 @@ html,body{background:var(--bg);-webkit-font-smoothing:antialiased}
 .teach .tadd .emo{font-size:20px}
 .teach .tread{font-size:12.5px;color:var(--muted);margin-top:6px;animation:pulse 1.4s ease-in-out infinite}
 @keyframes pulse{50%{opacity:.45}}
+/* ---------- treino rápido (4.7) ---------- */
+.trainer .tr-top{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);font-weight:600}
+.trainer .tr-bar{height:6px;border-radius:3px;background:var(--line);margin:6px 0 12px;overflow:hidden}
+.trainer .tr-bar i{display:block;height:100%;background:var(--grad,var(--green));border-radius:3px;transition:width .3s}
+.trainer .tr-img{display:grid;place-items:center;margin-bottom:10px}
+.trainer .tr-img img{width:min(190px,48vw);height:min(190px,48vw);object-fit:contain;border-radius:16px;background:repeating-conic-gradient(#232832 0 25%,#1c2028 0 50%) 0 0/20px 20px}
+.trainer .tr-load{text-align:center;color:var(--muted);padding:24px 0;animation:pulse 1.4s ease-in-out infinite}
+.trainer .tr-sec{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:12px 0 6px}
+.trainer .tr-sec .muted{text-transform:none;letter-spacing:0;font-weight:500}
+.trainer .tr-emos{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
+.trainer .tr-e{flex:none;width:92px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 6px;border-radius:14px;background:var(--card);border:1.5px solid var(--line)}
+.trainer .tr-e .emo{font-size:30px;line-height:1}
+.trainer .tr-e small{font-size:10.5px;line-height:1.25;color:var(--muted);text-align:center;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.trainer .tr-e.on{border-color:var(--green);background:var(--greenSoft)}
+.schip.sel{background:rgba(92,168,255,.25);border-style:solid;color:var(--text)}
+.schip.ph.sel{background:rgba(255,184,77,.25);color:var(--text)}
+.schip.tt{border-color:rgba(124,58,237,.5);color:#c4b5fd}
+.schip.tt.sel{background:rgba(124,58,237,.3);border-style:solid;color:var(--text)}
+.trainer .tr-add{margin-top:8px}
+.trainer .tr-acts{display:flex;flex-direction:column;gap:8px;margin-top:16px}
+.trainer .tr-acts .row .btn{flex:1}
+.trainer .tr-end{text-align:center;padding:30px 10px}
+.trainer .tr-end .big{font-size:60px}
+.lchip.weak{opacity:.6}

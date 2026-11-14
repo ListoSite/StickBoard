@@ -334,6 +334,32 @@ public final class Store {
                         while (it.hasNext()) { String k = it.next(); double v = decayed(l.optJSONArray(k), day); if (v < mv) { mv = v; min = k; } }
                         l.remove(min);
                     }
+                    // o emoji também aprende: vale para todos os stickers com este emoji, também os que juntares depois
+                    JSONArray ems = s.optJSONArray("emojis");
+                    if (ems != null && ems.length() > 0) {
+                        JSONObject el = data.optJSONObject("emojiLrn");
+                        if (el == null) { el = new JSONObject(); data.put("emojiLrn", el); }
+                        String me = packId + "/" + file;
+                        for (int i = 0; i < ems.length() && i < 3; i++) {
+                            String k = ems.optString(i, "").replace("\uFE0F", "");
+                            if (k.length() == 0) continue;
+                            JSONObject m = el.optJSONObject(k);
+                            if (m == null) { m = new JSONObject(); el.put(k, m); }
+                            for (String w : ws) {
+                                JSONArray e = m.optJSONArray(w);
+                                double wt = decayed(e, day) + 1;
+                                // [força, dia, vezes, em quantos stickers diferentes, o último sticker]
+                                int distinct = e == null ? 1 : e.optInt(3, 1) + (me.equals(e.optString(4, "")) ? 0 : 1);
+                                m.put(w, new JSONArray().put(r2(Math.min(15, wt))).put(day).put((e == null ? 0 : e.optInt(2, 0)) + 1).put(Math.min(99, distinct)).put(me));
+                            }
+                            while (m.length() > 80) {
+                                String min = null; double mv = Double.MAX_VALUE;
+                                java.util.Iterator<String> it = m.keys();
+                                while (it.hasNext()) { String kk = it.next(); double v = decayed(m.optJSONArray(kk), day); if (v < mv) { mv = v; min = kk; } }
+                                m.remove(min);
+                            }
+                        }
+                    }
                     // escolheste este em vez dos que estavam à frente: esses perdem um pouco para estas palavras
                     if (skipped != null) for (int i = 0; i < skipped.length() && i < 4; i++) {
                         JSONObject x = skipped.optJSONObject(i);
@@ -379,6 +405,24 @@ public final class Store {
                             if (packId == null) { s.remove("uses"); s.remove("hrs"); s.remove("last"); }
                         }
                     }
+                }
+                save(c, data);
+                return data.toString();
+            } catch (JSONException e) { return null; }
+        }
+    }
+
+    /** Esquecer o que um emoji aprendeu: uma palavra, tudo desse emoji (word = "") ou tudo de todos (emoji = ""). */
+    public static String forgetEmoji(Context c, String emoji, String word) {
+        synchronized (LOCK) {
+            try {
+                JSONObject data = load(c);
+                JSONObject el = data.optJSONObject("emojiLrn");
+                if (el != null) {
+                    String k = emoji == null ? "" : emoji.replace("\uFE0F", "");
+                    if (k.length() == 0) data.remove("emojiLrn");
+                    else if (word == null || word.length() == 0) el.remove(k);
+                    else { JSONObject m = el.optJSONObject(k); if (m != null) m.remove(word); }
                 }
                 save(c, data);
                 return data.toString();

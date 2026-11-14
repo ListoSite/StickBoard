@@ -744,7 +744,8 @@ function viewPack() {
 function updSelBar() { const n = $('#sn'); if (n && S.sel) n.textContent = `${S.sel.size} selec.`; }
 
 async function packMenu(p) {
-  const r = await dialog({ title: p.name, html: '<div style="height:4px"></div>', buttons: [{ label: '✨ Tags automáticas (ler o texto)', value: 'ocr' }, { label: '＋ Nova secção', value: 'sec' }, { label: 'Editar nome', value: 'edit' }, { label: p.adult ? 'Tirar o 🔞' : 'Marcar como 🔞 +18', value: 'adult' }, { label: 'Apagar pack', cls: 'danger', value: 'del' }] });
+  const r = await dialog({ title: p.name, html: '<div style="height:4px"></div>', buttons: [{ label: '🎯 Treino rápido', value: 'train' }, { label: '✨ Tags automáticas (ler o texto)', value: 'ocr' }, { label: '＋ Nova secção', value: 'sec' }, { label: 'Editar nome', value: 'edit' }, { label: p.adult ? 'Tirar o 🔞' : 'Marcar como 🔞 +18', value: 'adult' }, { label: 'Apagar pack', cls: 'danger', value: 'del' }] });
+  if (r === 'train') { openTrainer(p.id); return; }
   if (r === 'ocr') { bulkOcr(p); return; }
   if (r === 'sec') { const n = await newSectionDialog(p); if (n) { S.secOf = Object.assign(S.secOf || {}, { [p.id]: n }); render(); } return; }
   if (r === 'adult') {
@@ -891,9 +892,9 @@ function emojiSearchSections(q) {
   // 1) palavras do teclado de cada emoji: as que mudaste tu e as que vêm por defeito nos mais usados
   const ew = S.data.emojiWords || {};
   const mine = [];
-  const keys = new Set(Object.keys(ew).map(stripVS).concat(Object.keys(Match.CUR || {})));
+  const keys = new Set(Object.keys(ew).map(stripVS).concat(Object.keys(Match.CUR || {}), Object.keys(S.data.emojiLrn || {})));
   for (const k of keys) {
-    const words = emoWords(k);
+    const words = emoWords(k).concat(Match.emojiLearned(S.data, k).map(l => l.w));
     let best = 0, bw = '';
     for (const w of words) { const v = score(w); if (v > best) { best = v; bw = w; } }
     if (!best) continue;
@@ -1867,6 +1868,7 @@ function openEmoji(e) {
     <div class="words" id="ew"></div>
     <div class="row" style="margin-top:8px;justify-content:space-between"><span class="hint">Os stickers com este emoji aparecem no teclado quando escreves estas palavras. Toca numa palavra em baixo para a juntar.</span><button class="btn sm" id="ewr">Repor</button></div>
     <div class="sugbox" id="sug"></div>
+    <div id="elrn"></div>
     <div class="sec">Palavras Unicode em português</div><div class="kw">${(o.pt.length ? [o.n].concat(o.pt) : ['—']).map(w => `<span>${esc(w)}</span>`).join('')}</div>
     <div class="sec">Palavras em inglês</div><div class="kw en">${(o.en.length ? o.en : ['—']).map(w => `<span>${esc(w)}</span>`).join('')}</div>
     <div class="sec">Os teus stickers com este emoji (${used.length})</div>
@@ -1880,6 +1882,29 @@ function openEmoji(e) {
     try { S.data = JSON.parse(A.setEmojiWords(o.e, list == null ? '' : JSON.stringify(list))); } catch (er) { toast('Erro a guardar'); }
     drawEW();
   };
+  function drawELrn() {
+    const box = $('#elrn', sheet);
+    const L = Match.emojiLearned(S.data, o.e, true).filter(l => !emoWords(o.e).some(y => norm(y) === norm(l.w)));
+    if (!L.length) { box.innerHTML = ''; return; }
+    const dots = eff => { const n = Math.max(1, Math.min(4, Math.round(eff / 2))); return '●'.repeat(n) + '○'.repeat(4 - n); };
+    box.innerHTML = `<div class="row" style="margin-top:16px;justify-content:space-between"><div class="sec" style="margin:0">🧠 Aprendeu contigo</div><button class="btn sm ghost" id="elf">Esquecer tudo</button></div>
+      <div class="hint">O que escreves antes de mandar stickers com ${esc(o.e)}. Já conta no teclado para todos os stickers com este emoji (também os novos) quando aconteceu com 2+ stickers. Toca para a tornar fixa ou esquecer.</div>
+      <div class="words" style="margin-top:8px">${L.slice(0, 30).map(l => `<button class="lchip ${l.d >= 2 && l.eff >= 1.5 ? '' : 'weak'}" data-w="${esc(l.w)}">${esc(l.w)} <span class="ld">${dots(l.eff)}</span></button>`).join('')}</div>`;
+    $$('.lchip', box).forEach(b => b.onclick = async () => {
+      const w = b.dataset.w;
+      const r = await dialog({ title: `«${w}»`, html: `<div class="hint">Escreves isto antes de mandar stickers com ${esc(o.e)}.</div>`, buttons: [{ label: 'Juntar às palavras do emoji', value: 'fix' }, { label: 'Esquecer', cls: 'danger', value: 'forget' }, { label: 'Fechar', cls: 'ghost', value: null }] });
+      if (!r) return;
+      if (r === 'fix') { const l = emoWords(o.e).slice(); if (!l.some(y => norm(y) === norm(w))) { l.push(w); saveEW(l); } }
+      try { const d = JSON.parse(A.forgetEmojiLearned(o.e, w)); if (!d.error) S.data = d; } catch (e) {}
+      toast(r === 'fix' ? `«${w}» juntada ao ${o.e}` : `Esqueci «${w}»`);
+      drawEW(); drawELrn();
+    });
+    $('#elf', box).onclick = async () => {
+      if (!await confirmBox('Esquecer o que este emoji aprendeu?', 'As palavras fixas do emoji ficam.', 'Esquecer')) return;
+      try { const d = JSON.parse(A.forgetEmojiLearned(o.e, '')); if (!d.error) S.data = d; } catch (e) {}
+      drawELrn();
+    };
+  }
   const sg = wordSuggest($('#sug', sheet), () => ({ words: emoWords(o.e), emojis: [o.e], adult: adultOn() }), (w, many) => {
     const l = emoWords(o.e).slice();
     if (l.some(y => norm(y) === norm(w))) return;
@@ -1904,7 +1929,7 @@ function openEmoji(e) {
     inp.addEventListener('input', () => { if (inp.value.includes(',')) return add(); clearTimeout(tq); tq = setTimeout(() => sg.draw(inp.value), 120); });
     sg.draw('');
   }
-  drawEW();
+  drawEW(); drawELrn();
   $$('.kw span', sheet).forEach(sp => sp.onclick = () => {
     const w = sp.textContent.trim(); if (!w || w === '—') return;
     const l = emoWords(o.e).slice();
@@ -2505,18 +2530,157 @@ function learnCard() {
   let nW = 0, nS = 0;
   S.data.packs.forEach(p => p.stickers.forEach(s => { const n = Match.learned(s).length; if (n) { nS++; nW += n; } }));
   const on = S.data.learnOn !== false;
+  const nE = Object.keys(S.data.emojiLrn || {}).filter(k => Match.emojiLearned(S.data, k).length).length;
   const c = el(`<div class="card" style="margin-bottom:12px"><div class="opt" style="padding:0;border:0"><div class="t"><b>🧠 Aprender com o que escreves</b><div class="small muted">${on ? `Já aprendi ${nW} palavra${nW === 1 ? '' : 's'} em ${nS} sticker${nS === 1 ? '' : 's'}.` : 'Desligado: o teclado não aprende nada novo.'}</div></div><button class="sw ${on ? 'on' : ''}" id="lon"></button></div>
     <div class="hint" style="margin-top:8px">Cada vez que mandas um sticker, o teclado guarda as palavras que escreveste antes (e pares como «boa noite»). Dá prioridade aos que usas mais e à hora a que os costumas usar. Se deixares de usar uma palavra para um sticker, ela vai perdendo força até desaparecer. Se escolheres outro em vez dos primeiros sugeridos, esses descem para essa palavra.</div>
-    ${nW ? '<button class="btn sm ghost" id="lall" style="margin-top:10px">Esquecer tudo o que aprendi</button>' : ''}</div>`);
+    <div class="hint" style="margin-top:6px">Os emojis também aprendem: o que escreves antes de mandar stickers com um emoji passa a valer para todos os stickers com ele (também os novos)${nE ? ` — ${nE} emoji${nE === 1 ? '' : 's'} já aprenderam palavras` : ''}.</div>
+    <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap"><button class="btn sm primary" id="ltr">🎯 Treino rápido</button>${nW || nE ? '<button class="btn sm ghost" id="lall">Esquecer tudo o que aprendi</button>' : ''}</div></div>`);
+  $('#ltr', c).onclick = () => openTrainer(null);
   $('#lon', c).onclick = () => { try { S.data = JSON.parse(A.setOption('learnOn', !on)); } catch (e) {} render(); };
   const la = $('#lall', c);
   if (la) la.onclick = async () => {
     if (!await confirmBox('Esquecer tudo?', 'Todas as palavras aprendidas e os hábitos (quantas vezes e a que horas) são apagados. As tuas palavras fixas e os emojis ficam.', 'Esquecer tudo')) return;
     try { const d = JSON.parse(A.forgetLearned('', '', '')); if (!d.error) S.data = d; } catch (e) {}
+    try { const d = JSON.parse(A.forgetEmojiLearned('', '')); if (!d.error) S.data = d; } catch (e) {}
     toast('Esqueci tudo'); render();
   };
   return c;
 }
+/* ---------- Treino rápido ---------- */
+/**
+ * Passa pelos stickers com poucas tags (sem emojis, menos de 3, sem palavras) e propõe tudo de uma vez:
+ * emojis (com o porquê), palavras e expressões (texto da imagem + família dos emojis) e o que ensinar aos emojis.
+ * Um toque guarda e passa ao seguinte. O próximo já vai sendo analisado enquanto decides.
+ */
+function openTrainer(packId) {
+  const need = s => (3 - Math.min(3, (s.emojis || []).length)) * 2 + ((s.words || []).length ? 0 : 2);
+  const queue = [];
+  for (const p of S.data.packs) {
+    if (packId && p.id !== packId) continue;
+    for (const s of p.stickers) {
+      if (s.hidden || (!adultOn() && Match.isAdult(p, s)) || (adultOn() && !Match.isAdult(p, s))) continue;
+      const n = need(s);
+      if (n > 0) queue.push({ p, s, n });
+    }
+  }
+  queue.sort((a, b) => b.n - a.n);
+  if (!queue.length) return toast('Todos os stickers já têm emojis e palavras 🎉');
+  const sheet = el(`<div class="sheet trainer"><div class="hd"><h3>🎯 Treino rápido</h3><button class="iconbtn" id="x">${ICON.close}</button></div><div class="bd"></div></div>`);
+  const ov = openOverlay(sheet, { onClose: () => render() });
+  $('#x', sheet).onclick = () => closeOverlay(ov);
+  const bd = $('.bd', sheet);
+  let i = 0, done = 0, addE = 0, addW = 0, addT = 0;
+  const cache = new Map();
+
+  async function analyse(k) {
+    const q = queue[k];
+    if (!q) return null;
+    if (cache.has(k)) return cache.get(k);
+    const pr = (async () => {
+      const { p, s } = q;
+      const r = await analyseEmojis({ p, s, img: imgUrl(p, s.f), words: s.words || [], emojis: s.emojis || [], learned: Match.learned(s) });
+      return r;
+    })();
+    cache.set(k, pr);
+    return pr;
+  }
+
+  async function show() {
+    if (i >= queue.length) return finish();
+    const { p, s } = queue[i];
+    const pct = Math.round(i / queue.length * 100);
+    bd.innerHTML = `<div class="tr-top"><span>${i + 1} de ${queue.length}</span><span>${done} feitos</span></div><div class="tr-bar"><i style="width:${pct}%"></i></div>
+      <div class="tr-img"><img src="${imgUrl(p, s.f)}"></div>
+      <div class="tr-body"><div class="tr-load">✨ A analisar a imagem e o texto…</div></div>`;
+    const r = await analyse(i);
+    analyse(i + 1); // o próximo já fica a ser preparado
+    if (!queue[i] || queue[i].s !== s) return;
+    draw(r);
+  }
+
+  function draw(r) {
+    const { p, s } = queue[i];
+    const have = (s.emojis || []).slice();
+    const room = 3 - have.length;
+    const picks = room > 0 ? pickEmojis(r.list, room) : [];
+    const selE = new Set(picks.map(x => stripVS(x.e)));
+    const alts = r.list.filter(x => !picks.includes(x)).slice(0, 6);
+    const emoOpts = picks.concat(alts);
+    const ocr = (r.ocr || []).filter(w => !(s.words || []).some(y => norm(y) === norm(w)));
+    const selW = new Set(ocr.map(norm));
+    const adult = adultOn() || Match.isAdult(p, s);
+    function curEmojis() { return have.concat(emoOpts.filter(x => selE.has(stripVS(x.e))).map(x => x.e)).slice(0, 3); }
+    function render2() {
+      const ce = curEmojis();
+      const seeds = (s.words || []).concat(ocr);
+      const sug = Suggest.words({ data: S.data, words: seeds, emojis: ce, adult, limit: 40 })
+        .filter(x => !ocr.some(o => norm(o) === x.n));
+      const fr = sug.filter(x => x.phrase).slice(0, 6), wd = sug.filter(x => !x.phrase).slice(0, 10);
+      const teach = ce.length && ocr.length ? Suggest.teach({ emojis: ce, phrases: ocr.map(w => ({ w, src: 'texto' })), wordsOf: e => emoWords(e), data: S.data, adult }) : { per: [] };
+      const tItems = [];
+      teach.per.forEach(x => x.items.filter(it => it.src === 'texto').forEach(it => tItems.push({ e: x.e, w: it.w })));
+      $('.tr-body', bd).innerHTML = `
+        <div class="tr-sec">Emojis ${have.length ? `<span class="muted">já tem ${have.map(esc).join(' ')}</span>` : ''}</div>
+        ${emoOpts.length ? `<div class="tr-emos">${emoOpts.map((x, k) => `<button class="tr-e ${selE.has(stripVS(x.e)) ? 'on' : ''}" data-k="${k}"><span class="emo">${esc(x.e)}</span><small>${esc(x.why[0] || '')}</small></button>`).join('')}</div>` : '<div class="hint">Sem ideias de emojis para este — escreve uma palavra em baixo.</div>'}
+        <div class="tr-sec">Palavras e expressões</div>
+        <div class="sugl">${ocr.map(w => `<button class="schip tw ${selW.has(norm(w)) ? 'sel' : ''} ph" data-w="${esc(w)}">📖 ${esc(w)}</button>`).join('')}
+          ${fr.map(x => `<button class="schip tw ph ${selW.has(x.n) ? 'sel' : ''}" data-w="${esc(x.w)}">${esc(x.w)}</button>`).join('')}
+          ${wd.map(x => `<button class="schip tw ${selW.has(x.n) ? 'sel' : ''}" data-w="${esc(x.w)}">${esc(x.w)}</button>`).join('')}</div>
+        <div class="tr-add"><input class="input" placeholder="Outra palavra ou expressão + Enter"></div>
+        ${tItems.length ? `<div class="tr-sec">Ensinar aos emojis <span class="muted">(vale para todos os stickers com eles)</span></div><div class="sugl">${tItems.map((t, k) => `<button class="schip tt ${t.on ? 'sel' : ''}" data-t="${k}">${esc(t.e)} ← ${esc(t.w)}</button>`).join('')}</div>` : ''}
+        <div class="tr-acts"><button class="btn primary" id="tok">✓ Guardar e seguinte</button><div class="row" style="gap:8px"><button class="btn" id="tsk">Saltar</button><button class="btn" id="ted">✏️ Editar</button></div></div>`;
+      const body = $('.tr-body', bd);
+      $$('.tr-e', body).forEach(b => b.onclick = () => {
+        const x = emoOpts[+b.dataset.k], k = stripVS(x.e);
+        if (selE.has(k)) selE.delete(k);
+        else { if (curEmojis().length >= 3) return toast('Máximo 3 emojis: tira um primeiro'); selE.add(k); }
+        render2();
+      });
+      $$('.tw', body).forEach(b => b.onclick = () => { const n = norm(b.dataset.w); if (selW.has(n)) selW.delete(n); else selW.add(n); b.classList.toggle('sel'); });
+      $$('.tt', body).forEach(b => b.onclick = () => { b.classList.toggle('sel'); });
+      const inp = $('.tr-add input', body);
+      inp.addEventListener('keydown', ev => {
+        if (ev.key !== 'Enter') return;
+        ev.preventDefault();
+        const v = inp.value.trim(); if (!v) return;
+        if (!ocr.some(o => norm(o) === norm(v))) ocr.push(v);
+        selW.add(norm(v)); render2();
+      });
+      $('#tok', body).onclick = () => {
+        const ce2 = curEmojis();
+        const all = new Map();
+        $$('.tw', body).forEach(b => all.set(norm(b.dataset.w), b.dataset.w));
+        const words = (s.words || []).slice();
+        for (const n of selW) { const w = all.get(n) || n; if (!words.some(y => norm(y) === n)) words.push(w); }
+        try {
+          const d = JSON.parse(A.setStickerTags(p.id, s.f, JSON.stringify(ce2), JSON.stringify(words)));
+          if (!d.error) S.data = d;
+        } catch (e) { return toast('Erro a guardar'); }
+        $$('.tt.sel', body).forEach(b => {
+          const t = tItems[+b.dataset.t];
+          const l = emoWords(t.e).slice();
+          if (!l.some(y => norm(y) === norm(t.w))) { l.push(t.w); try { S.data = JSON.parse(A.setEmojiWords(t.e, JSON.stringify(l))); addT++; } catch (e) {} }
+        });
+        addE += ce2.length - have.length; addW += words.length - (s.words || []).length; done++;
+        // as referências mudaram (S.data novo): atualiza a fila
+        queue.forEach(q => { const np = packOf(q.p.id); if (np) { q.p = np; q.s = np.stickers.find(x => x.f === q.s.f) || q.s; } });
+        i++; show();
+      };
+      $('#tsk', body).onclick = () => { i++; show(); };
+      $('#ted', body).onclick = () => { const { p: pp, s: ss } = queue[i]; closeOverlay(ov); closeAllAndEdit(pp, ss); };
+    }
+    render2();
+  }
+
+  function finish() {
+    bd.innerHTML = `<div class="tr-end"><div class="big">🎉</div><h3>Treino feito!</h3>
+      <p>${done} sticker${done === 1 ? '' : 's'} melhorado${done === 1 ? '' : 's'}: +${addE} emoji${addE === 1 ? '' : 's'}, +${addW} palavra${addW === 1 ? '' : 's'}${addT ? `, ${addT} palavra${addT === 1 ? '' : 's'} ensinada${addT === 1 ? '' : 's'} aos emojis` : ''}.</p>
+      <button class="btn primary block" id="tend">Fechar</button></div>`;
+    $('#tend', bd).onclick = () => closeOverlay(ov);
+  }
+  show();
+}
+
 /* ---------- stickers repetidos ---------- */
 function ignoredDupes() { try { return new Set(JSON.parse(localStorage.getItem('dupIgnore') || '[]')); } catch (e) { return new Set(); } }
 function ignoreDupe(sig) { try { const s = ignoredDupes(); s.add(sig); localStorage.setItem('dupIgnore', JSON.stringify([...s].slice(-500))); } catch (e) {} }
