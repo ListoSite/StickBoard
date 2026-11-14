@@ -477,3 +477,6 @@ html,body{background:var(--bg);-webkit-font-smoothing:antialiased}
 .why .walt .emo{font-size:26px;line-height:1}
 .why .walt small{font-size:10.5px;line-height:1.25;color:var(--muted);text-align:center;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .why .walt:active{transform:scale(.95)}
+.schip.ph{border-color:rgba(255,184,77,.5);color:var(--amber);font-weight:600}
+.schip.ph.comp{background:rgba(255,184,77,.12);border-style:solid}
+.schip.ph.mine{border-color:rgba(37,211,102,.5);color:var(--green)}

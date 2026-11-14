@@ -27,6 +27,34 @@
       .map(t => LAUGH.test(t) && t.length >= 3 ? 'haha' : t.replace(/(.)\1{2,}/g, '$1$1'));
   }
 
+  // formas de escrever a mesma coisa em conversa (tou = estou, q = que…)
+  const CANON = { tou: 'estou', to: 'estou', ta: 'esta', tas: 'estas', tamos: 'estamos', tava: 'estava', pra: 'para', pro: 'para',
+    q: 'que', k: 'que', n: 'nao', nd: 'nada', tb: 'tambem', tbm: 'tambem', tmb: 'tambem', mt: 'muito', mto: 'muito', mta: 'muita', pq: 'porque',
+    vc: 'voce', ce: 'voce', msm: 'mesmo', td: 'tudo', tds: 'todos', blz: 'beleza', vlw: 'valeu', obg: 'obrigado', pfv: 'por favor', pf: 'por favor',
+    dps: 'depois', hj: 'hoje', agr: 'agora', qnd: 'quando', cmg: 'comigo', ctg: 'contigo', bjs: 'beijos', bj: 'beijo', sla: 'sei la',
+    oq: 'o que', qq: 'qualquer', ngm: 'ninguem', vdd: 'verdade' };
+  const canonToks = text => tokens(text).flatMap(t => (CANON[t] || t).split(' '));
+  const pst = t => t.length >= 4 ? stem(t) : t;
+  /** Uma expressão ("isso dizes tu", "a sério") guarda todas as palavras, também as pequenas, pela ordem. */
+  function phraseKey(w) {
+    const all = canonToks(w);
+    return all.length >= 3 || (all.length === 2 && all.some(x => STOP.has(x))) ? all.map(pst) : null;
+  }
+  const same = (a, b) => a === b || (a.length >= 4 && b.length >= 4 && (a.startsWith(b) || b.startsWith(a)));
+  /** Quantas palavras da expressão aparecem na frase, pela mesma ordem. */
+  function inOrder(ph, q) {
+    const L = new Array(q.length + 1).fill(0);
+    for (let i = 1; i <= ph.length; i++) {
+      let prev = 0;
+      for (let j = 1; j <= q.length; j++) {
+        const tmp = L[j];
+        L[j] = same(ph[i - 1], q[j - 1]) ? prev + 1 : Math.max(L[j], L[j - 1]);
+        prev = tmp;
+      }
+    }
+    return L[q.length];
+  }
+
   function emojisIn(str) {
     const out = [];
     let parts;
@@ -124,16 +152,17 @@
     const cache = new Map();
     for (const p of (data.packs || [])) for (const st of (p.stickers || [])) {
       const kws = [];
-      for (const w of (st.words || [])) { const t = prep(w); if (t.length) kws.push({ t, w: 3, src: w }); }
+      for (const w of (st.words || [])) { const t = prep(w), ph = phraseKey(w); if (t.length || ph) kws.push({ t, ph, w: 3, src: w }); }
       for (const e of (st.emojis || [])) {
         const k = stripVS(e);
         if (!cache.has(k)) cache.set(k, effectiveWords(e, data, emoInfo));
-        for (const w of cache.get(k)) { const t = prep(w); if (t.length) kws.push({ t, w: 1.5, src: w }); }
+        for (const w of cache.get(k)) { const t = prep(w), ph = phraseKey(w); if (t.length || ph) kws.push({ t, ph, w: 1.5, src: w }); }
       }
       // palavras que o teclado aprendeu contigo (perdem força se deixares de as usar)
       for (const l of learned(st)) {
         const t = l.w.includes(' ') ? prep(l.w) : [{ w: l.w, s: stem(l.w) }];
-        if (t.length) kws.push({ t, w: 1 + Math.min(l.eff, 6) * 0.55, src: l.w, learned: true });
+        const ph = l.w.includes(' ') ? phraseKey(l.w) : null;
+        if (t.length || ph) kws.push({ t, ph, w: 1 + Math.min(l.eff, 6) * 0.55, src: l.w, learned: true });
       }
       items.push({ p, s: st, kws, emo: (st.emojis || []).map(stripVS), boost: habitBoost(st) });
     }
@@ -158,6 +187,7 @@
     const qt = q.filter(x => !STOP.has(x)).map(x => ({ w: x, s: stem(x) }));
     const qstop = q.filter(x => STOP.has(x));
     const qe = emojisIn(line).map(stripVS);
+    const qall = canonToks(line).slice(-16).map(pst);
     if (!qt.length && !qe.length && !qstop.length) return [];
     const res = [];
     for (const it of index) {
@@ -165,7 +195,17 @@
       const why = new Set();
       for (const kw of it.kws) {
         let best = 0;
-        if (kw.t.length === 1) {
+        if (kw.ph) {
+          // expressão: vale muito quando a escreves toda (pela ordem); uma palavra solta dela vale pouco
+          const r = inOrder(kw.ph, qall) / kw.ph.length;
+          if (r === 1) best = 1.7;
+          else if (r >= 0.66) best = r * 1.1;
+          else if (kw.t.length) {
+            let hit = 0;
+            for (const part of kw.t) if (qt.some(x => sim(part, x) >= 0.75)) hit++;
+            best = hit ? 0.35 * hit / kw.t.length : 0;
+          }
+        } else if (kw.t.length === 1) {
           qt.forEach((x, i) => { const v = sim(kw.t[0], x) * (1 + 0.3 * i / Math.max(1, qt.length)); if (v > best) best = v; });
           // palavras pequenas só contam se forem palavras tuas e exatamente iguais
           if (!best && kw.w === 3 && qstop.includes(kw.t[0].w)) best = 1;
@@ -195,7 +235,9 @@
       const a = all[i], b = all[i + 1];
       if (a.length >= 2 && b.length >= 3 && !STOP.has(b)) pairs.push(a + ' ' + b);
     }
-    return words.concat(Array.from(new Set(pairs)).slice(-4));
+    // mensagem curta inteira ("isso dizes tu"): é uma expressão que o sticker substitui
+    const whole = all.length >= 3 && all.length <= 6 && all.some(x => !STOP.has(x)) ? [all.join(' ')] : [];
+    return words.concat(Array.from(new Set(pairs)).slice(-4), whole);
   }
 
   const DAY = 86400000, HALF = 45;
@@ -256,5 +298,5 @@
     return Object.assign({}, data, { packs });
   }
 
-  window.Match = { learned, habitual, habitBoost, queryTokens, isAdult, modeData, norm, stripVS, tokens, stem, defaultWords, effectiveWords, buildIndex, search, emojisIn, STOP };
+  window.Match = { CANON, canonToks, phraseKey, learned, habitual, habitBoost, queryTokens, isAdult, modeData, norm, stripVS, tokens, stem, defaultWords, effectiveWords, buildIndex, search, emojisIn, STOP };
 })();

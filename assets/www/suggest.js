@@ -14,6 +14,39 @@
     'mao', 'maos', 'comida', 'natureza', 'atividade', 'viagem', 'lugar', 'emoji', 'smiley', 'olho', 'olhos', 'boca', 'aberta', 'aberto',
     'fechado', 'fechada', 'com', 'cor', 'tom', 'pele', 'homem', 'mulher', 'pessoa', 'grande', 'pequeno', 'desenho', 'contorno']);
   const toks = s => norm(s).replace(/[^a-z0-9ç\s'-]/g, ' ').split(/[\s'-]+/).filter(Boolean);
+  // formas de escrever a mesma coisa em conversa
+  const CANON = (M.CANON && Object.assign({ tô: 'estou', cê: 'voce', amn: 'amanha', fds: 'fim de semana' }, M.CANON)) || { tou: 'estou', to: 'estou', tô: 'estou', ta: 'esta', tas: 'estas', tamos: 'estamos', tava: 'estava', pra: 'para', pro: 'para',
+    q: 'que', k: 'que', n: 'nao', nd: 'nada', tb: 'tambem', tbm: 'tambem', mt: 'muito', mto: 'muito', mta: 'muita', pq: 'porque', vc: 'voce',
+    ce: 'voce', cê: 'voce', msm: 'mesmo', td: 'tudo', tds: 'todos', blz: 'beleza', vlw: 'valeu', obg: 'obrigado', pfv: 'por favor', pf: 'por favor',
+    dps: 'depois', hj: 'hoje', amn: 'amanha', agr: 'agora', qnd: 'quando', cmg: 'comigo', ctg: 'contigo', bjs: 'beijos', bj: 'beijo', sla: 'sei la',
+    tmb: 'tambem', oq: 'o que', qq: 'qualquer', ngm: 'ninguem', vdd: 'verdade', fds: 'fim de semana' };
+  const ptoks = str => toks(str).flatMap(t => (CANON[t] || t).split(' '));
+  const pstem = t => t.length >= 4 ? stem(t) : t;
+  function tri(str) {
+    const x = '  ' + str.replace(/\s+/g, ' ') + ' ', out = new Set();
+    for (let i = 0; i + 3 <= x.length; i++) out.add(x.slice(i, i + 3));
+    return out;
+  }
+  const dice = (a, b) => { if (!a.size || !b.size) return 0; let n = 0; for (const x of a) if (b.has(x)) n++; return 2 * n / (a.size + b.size); };
+  /** Quão parecidas são duas frases (0 a 1): palavras em comum (as pequenas contam menos), a ordem e a escrita. */
+  function phraseSim(A, B) {
+    const wt = t => STOP.has(t) ? 0.45 : 1;
+    const as = A.st, bs = B.st;
+    const used = new Array(bs.length).fill(false);
+    let m = 0;
+    as.forEach((x, i) => { const j = bs.findIndex((y, k) => !used[k] && y === x); if (j >= 0) { used[j] = true; m += wt(A.tk[i]); } });
+    const wa = A.tk.reduce((a, t) => a + wt(t), 0), wb = B.tk.reduce((a, t) => a + wt(t), 0);
+    const d = 2 * m / (wa + wb || 1);
+    // a ordem das palavras (maior subsequência comum)
+    const L = Array.from({ length: as.length + 1 }, () => new Array(bs.length + 1).fill(0));
+    for (let i = 1; i <= as.length; i++) for (let j = 1; j <= bs.length; j++) L[i][j] = as[i - 1] === bs[j - 1] ? L[i - 1][j - 1] + 1 : Math.max(L[i - 1][j], L[i][j - 1]);
+    const ord = L[as.length][bs.length] / Math.max(as.length, bs.length);
+    const t = dice(A.tri, B.tri);
+    return Math.max(d * 0.75 + ord * 0.25, t * 0.92);
+  }
+  function phraseOf(str) { const tk = ptoks(str); return { tk, st: tk.map(pstem), tri: tri(tk.join(' ')) }; }
+  /** Frase = 3+ palavras, ou 2 com uma palavra pequena ("a sério", "isso mesmo"). */
+  const isPhrase = n => { const t = n.split(/\s+/); return t.length >= 3 || (t.length === 2 && (t.some(x => STOP.has(x)) || (L && L.phr.has(n)))); };
 
   /* ---------- índices (feitos uma vez) ---------- */
   let L = null;          // base de palavras
@@ -25,15 +58,17 @@
 
   function buildLex() {
     if (L) return L;
-    L = { cl: [], term: new Map(), tok: new Map(), emo: new Map(), disp: new Map() };
+    L = { cl: [], term: new Map(), tok: new Map(), emo: new Map(), disp: new Map(), ph: [], phBy: new Map(), byStart: new Map(), phr: new Set() };
     for (const line of (window.LEX || [])) {
       const bar = line.indexOf('|');
       const emos = segEmojis(line.slice(0, bar)).map(stripVS);
       const terms = line.slice(bar + 1).split(',').map(x => x.trim()).filter(Boolean);
       const ci = L.cl.length;
       L.cl.push({ emos, terms, n: terms.map(norm) });
+      const isFr = window.LEX_FR != null && ci >= window.LEX_FR;
       terms.forEach((t, pos) => {
         const n = norm(t);
+        if (isFr && n.includes(' ')) L.phr.add(n);
         if (!L.disp.has(n) || /[^\x00-\x7f]/.test(t)) L.disp.set(n, t);
         if (!L.term.has(n)) L.term.set(n, []);
         L.term.get(n).push([ci, pos]);
@@ -45,7 +80,58 @@
       });
       emos.forEach(e => { if (!L.emo.has(e)) L.emo.set(e, []); L.emo.get(e).push(ci); });
     }
+    // índices para encontrar frases parecidas e palavras mal escritas
+    for (const n of L.term.keys()) {
+      if (n.includes(' ')) {
+        const f = phraseOf(n); f.n = n;
+        const id = L.ph.length; L.ph.push(f);
+        new Set(f.st).forEach(x => { if (!L.phBy.has(x)) L.phBy.set(x, []); L.phBy.get(x).push(id); });
+      } else if (n.length >= 4) {
+        const k = n.slice(0, 2);
+        if (!L.byStart.has(k)) L.byStart.set(k, []);
+        L.byStart.get(k).push(n);
+      }
+    }
     return L;
+  }
+
+  /**
+   * Termos da base parecidos com o que escreveste: o próprio, frases com o mesmo sentido
+   * ("isso dizes-te tu" ≈ "isso dizes tu") ou a palavra bem escrita. Devolve [[termo, semelhança]].
+   */
+  const mtCache = new Map();
+  function matchTerms(seed) {
+    const lex = buildLex();
+    const n = norm(seed);
+    if (mtCache.has(n)) return mtCache.get(n);
+    let out = [];
+    if (lex.term.has(n)) out.push([n, 1]);
+    const A = phraseOf(n);
+    const cn = A.tk.join(' ');
+    if (cn !== n && lex.term.has(cn)) out.push([cn, 0.98]);
+    if (A.tk.length >= 2) {
+      const cand = new Map();
+      // só procura pelas palavras com significado (as pequenas aparecem em todo o lado)
+      const keys = new Set(A.st.filter((x, i) => !STOP.has(A.tk[i])));
+      // frase só com palavras pequenas ("e eu com isso"): tem de ser muito parecida
+      const minSim = keys.size ? 0.55 : 0.74;
+      if (!keys.size) A.st.forEach(x => keys.add(x));
+      for (const x of keys) for (const id of (lex.phBy.get(x) || [])) cand.set(id, 1);
+      for (const id of cand.keys()) {
+        const B = lex.ph[id];
+        if (B.n === n || B.n === cn) continue;
+        const v = phraseSim(A, B);
+        if (v >= minSim) out.push([B.n, v]);
+      }
+    } else if (!out.length && n.length >= 4) {
+      const tr = tri(n);
+      for (const w of (lex.byStart.get(n.slice(0, 2)) || [])) { const v = dice(tr, tri(w)); if (v >= 0.62) out.push([w, v * 0.9]); }
+    }
+    out.sort((a, b) => b[1] - a[1]);
+    out = out.slice(0, 5);
+    if (mtCache.size > 500) mtCache.clear();
+    mtCache.set(n, out);
+    return out;
   }
 
   /** Lista de emojis da app ({e, n, pt, npt}). */
@@ -115,7 +201,7 @@
     if (!n || n.length < 2) return false;
     if (STOP.has(n) && n.length < 4) return false;
     if (GENERIC.has(n)) return false;
-    if (n.split(/\s+/).length > 4) return false;
+    if (n.split(/\s+/).length > 8) return false;
     return true;
   }
 
@@ -130,12 +216,17 @@
     const have = (ctx.words || []).map(norm).filter(Boolean);
     const haveSet = new Set(have);
     const haveStems = new Set(have.filter(x => !x.includes(' ') && x.length >= 4).map(stem));
+    const haveSt = new Set(have.filter(x => x.includes(' ')).map(x => 'f:' + ptoks(x).map(pstem).join(' ')));
+    // quase iguais às que já tens ("isso dizes tu" quando já tens "isso dizes-te tu")
+    const near = new Set();
+    for (const h of have) if (h.includes(' ')) for (const [t, v] of matchTerms(h)) if (v >= 0.84) near.add(t);
     const soft = new Set((ctx.avoid || []).map(norm));
     const C = new Map();
     const add = (w, sc, src, seed) => {
       const n = norm(w);
       if (!okWord(n) || haveSet.has(n)) return;
       if (!n.includes(' ') && n.length >= 4 && haveStems.has(stem(n))) return;
+      if (n.includes(' ') && (haveSt.has('f:' + ptoks(n).map(pstem).join(' ')) || near.has(n))) return;
       let c = C.get(n);
       if (!c) { c = { w: lex.disp.get(n) || w, s: 0, src: {}, sup: new Set() }; C.set(n, c); }
       c.s += sc; c.src[src] = (c.src[src] || 0) + sc; c.sup.add(seed);
@@ -148,9 +239,9 @@
 
     // 1) a partir das palavras que já lá estão
     for (const seed of have) {
-      const exact = lex.term.get(seed);
-      if (exact) for (const [ci, pos] of exact) addCluster(ci, 1 - 0.5 * pos / lex.cl[ci].terms.length, 'w:' + seed);
-      else {
+      const mt = matchTerms(seed);
+      for (const [t, v] of mt) for (const [ci, pos] of lex.term.get(t)) addCluster(ci, Math.pow(v, 1.6) * (1 - 0.5 * pos / lex.cl[ci].terms.length), 'w:' + seed);
+      if (!mt.length || mt[0][1] < 0.6) {
         const tk = toks(seed).filter(x => x.length >= 3 && !STOP.has(x));
         for (const x of tk) {
           for (const [ci, pos] of (lex.term.get(x) || [])) addCluster(ci, 0.5 * (1 - 0.5 * pos / lex.cl[ci].terms.length), 'w:' + seed);
@@ -188,16 +279,17 @@
     const out = [];
     for (const [n, c] of C) {
       let sc = c.s * (1 + 0.45 * (c.sup.size - 1));
-      if (n.split(/\s+/).length > 2) sc *= 0.8;
+      const nw = n.split(/\s+/).length;
+      if (nw > 6) sc *= 0.85;
       if (soft.has(n)) sc *= 0.3;
       const src = (c.src.teu || 0) >= 0.6 ? 'teu' : Object.keys(c.src).sort((a, b) => c.src[b] - c.src[a])[0];
-      out.push({ w: c.w, n, score: sc, src });
+      out.push({ w: c.w, n, score: sc, src, phrase: isPhrase(n) });
     }
     out.sort((a, b) => b.score - a.score);
     // o teclado já junta masculino/feminino/plural (sonolento = sonolenta): fica só um
     const seenStem = new Set(), res = [];
     for (const x of out) {
-      const k = !x.n.includes(' ') && x.n.length >= 4 ? stem(x.n) : null;
+      const k = x.n.includes(' ') ? 'f:' + ptoks(x.n).map(pstem).join(' ') : x.n.length >= 4 ? stem(x.n) : null;
       if (k && seenStem.has(k)) continue;
       if (k) seenStem.add(k);
       res.push(x);
@@ -219,8 +311,9 @@
     const add = (w, sc) => { const n = norm(w); if (n === t || have.has(n) || !okWord(n)) return; const c = C.get(n); if (!c || c.s < sc) C.set(n, { w: lex.disp.get(n) || w, s: sc }); };
     for (const [n, list] of lex.term) if (starts(n)) add(lex.disp.get(n), 0.6 + 0.15 * list.length + (n.startsWith(t) ? 0.3 : 0) - n.length * 0.01 + (rel.get(n) || 0) * 2);
     for (const [n, w] of P.all) if (starts(n)) add(w, 1.2 + (rel.get(n) || 0) * 2);
+    if (t.includes(' ')) for (const [n, v] of matchTerms(t)) if (v >= 0.55) add(lex.disp.get(n) || n, 1 + v * 2 + (rel.get(n) || 0));
     if (SYN && t.length >= 3) for (const [n] of SYN) if (n.startsWith(t)) add(SYND.get(n) || n, 0.3 + (rel.get(n) || 0) * 2 - n.length * 0.01);
-    return [...C.values()].sort((a, b) => b.s - a.s).slice(0, 8).map(x => x.w);
+    return [...C.values()].sort((a, b) => b.s - a.s).slice(0, 10).map(x => x.w);
   }
 
   /* ---------- emojis ---------- */
@@ -283,14 +376,15 @@
     function byWord(word, wt, txt) {
       const n = norm(word);
       if (!okWord(n)) return;
-      const cls = lex.term.get(n) || [];
-      for (const [ci, pos] of cls) {
+      let cls = [];
+      for (const [t, v] of matchTerms(n)) for (const [ci, pos] of lex.term.get(t)) cls.push([ci, pos, v]);
+      for (const [ci, pos, v] of cls) {
         const cl = lex.cl[ci];
-        const k = wt * (1 - 0.5 * pos / cl.terms.length) / Math.pow(cls.length, 0.25);
+        const k = wt * Math.pow(v, 1.6) * (1 - 0.5 * pos / cl.terms.length) / Math.pow(cls.length, 0.25);
         cl.emos.forEach((e, i) => add(e, k * (i === 0 ? 1 : 0.7), 'w:' + n, txt));
       }
       for (const x of P.emoWords) if (x.n.includes(n)) add(x.e, wt * 1.3, 'w:' + n, txt);
-      const hits = n.length >= 4 || !n.includes(' ') && n.length >= 3 && cls.length ? EI.kw.get(n) || [] : [];
+      const hits = n.length >= 4 || n.length >= 3 && cls.length ? EI.kw.get(n) || [] : [];
       const k = hits.length > 10 ? 10 / hits.length : 1;
       hits.slice(0, 30).forEach(([i, w]) => add(EM[i].e, wt * 0.75 * w * k, 'w:' + n, txt));
     }
@@ -354,5 +448,5 @@
     return out.slice(0, ctx.limit || 10);
   }
 
-  window.Suggest = { words, complete, emojis, setEmojis, loadSyn, mainColour, _lex: buildLex };
+  window.Suggest = { words, complete, emojis, setEmojis, loadSyn, mainColour, matchTerms, phraseSim, isPhrase, _lex: buildLex };
 })();

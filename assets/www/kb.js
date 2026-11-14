@@ -118,8 +118,12 @@ function preview(pid, f) {
   const own = (s.words || []);
   const emo = [];
   for (const e of (s.emojis || [])) for (const w of M.effectiveWords(e, DATA, info)) if (!emo.includes(w)) emo.push(w);
-  const learned = Object.keys(s.learn || {}).sort((a, b) => s.learn[b] - s.learn[a]).slice(0, 8);
-  const qt = M.queryTokens(text).filter(w => !own.some(o => M.norm(o) === w));
+  const learned = M.learned(s).slice(0, 8).map(l => l.w);
+  // liga a expressão toda se for uma mensagem curta ("isso dizes tu"); senão, as palavras com significado
+  const line = String(text || '').split('\n').pop().trim();
+  const all = M.tokens(line);
+  const qt = (all.length >= 2 && all.length <= 6 && all.some(x => !M.STOP.has(x)) ? [line.toLowerCase().replace(/[.!?…]+$/, '')]
+    : M.queryTokens(text).filter(w => !w.includes(' ')).slice(-3)).filter(w => !own.some(o => M.norm(o) === M.norm(w)));
   const pv = $('#pv');
   pv.innerHTML = `<div class="big"><img src="${img(p, s.f)}"></div>
     <div class="side">
@@ -130,7 +134,7 @@ function preview(pid, f) {
         <button id="pv-fav">${s.fav ? '★ Favorito' : '☆ Favorito'}</button>
         <button id="pv-gal">💾 Galeria</button>
         <button id="pv-close">Fechar</button>
-        ${qt.length ? `<button class="wide" id="pv-add">＋ Ligar a «${esc(qt.slice(-3).join(' '))}»</button>` : ''}
+        ${qt.length ? `<button class="wide" id="pv-add">＋ Ligar a «${esc(qt.join(', '))}»</button>` : ''}
       </div>
     </div>`;
   pv.classList.remove('hidden');
@@ -145,7 +149,7 @@ function preview(pid, f) {
   $('#pv-gal').onclick = () => { K.saveToGallery(p.id, s.f); flash('A guardar…'); };
   const add = $('#pv-add');
   if (add) add.onclick = () => {
-    try { DATA = M.modeData(JSON.parse(K.addWords(p.id, s.f, JSON.stringify(qt.slice(-3))))); } catch (e) {}
+    try { DATA = M.modeData(JSON.parse(K.addWords(p.id, s.f, JSON.stringify(qt)))); } catch (e) {}
     IDX = M.buildIndex(DATA, info);
     flash('Palavras ligadas ✓');
     preview(pid, f);

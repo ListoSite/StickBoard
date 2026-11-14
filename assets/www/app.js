@@ -1012,6 +1012,7 @@ function openEditor(packId, idx) {
       return { words: c.words, emojis: c.emojis, avoid: c.emojis.flatMap(e => emoWords(e)).concat(Match.learned(c).map(l => l.w)) };
     }, (w, many) => {
       const c = cur();
+      const inp = $('.words input', sheet); if (inp) inp.value = '';
       if (c.words.some(y => norm(y) === norm(w))) return;
       c.words.push(w); commit(); drawWords();
       if (!many) toast(`«${w}» adicionada`);
@@ -1327,8 +1328,9 @@ function creatorExtras(sheet, packId) {
   let picker = null, why = null;
   const wdIn = $('#wd', sheet);
   const curWords = () => wdIn.value.split(',').map(x => x.trim()).filter(Boolean);
-  const csg = wordSuggest($('#cx-sug', box), () => ({ words: curWords(), emojis }), (w, many) => {
+  const csg = wordSuggest($('#cx-sug', box), () => ({ words: curWords(), emojis }), (w, many, comp) => {
     const l = curWords();
+    if (comp && l.length && !wdIn.value.trim().endsWith(',')) l.pop();
     if (l.some(y => norm(y) === norm(w))) return;
     l.push(w); wdIn.value = l.join(', '); csg.draw('');
   });
@@ -1757,32 +1759,37 @@ function openEmoji(e) {
  * Devolve { draw(typed) } para atualizar quando as palavras mudam ou enquanto escreves.
  */
 function wordSuggest(box, getCtx, onPick) {
-  let more = false, typed = '', hidden = new Set();
+  let more = { f: false, w: false }, typed = '', hidden = new Set();
   Suggest.loadSyn().then(() => draw(typed));
+  const chip = x => `<button class="schip ${x.src === 'teu' ? 'mine' : ''} ${x.phrase ? 'ph' : ''}" data-w="${esc(x.w)}">${x.src === 'teu' ? '<i></i>' : ''}${esc(x.w)}</button>`;
+  // tocar numa sugestão não tira o foco da caixa de texto (senão o que estava escrito era guardado primeiro)
+  box.addEventListener('mousedown', e => { if (e.target.closest('.schip, .btn')) e.preventDefault(); });
   function draw(t) {
     typed = t || '';
     const ctx = Object.assign({ data: S.data }, getCtx());
     const comp = typed.trim().length >= 2 ? Suggest.complete(typed, ctx) : [];
     const cs = new Set(comp.map(norm));
-    const list = Suggest.words(Object.assign({}, ctx, { limit: 60 })).filter(x => !hidden.has(x.n) && !cs.has(x.n));
-    const n = more ? 40 : 14;
-    if (!comp.length && !list.length) {
-      box.innerHTML = (ctx.words || []).length || (ctx.emojis || []).length ? '' : '<div class="hint">Escreve uma palavra e eu sugiro outras parecidas.</div>';
+    const all = Suggest.words(Object.assign({}, ctx, { limit: 120 })).filter(x => !hidden.has(x.n) && !cs.has(x.n));
+    const fr = all.filter(x => x.phrase), wd = all.filter(x => !x.phrase);
+    if (!comp.length && !all.length) {
+      box.innerHTML = (ctx.words || []).length || (ctx.emojis || []).length ? '' : '<div class="hint">Escreve uma palavra ou uma expressão e eu sugiro outras parecidas.</div>';
       return;
     }
-    box.innerHTML = `<div class="sugh"><span>✨ ${comp.length ? 'Completar' : 'Sugestões'}</span>${list.length > 5 ? '<button class="btn sm ghost" id="sg5">＋ Juntar as 5 primeiras</button>' : ''}</div>
-      ${comp.length ? `<div class="sugl">${comp.map(w => `<button class="schip comp" data-w="${esc(w)}">${esc(w)}</button>`).join('')}</div><div class="sugh"><span>Relacionadas</span></div>` : ''}
-      <div class="sugl">${list.slice(0, n).map(x => `<button class="schip ${x.src === 'teu' ? 'mine' : ''}" data-w="${esc(x.w)}">${x.src === 'teu' ? '<i></i>' : ''}${esc(x.w)}</button>`).join('')}
-      ${list.length > 14 ? `<button class="schip more" id="sgm">${more ? 'Menos' : `Mais ${Math.min(list.length, 40) - 14}…`}</button>` : ''}</div>
-      <div class="hint sugn">Toca para juntar. As com ponto verde vêm do teu próprio uso.</div>`;
+    const nf = more.f ? 24 : 6, nw = more.w ? 40 : 12;
+    box.innerHTML = `${comp.length ? `<div class="sugh"><span>✨ Completar</span></div><div class="sugl">${comp.map(w => `<button class="schip comp ${Suggest.isPhrase(norm(w)) ? 'ph' : ''}" data-w="${esc(w)}">${esc(w)}</button>`).join('')}</div>` : ''}
+      ${fr.length ? `<div class="sugh"><span>💬 Expressões</span></div>
+      <div class="sugl">${fr.slice(0, nf).map(chip).join('')}${fr.length > 6 ? `<button class="schip more" data-m="f">${more.f ? 'Menos' : `Mais ${Math.min(fr.length, 24) - 6}…`}</button>` : ''}</div>` : ''}
+      ${wd.length ? `<div class="sugh"><span>✨ Palavras</span>${wd.length > 5 ? '<button class="btn sm ghost" id="sg5">＋ Juntar as 5 primeiras</button>' : ''}</div>
+      <div class="sugl">${wd.slice(0, nw).map(chip).join('')}${wd.length > 12 ? `<button class="schip more" data-m="w">${more.w ? 'Menos' : `Mais ${Math.min(wd.length, 40) - 12}…`}</button>` : ''}</div>` : ''}
+      <div class="hint sugn">Toca para juntar · carrega sem largar para esconder. As com ponto verde vêm do teu próprio uso.</div>`;
     $$('.schip[data-w]', box).forEach(b => {
-      b.onclick = () => { onPick(b.dataset.w); };
       let tm = null;
+      b.onclick = () => { if (tm === 'x') { tm = null; return; } onPick(b.dataset.w, false, b.classList.contains('comp')); };
       b.addEventListener('touchstart', () => { tm = setTimeout(() => { tm = 'x'; hidden.add(norm(b.dataset.w)); draw(typed); toast(`Escondi «${b.dataset.w}»`); }, 550); }, { passive: true });
-      b.addEventListener('touchend', ev => { if (tm === 'x') ev.preventDefault(); else clearTimeout(tm); tm = null; });
+      b.addEventListener('touchend', () => { if (tm !== 'x') { clearTimeout(tm); tm = null; } });
     });
-    const m = $('#sgm', box); if (m) m.onclick = () => { more = !more; draw(typed); };
-    const f5 = $('#sg5', box); if (f5) f5.onclick = () => { list.slice(0, 5).forEach(x => onPick(x.w, true)); };
+    $$('.schip.more', box).forEach(b => b.onclick = () => { more[b.dataset.m] = !more[b.dataset.m]; draw(typed); });
+    const f5 = $('#sg5', box); if (f5) f5.onclick = () => { wd.slice(0, 5).forEach(x => onPick(x.w, true)); };
   }
   return { draw };
 }
