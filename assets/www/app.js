@@ -871,9 +871,55 @@ function openEditor(packId, idx) {
   const ov = openOverlay(sheet, { onClose: () => render() });
   $('#x', sheet).onclick = () => closeOverlay(ov);
   let p = packOf(packId);
-  let picker = null;
+  let picker = null, wsg = null, why = null;
 
   function cur() { return p.stickers[idx]; }
+  function drawWhyEd() {
+    drawWhy($('.emowhy', sheet), why, {
+      words: () => cur().words,
+      close: () => { why = null; drawWhyEd(); },
+      add: x => {
+        const c = cur();
+        if (c.emojis.some(y => stripVS(y) === stripVS(x.e))) return;
+        if (c.emojis.length >= 3) return toast('Já tem 3 emojis: toca num para o tirar primeiro');
+        c.emojis.push(x.e); commit();
+        why.added.push(x); why.alts = why.alts.filter(y => y !== x);
+        drawTop(); redrawPicker(); drawWhyEd();
+      },
+      undo: () => {
+        const c = cur();
+        const rm = new Set(why.added.map(x => stripVS(x.e)));
+        c.emojis = c.emojis.filter(e => !rm.has(stripVS(e)));
+        commit(); why = null; drawTop(); redrawPicker(); drawWhyEd(); toast('Emojis tirados');
+      },
+      addWords: ws => {
+        const c = cur();
+        ws.forEach(w => { if (!c.words.some(y => norm(y) === norm(w))) c.words.push(w); });
+        commit(); drawWords(); drawWhyEd(); toast('Juntei: ' + ws.join(', '));
+      }
+    });
+  }
+  async function autoEmojis(btn) {
+    const s = cur();
+    btn.disabled = true;
+    const label = btn.innerHTML;
+    try {
+      const r = await analyseEmojis({ p, s, img: imgUrl(p, s.f), words: s.words, emojis: s.emojis, learned: Match.learned(s), step: t => { btn.textContent = t; } });
+      if (cur() !== s) return;
+      const need = 3 - s.emojis.length;
+      const picks = need > 0 ? pickEmojis(r.list, need) : [];
+      if (need > 0 && !picks.length) {
+        why = r.list.length ? { f: s.f, added: [], alts: r.list.slice(0, 6), ocr: r.ocr } : null;
+        drawWhyEd();
+        if (!r.list.length) toast('Não encontrei pistas: escreve uma palavra para este sticker e tenta outra vez');
+        return;
+      }
+      picks.forEach(x => s.emojis.push(x.e));
+      if (picks.length) commit();
+      why = { f: s.f, added: picks, alts: r.list.filter(x => !picks.includes(x)).slice(0, 6), ocr: r.ocr };
+      drawTop(); redrawPicker(); drawWhyEd();
+    } finally { btn.disabled = false; btn.innerHTML = label; }
+  }
   function commit() { p = savePack(p); }
   // anda só pelos stickers visíveis (os escondidos dos especiais ficam de fora)
   function step(d) { for (let j = idx + d; j >= 0 && j < p.stickers.length; j += d) if (!p.stickers[j].hidden) return j; return -1; }
@@ -886,13 +932,14 @@ function openEditor(packId, idx) {
     const slots = [0, 1, 2].map(i => s.emojis[i] ? `<div class="slot f emo" data-i="${i}">${esc(s.emojis[i])}<span class="x">×</span></div>` : `<div class="slot"></div>`).join('');
     top.innerHTML = `<div class="ed-top"><div class="st ed-prev" style="padding:6px"><div class="im"><img src="${imgUrl(p, s.f)}"></div></div>
       <div class="ed-side"><div class="navs"><button class="btn sm" id="pv" ${step(-1) < 0 ? 'disabled' : ''}>‹</button><span style="flex:1;text-align:center">${s.hidden ? 'escondido ⚡' : `${visIdx() + 1} de ${visible(p).length}`}</span><button class="btn sm" id="nx" ${step(1) < 0 ? 'disabled' : ''}>›</button></div>
-      <div class="hint">Emojis (tags) — 1 a 3</div><div class="slots">${slots}</div></div></div>
+      <div class="hint">Emojis (tags) — 1 a 3</div><div class="slots">${slots}</div><button class="btn sm block aibtn" id="ai">${s.emojis.length < 3 ? '✨ Completar emojis' : '✨ Outras ideias'}</button></div></div>
       <div class="emoinfo">${s.emojis.map(e => {
         const o = emoInfo(e); const others = (used.get(stripVS(e)) || []).filter(x => x.s.f !== s.f).length;
         const cats = WA_CAT_OF.get(stripVS(e));
         return `<div class="r"><span class="e emo">${esc(e)}</span><div><b>${esc(o ? o.n : 'emoji')}</b> · <span style="color:var(--blue)">${esc(emoWords(e).join(', ') || '—')}</span><div class="dim">${others ? `Também em ${others} sticker${others > 1 ? 's' : ''} teu${others > 1 ? 's' : ''}` : 'Só este sticker tem este emoji ✓'}${cats ? ' · categoria do WhatsApp: ' + cats.map(c => c.pt).join(', ') : ''}</div></div></div>`;
       }).join('')}</div>`;
-    $$('.slot.f', top).forEach(sl => sl.onclick = () => { cur().emojis.splice(+sl.dataset.i, 1); commit(); drawTop(); redrawPicker(); });
+    $$('.slot.f', top).forEach(sl => sl.onclick = () => { const e = cur().emojis.splice(+sl.dataset.i, 1)[0]; commit(); if (why) { const x = why.added.find(y => stripVS(y.e) === stripVS(e)); if (x) { why.added = why.added.filter(y => y !== x); why.alts.unshift(x); } drawWhyEd(); } drawTop(); redrawPicker(); });
+    $('#ai', top).onclick = e => autoEmojis(e.currentTarget);
     const pv = $('#pv', top), nx = $('#nx', top);
     pv.onclick = () => { const j = step(-1); if (j >= 0) { idx = j; drawAll(); } };
     nx.onclick = () => { const j = step(1); if (j >= 0) { idx = j; drawAll(); } };
@@ -912,8 +959,10 @@ function openEditor(packId, idx) {
       $('.words input', sheet).focus();
     };
     inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
-    inp.addEventListener('input', () => { if (inp.value.includes(',')) add(); });
+    let tq = null;
+    inp.addEventListener('input', () => { if (inp.value.includes(',')) return add(); clearTimeout(tq); tq = setTimeout(() => wsg && wsg.draw(inp.value), 120); });
     inp.addEventListener('blur', add);
+    if (wsg) wsg.draw('');
   }
   function redrawPicker() {
     const holder = $('.pk-holder', sheet);
@@ -934,9 +983,10 @@ function openEditor(packId, idx) {
     if (!s) { closeOverlay(ov); return; }
     s.emojis = s.emojis || []; s.words = s.words || [];
     const bd = $('.bd', sheet);
-    bd.innerHTML = `<div class="ed-top-wrap"></div><div class="pk-holder"></div>
+    bd.innerHTML = `<div class="ed-top-wrap"></div><div class="emowhy"></div><div class="pk-holder"></div>
       <div class="row" style="margin-top:18px;justify-content:space-between"><div class="sec" style="margin:0">Palavras para este sticker</div><button class="btn sm" id="ocr">✨ Ler o texto</button></div>
       <div class="words"></div>
+      <div class="sugbox" id="wsug"></div>
       <div class="hint" style="margin-top:6px">Quando escreveres uma destas palavras, o teclado de stickers sugere este sticker. As palavras dos emojis também contam.</div>
       ${learnBlock(s)}
       <div class="row" style="margin-top:16px;flex-wrap:wrap"><button class="btn sm" id="fv">${s.fav ? '⭐ Favorito' : '☆ Favorito'}</button><button class="btn sm" id="gl">💾 Galeria</button><button class="btn sm" id="cv">${p.cover === s.f ? '★ É a capa' : '☆ Capa'}</button><button class="btn sm" id="mv">Mover</button>${p.adult ? '' : `<button class="btn sm ${s.adult ? 'a18on' : ''}" id="a18">${s.adult ? '🔞 É +18' : '🔞 +18'}</button>`}${s.anim || p.animated ? '<button class="btn sm" id="smo">✨ Suavizar</button>' : ''}<button class="btn sm danger" id="dl">Apagar</button></div>`;
@@ -957,7 +1007,17 @@ function openEditor(packId, idx) {
     };
     $('#fv', bd).onclick = () => { const c = cur(); c.fav = !c.fav; commit(); drawAll(); toast(c.fav ? 'Nos favoritos do teclado ⭐' : 'Tirado dos favoritos'); };
     $('#gl', bd).onclick = () => { const r = JSON.parse(A.saveToGallery(p.id, s.f)); toast(r.error ? 'Não guardei: ' + r.error : 'Guardado em Imagens/StickTag ✓'); };
-    drawTop(); drawWords(); redrawPicker();
+    wsg = wordSuggest($('#wsug', bd), () => {
+      const c = cur();
+      return { words: c.words, emojis: c.emojis, avoid: c.emojis.flatMap(e => emoWords(e)).concat(Match.learned(c).map(l => l.w)) };
+    }, (w, many) => {
+      const c = cur();
+      if (c.words.some(y => norm(y) === norm(w))) return;
+      c.words.push(w); commit(); drawWords();
+      if (!many) toast(`«${w}» adicionada`);
+    });
+    if (!why || why.f !== s.f) why = null;
+    drawTop(); drawWords(); redrawPicker(); drawWhyEd();
     $('#ocr', bd).onclick = async () => {
       const b = $('#ocr', bd); b.disabled = true; b.textContent = 'A ler…';
       const w = await ocrWords(imgUrl(p, cur().f));
@@ -1247,7 +1307,7 @@ function openAnimCreator(packId, media, opts = {}) {
  */
 function creatorExtras(sheet, packId) {
   const emojis = [];
-  const box = el(`<div class="cx"><button class="btn sm block" id="cx-ocr" style="margin:-4px 0 14px">✨ Ler o texto do sticker para as palavras</button><div class="field"><span>Emojis (tags) — 1 a 3</span><div class="emq"></div></div><div class="cx-pk hidden"></div><div class="cx-sp"></div></div>`);
+  const box = el(`<div class="cx"><button class="btn sm block" id="cx-ocr" style="margin:-4px 0 14px">✨ Ler o texto do sticker para as palavras</button><div class="sugbox" id="cx-sug"></div><div class="field"><span>Emojis (tags) — 1 a 3</span><div class="emq"></div></div><div class="cx-why"></div><div class="cx-pk hidden"></div><div class="cx-sp"></div></div>`);
   const anchor = $('#wd', sheet).closest('.field');
   anchor.after(box);
   $('#cx-ocr', box).onclick = async () => {
@@ -1260,12 +1320,46 @@ function creatorExtras(sheet, packId) {
     const add = w.filter(x => !cur.some(y => norm(y) === norm(x)));
     if (!add.length) return toast(w.length ? 'Essas palavras já lá estão' : 'Não encontrei texto');
     inp.value = cur.concat(add).join(', ');
+    csg.draw('');
     toast('Juntei: ' + add.join(', '));
   };
   const emq = $('.emq', box), pkh = $('.cx-pk', box);
-  let picker = null;
+  let picker = null, why = null;
+  const wdIn = $('#wd', sheet);
+  const curWords = () => wdIn.value.split(',').map(x => x.trim()).filter(Boolean);
+  const csg = wordSuggest($('#cx-sug', box), () => ({ words: curWords(), emojis }), (w, many) => {
+    const l = curWords();
+    if (l.some(y => norm(y) === norm(w))) return;
+    l.push(w); wdIn.value = l.join(', '); csg.draw('');
+  });
+  let tq = null;
+  wdIn.addEventListener('input', () => { clearTimeout(tq); tq = setTimeout(() => { const v = wdIn.value; const last = v.slice(v.lastIndexOf(',') + 1); csg.draw(v.trim().endsWith(',') ? '' : last); }, 150); });
+  const whyBox = $('.cx-why', box);
+  function drawWhyCx() {
+    drawWhy(whyBox, why, {
+      words: curWords,
+      close: () => { why = null; drawWhyCx(); },
+      add: x => { if (emojis.some(y => stripVS(y) === stripVS(x.e))) return; if (emojis.length >= 3) return toast('Já tem 3 emojis'); emojis.push(x.e); why.added.push(x); why.alts = why.alts.filter(y => y !== x); drawEm(); drawWhyCx(); },
+      undo: () => { const rm = new Set(why.added.map(x => stripVS(x.e))); for (let i = emojis.length - 1; i >= 0; i--) if (rm.has(stripVS(emojis[i]))) emojis.splice(i, 1); why = null; drawEm(); drawWhyCx(); },
+      addWords: ws => { const l = curWords(); ws.forEach(w => { if (!l.some(y => norm(y) === norm(w))) l.push(w); }); wdIn.value = l.join(', '); drawWhyCx(); csg.draw(''); }
+    });
+  }
+  async function autoCx(btn) {
+    btn.disabled = true; const label = btn.innerHTML;
+    try {
+      const url = $('#cv', sheet).toDataURL('image/png');
+      const r = await analyseEmojis({ p: packOf(packId), dataUrl: url, img: url, words: curWords(), emojis: emojis.slice(), step: t => { btn.textContent = t; } });
+      const need = 3 - emojis.length;
+      const picks = need > 0 ? pickEmojis(r.list, need) : [];
+      picks.forEach(x => emojis.push(x.e));
+      why = r.list.length ? { added: picks, alts: r.list.filter(x => !picks.includes(x)).slice(0, 6), ocr: r.ocr } : null;
+      if (!r.list.length) toast('Não encontrei pistas: escreve uma palavra e tenta outra vez');
+      drawEm(); drawWhyCx();
+    } finally { btn.disabled = false; btn.innerHTML = label; }
+  }
   function drawEm() {
-    emq.innerHTML = emojis.map((e, i) => `<div class="slot emo" data-i="${i}">${esc(e)}<span class="x">×</span></div>`).join('') + (emojis.length < 3 ? `<button class="btn sm" id="cx-add">${picker ? 'Fechar' : '＋ Emoji'}</button>` : '');
+    emq.innerHTML = emojis.map((e, i) => `<div class="slot emo" data-i="${i}">${esc(e)}<span class="x">×</span></div>`).join('') + (emojis.length < 3 ? `<button class="btn sm" id="cx-add">${picker ? 'Fechar' : '＋ Emoji'}</button>` : '') + `<button class="btn sm aibtn" id="cx-ai">${emojis.length < 3 ? '✨ Completar' : '✨ Ideias'}</button>`;
+    $('#cx-ai', emq).onclick = e => autoCx(e.currentTarget);
     $$('.slot', emq).forEach(sl => sl.onclick = () => { emojis.splice(+sl.dataset.i, 1); drawEm(); if (picker) showPicker(); });
     const add = $('#cx-add', emq);
     if (add) add.onclick = () => { if (picker) { picker = null; pkh.classList.add('hidden'); pkh.innerHTML = ''; drawEm(); } else showPicker(); };
@@ -1280,7 +1374,7 @@ function creatorExtras(sheet, packId) {
     pkh.innerHTML = ''; pkh.appendChild(picker); pkh.classList.remove('hidden');
     drawEm();
   }
-  drawEm();
+  drawEm(); csg.draw('');
   const sps = specialSection(() => null, () => packId, $('.cx-sp', box));
   return {
     validate: () => sps.validate(),
@@ -1607,6 +1701,7 @@ function openEmoji(e) {
     <div class="sec">Palavras do teclado para este emoji</div>
     <div class="words" id="ew"></div>
     <div class="row" style="margin-top:8px;justify-content:space-between"><span class="hint">Os stickers com este emoji aparecem no teclado quando escreves estas palavras. Toca numa palavra em baixo para a juntar.</span><button class="btn sm" id="ewr">Repor</button></div>
+    <div class="sugbox" id="sug"></div>
     <div class="sec">Palavras Unicode em português</div><div class="kw">${(o.pt.length ? [o.n].concat(o.pt) : ['—']).map(w => `<span>${esc(w)}</span>`).join('')}</div>
     <div class="sec">Palavras em inglês</div><div class="kw en">${(o.en.length ? o.en : ['—']).map(w => `<span>${esc(w)}</span>`).join('')}</div>
     <div class="sec">Os teus stickers com este emoji (${used.length})</div>
@@ -1620,6 +1715,12 @@ function openEmoji(e) {
     try { S.data = JSON.parse(A.setEmojiWords(o.e, list == null ? '' : JSON.stringify(list))); } catch (er) { toast('Erro a guardar'); }
     drawEW();
   };
+  const sg = wordSuggest($('#sug', sheet), () => ({ words: emoWords(o.e), emojis: [o.e] }), (w, many) => {
+    const l = emoWords(o.e).slice();
+    if (l.some(y => norm(y) === norm(w))) return;
+    l.push(w); saveEW(l);
+    if (!many) toast(`«${w}» adicionada`);
+  });
   function drawEW() {
     const box = $('#ew', sheet);
     const list = emoWords(o.e);
@@ -1634,7 +1735,9 @@ function openEmoji(e) {
       saveEW(l); $('#ew input', sheet).focus();
     };
     inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); add(); } });
-    inp.addEventListener('input', () => { if (inp.value.includes(',')) add(); });
+    let tq = null;
+    inp.addEventListener('input', () => { if (inp.value.includes(',')) return add(); clearTimeout(tq); tq = setTimeout(() => sg.draw(inp.value), 120); });
+    sg.draw('');
   }
   drawEW();
   $$('.kw span', sheet).forEach(sp => sp.onclick = () => {
@@ -1645,6 +1748,104 @@ function openEmoji(e) {
   });
   $('#ewr', sheet).onclick = () => { saveEW(null); toast('Palavras repostas'); };
   $$('.mygrid img', sheet).forEach(img => img.onclick = () => { const x = used[+img.dataset.i]; closeOverlay(ov); closeAllAndEdit(x.p, x.s); });
+}
+
+
+/* ---------- Sugestões inteligentes (palavras e emojis) ---------- */
+/**
+ * Caixa de sugestões de palavras. getCtx() → {words, emojis, data, avoid}; onPick(palavra).
+ * Devolve { draw(typed) } para atualizar quando as palavras mudam ou enquanto escreves.
+ */
+function wordSuggest(box, getCtx, onPick) {
+  let more = false, typed = '', hidden = new Set();
+  Suggest.loadSyn().then(() => draw(typed));
+  function draw(t) {
+    typed = t || '';
+    const ctx = Object.assign({ data: S.data }, getCtx());
+    const comp = typed.trim().length >= 2 ? Suggest.complete(typed, ctx) : [];
+    const cs = new Set(comp.map(norm));
+    const list = Suggest.words(Object.assign({}, ctx, { limit: 60 })).filter(x => !hidden.has(x.n) && !cs.has(x.n));
+    const n = more ? 40 : 14;
+    if (!comp.length && !list.length) {
+      box.innerHTML = (ctx.words || []).length || (ctx.emojis || []).length ? '' : '<div class="hint">Escreve uma palavra e eu sugiro outras parecidas.</div>';
+      return;
+    }
+    box.innerHTML = `<div class="sugh"><span>✨ ${comp.length ? 'Completar' : 'Sugestões'}</span>${list.length > 5 ? '<button class="btn sm ghost" id="sg5">＋ Juntar as 5 primeiras</button>' : ''}</div>
+      ${comp.length ? `<div class="sugl">${comp.map(w => `<button class="schip comp" data-w="${esc(w)}">${esc(w)}</button>`).join('')}</div><div class="sugh"><span>Relacionadas</span></div>` : ''}
+      <div class="sugl">${list.slice(0, n).map(x => `<button class="schip ${x.src === 'teu' ? 'mine' : ''}" data-w="${esc(x.w)}">${x.src === 'teu' ? '<i></i>' : ''}${esc(x.w)}</button>`).join('')}
+      ${list.length > 14 ? `<button class="schip more" id="sgm">${more ? 'Menos' : `Mais ${Math.min(list.length, 40) - 14}…`}</button>` : ''}</div>
+      <div class="hint sugn">Toca para juntar. As com ponto verde vêm do teu próprio uso.</div>`;
+    $$('.schip[data-w]', box).forEach(b => {
+      b.onclick = () => { onPick(b.dataset.w); };
+      let tm = null;
+      b.addEventListener('touchstart', () => { tm = setTimeout(() => { tm = 'x'; hidden.add(norm(b.dataset.w)); draw(typed); toast(`Escondi «${b.dataset.w}»`); }, 550); }, { passive: true });
+      b.addEventListener('touchend', ev => { if (tm === 'x') ev.preventDefault(); else clearTimeout(tm); tm = null; });
+    });
+    const m = $('#sgm', box); if (m) m.onclick = () => { more = !more; draw(typed); };
+    const f5 = $('#sg5', box); if (f5) f5.onclick = () => { list.slice(0, 5).forEach(x => onPick(x.w, true)); };
+  }
+  return { draw };
+}
+
+const SIMW = {};
+function similarOf(pack, file, dataUrl) {
+  return new Promise(res => {
+    const id = 's' + Date.now() + Math.floor(Math.random() * 1e6);
+    SIMW[id] = res;
+    try { A.similarStickers(id, pack || '', file || '', dataUrl || ''); } catch (e) { delete SIMW[id]; return res({ list: [] }); }
+    setTimeout(() => { if (SIMW[id]) { delete SIMW[id]; res({ list: [] }); } }, 20000);
+  });
+}
+const withTimeout = (pr, ms, v) => Promise.race([pr, new Promise(r => setTimeout(() => r(v), ms))]);
+S.ocrCache = {};
+
+/**
+ * Analisa um sticker e sugere emojis. o: { p, s, img (para ler o texto), dataUrl (imagem nova),
+ * words, emojis, learned, step(texto) }. Devolve { list:[{e,score,why}], ocr:[…] }.
+ */
+async function analyseEmojis(o) {
+  const key = o.s ? o.p.id + '/' + o.s.f : null;
+  o.step && o.step('A comparar com os teus stickers…');
+  const simP = similarOf(o.s ? o.p.id : '', o.s ? o.s.f : '', o.dataUrl || '');
+  let ocr = key && S.ocrCache[key];
+  if (!ocr && o.img) {
+    o.step && o.step('A ler o texto da imagem…');
+    ocr = await withTimeout(OCR.read(o.img).catch(() => []), 12000, []);
+    if (key) S.ocrCache[key] = ocr;
+  }
+  o.step && o.step('A escolher…');
+  const sim = await withTimeout(simP, 15000, { list: [] });
+  const list = Suggest.emojis({ emojis: o.emojis, words: o.words, learned: o.learned || [], ocr: ocr || [], packName: o.p ? o.p.name : '',
+    data: S.data, self: o.s ? { s: o.s, f: o.s.f } : null, similar: sim.list || [], col: sim.col, limit: 12 });
+  return { list, ocr: ocr || [] };
+}
+
+/** Escolhe os que faltam até 3 (só os que têm pistas suficientes). */
+function pickEmojis(list, need) {
+  const out = [];
+  const top = list.length ? list[0].score : 0;
+  for (const x of list) {
+    if (out.length >= need) break;
+    if (x.score < 0.35 || x.score < top * 0.22) break;
+    out.push(x);
+  }
+  return out;
+}
+
+/** Quadro "porque escolhi estes emojis" + outras ideias. */
+function drawWhy(box, info, h) {
+  if (!info) { box.innerHTML = ''; return; }
+  const ocrNew = (info.ocr || []).filter(w => !(h.words() || []).some(y => norm(y) === norm(w)));
+  box.innerHTML = `<div class="why">
+    <div class="wh"><b>${info.added.length ? '✨ Porque escolhi estes' : '✨ Ideias de emojis'}</b><button class="iconbtn sm" id="wyx">${ICON.close}</button></div>
+    ${info.added.map(x => `<div class="wr"><span class="emo">${esc(x.e)}</span><div>${x.why.map(esc).join('<br>')}</div></div>`).join('')}
+    ${info.alts.length ? `<div class="wa">${info.added.length ? 'Outras ideias' : 'Toca para juntar'}:</div><div class="wl">${info.alts.map((x, i) => `<button class="walt" data-i="${i}"><span class="emo">${esc(x.e)}</span><small>${esc(x.why[0] || '')}</small></button>`).join('')}</div>` : ''}
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">${info.added.length ? '<button class="btn sm" id="wyu">↩ Desfazer</button>' : ''}${ocrNew.length ? `<button class="btn sm" id="wyo">＋ Juntar «${esc(ocrNew.join(', '))}» às palavras</button>` : ''}</div>
+  </div>`;
+  $('#wyx', box).onclick = () => h.close();
+  $$('.walt', box).forEach(b => b.onclick = () => h.add(info.alts[+b.dataset.i]));
+  const u = $('#wyu', box); if (u) u.onclick = () => h.undo();
+  const ow = $('#wyo', box); if (ow) ow.onclick = () => h.addWords(ocrNew);
 }
 
 /* ---------- Atalhos ---------- */
@@ -3017,6 +3218,7 @@ window.App = {
   onBulkDone(r) { if (S.bulkCb) S.bulkCb(r); else { busy(null); reload(); render(); } },
   onFolderList(r) { if (S.flistCb) { const cb = S.flistCb; S.flistCb = null; cb(r); } },
   onDupes(r) { showDupes(r || { groups: [] }); },
+  onSimilar(r) { const f = r && SIMW[r.id]; if (f) { delete SIMW[r.id]; f(r); } },
   onImported(r) {
     if (r && r.hidden && S.hiddenCb) { S.hiddenCb(r); return; }
     if (S.vImp && r && !r.cancelled) {
@@ -3114,5 +3316,6 @@ document.addEventListener('visibilitychange', () => {
   reload();
   render();
   await loadEmoji();
+  try { Suggest.setEmojis(EMO); } catch (e) {}
   if (A.sharedCount && A.sharedCount() > 0) askSharedPack();
 })();

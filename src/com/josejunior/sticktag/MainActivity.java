@@ -898,6 +898,32 @@ public class MainActivity extends Activity {
             });
         }
 
+        /** Stickers com imagens parecidas a este (ou a uma imagem nova, em dataUrl), para sugerir emojis. */
+        @JavascriptInterface
+        public void similarStickers(final String reqId, final String pack, final String file, final String dataUrl) {
+            exec.execute(new Runnable() {
+                @Override public void run() {
+                    String hs = null;
+                    try {
+                        if (dataUrl != null && dataUrl.length() > 0) {
+                            int comma = dataUrl.indexOf(',');
+                            byte[] b = android.util.Base64.decode(comma >= 0 ? dataUrl.substring(comma + 1) : dataUrl, android.util.Base64.DEFAULT);
+                            hs = Dupes.hashBytes(b);
+                        } else if (pack != null && pack.length() > 0) {
+                            hs = Dupes.loadCache(MainActivity.this).optString(pack + "/" + file, null);
+                            if (hs == null) {
+                                hs = Dupes.hashFile(new File(Store.packDir(MainActivity.this, pack), file));
+                                Dupes.remember(MainActivity.this, pack + "/" + file, hs);
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                    JSONObject o = Dupes.similar(MainActivity.this, hs, pack == null ? "" : pack, file == null ? "" : file, 12);
+                    try { o.put("id", reqId); } catch (JSONException ignored) {}
+                    js("onSimilar", o.toString());
+                }
+            });
+        }
+
         /** Procura stickers repetidos em todos os packs (em segundo plano). */
         @JavascriptInterface
         public void findDupes() {

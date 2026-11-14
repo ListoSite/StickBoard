@@ -241,6 +241,64 @@ public final class Dupes {
         return out;
     }
 
+    /**
+     * Stickers da app cuja imagem se parece com esta (mesma personagem, mesmo estilo, mesmas cores).
+     * A distância é comparada com a mediana de todos, por isso adapta-se a cada coleção.
+     * Devolve {list:[{p,f,w,same}], col:[48 números]}.
+     */
+    static JSONObject similar(Context c, String hs, String exPack, String exFile, int k) {
+        JSONObject out = new JSONObject();
+        try {
+            H t = parse(hs);
+            JSONArray col = new JSONArray();
+            if (t != null) for (int v : t.col) col.put(v);
+            out.put("col", col);
+            JSONArray list = new JSONArray();
+            out.put("list", list);
+            if (t == null) return out;
+            List<Item> app = appItems(c, null);
+            int n = app.size();
+            int[] d = new int[n], cd = new int[n];
+            int[] sorted = new int[n];
+            int m = 0;
+            for (int i = 0; i < n; i++) {
+                Item it = app.get(i);
+                if (it.h == null || (it.pack.equals(exPack) && it.file.equals(exFile))) { d[i] = -1; continue; }
+                int x = 0;
+                for (int q = 0; q < t.bits.length; q++) x += Long.bitCount(t.bits[q] ^ it.h.bits[q]);
+                int y = 0;
+                for (int q = 0; q < 48; q++) y += Math.abs(t.col[q] - it.h.col[q]);
+                d[i] = x; cd[i] = y / 48; sorted[m++] = x;
+            }
+            if (m == 0) return out;
+            java.util.Arrays.sort(sorted, 0, m);
+            double med = Math.max(200, sorted[m / 2]);
+            final double[] score = new double[n];
+            List<Integer> idx = new ArrayList<Integer>();
+            for (int i = 0; i < n; i++) {
+                if (d[i] < 0) continue;
+                boolean same = level(t, app.get(i).h) == 2;
+                if (!same && (d[i] > med * 0.72 || cd[i] > 60)) continue;
+                double w = same ? 1 : Math.max(0, Math.min(1, (med - d[i]) / med * 1.8)) * (1 - cd[i] / 120.0);
+                if (w < 0.15) continue;
+                score[i] = w;
+                idx.add(i);
+            }
+            java.util.Collections.sort(idx, new java.util.Comparator<Integer>() {
+                @Override public int compare(Integer a, Integer b) { return Double.compare(score[b], score[a]); }
+            });
+            for (int q = 0; q < idx.size() && q < k; q++) {
+                int i = idx.get(q);
+                Item it = app.get(i);
+                JSONObject o = new JSONObject();
+                o.put("p", it.pack); o.put("f", it.file); o.put("w", Math.round(score[i] * 100) / 100.0);
+                if (level(t, it.h) == 2) o.put("same", true);
+                list.put(o);
+            }
+        } catch (Exception ignored) {}
+        return out;
+    }
+
     static int find(int[] p, int i) { while (p[i] != i) { p[i] = p[p[i]]; i = p[i]; } return i; }
 
     /** Algum sticker da app igual a esta impressão? Devolve {p,f} ou null. */

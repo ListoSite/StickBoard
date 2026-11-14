@@ -1,0 +1,358 @@
+'use strict';
+/*
+ * Sugestões inteligentes do StickTag.
+ *  - words(): palavras novas para um emoji ou um sticker, a partir das que já lá estão.
+ *  - complete(): completa a palavra que estás a escrever.
+ *  - emojis(): emojis em falta para um sticker, cada um com o motivo.
+ * Fontes: a base de palavras (lex.js), sinónimos (syn.json), as palavras Unicode de cada emoji,
+ * e o teu próprio uso (outros stickers, palavras dos emojis, o que o teclado aprendeu, imagens parecidas).
+ */
+(function () {
+  const M = window.Match;
+  const norm = M.norm, stripVS = M.stripVS, stem = M.stem, STOP = M.STOP;
+  const GENERIC = new Set(['cara', 'rosto', 'face', 'animal', 'simbolo', 'objeto', 'pessoa', 'sinal', 'emocao', 'gesto', 'corpo',
+    'mao', 'maos', 'comida', 'natureza', 'atividade', 'viagem', 'lugar', 'emoji', 'smiley', 'olho', 'olhos', 'boca', 'aberta', 'aberto',
+    'fechado', 'fechada', 'com', 'cor', 'tom', 'pele', 'homem', 'mulher', 'pessoa', 'grande', 'pequeno', 'desenho', 'contorno']);
+  const toks = s => norm(s).replace(/[^a-z0-9ç\s'-]/g, ' ').split(/[\s'-]+/).filter(Boolean);
+
+  /* ---------- índices (feitos uma vez) ---------- */
+  let L = null;          // base de palavras
+  let SYN = null, SYND = null; // sinónimos (carregados à parte)
+  let EM = [], EIDX = null; // emojis Unicode
+  let synLoading = null;
+
+  function segEmojis(str) { try { return M.emojisIn(str); } catch (e) { return []; } }
+
+  function buildLex() {
+    if (L) return L;
+    L = { cl: [], term: new Map(), tok: new Map(), emo: new Map(), disp: new Map() };
+    for (const line of (window.LEX || [])) {
+      const bar = line.indexOf('|');
+      const emos = segEmojis(line.slice(0, bar)).map(stripVS);
+      const terms = line.slice(bar + 1).split(',').map(x => x.trim()).filter(Boolean);
+      const ci = L.cl.length;
+      L.cl.push({ emos, terms, n: terms.map(norm) });
+      terms.forEach((t, pos) => {
+        const n = norm(t);
+        if (!L.disp.has(n) || /[^\x00-\x7f]/.test(t)) L.disp.set(n, t);
+        if (!L.term.has(n)) L.term.set(n, []);
+        L.term.get(n).push([ci, pos]);
+        const tk = toks(t);
+        if (tk.length > 1) for (const x of tk) if (x.length >= 3 && !STOP.has(x)) {
+          if (!L.tok.has(x)) L.tok.set(x, new Set());
+          L.tok.get(x).add(ci);
+        }
+      });
+      emos.forEach(e => { if (!L.emo.has(e)) L.emo.set(e, []); L.emo.get(e).push(ci); });
+    }
+    return L;
+  }
+
+  /** Lista de emojis da app ({e, n, pt, npt}). */
+  function setEmojis(list) { EM = list || []; EIDX = null; }
+  function emoIndex() {
+    if (EIDX) return EIDX;
+    EIDX = { kw: new Map(), by: new Map() };
+    EM.forEach((o, i) => {
+      EIDX.by.set(stripVS(o.e), o);
+      const seen = new Set();
+      (o.npt || []).forEach((w, k) => {
+        if (!w || seen.has(w)) return; seen.add(w);
+        if (!EIDX.kw.has(w)) EIDX.kw.set(w, []);
+        EIDX.kw.get(w).push([i, k === 0 ? 1 : 0.7]);
+      });
+    });
+    return EIDX;
+  }
+  function emoKeywords(e) {
+    const o = emoIndex().by.get(stripVS(e));
+    if (!o) return [];
+    const out = [];
+    for (const w of [o.n].concat(o.pt || [])) {
+      const n = norm(w), nw = n.split(/\s+/).length;
+      if (!n || n.length < 3 || nw > 3 || GENERIC.has(n) || /^(cara|rosto|mao|maos|pessoa|homem|mulher|gato) /.test(n)) continue;
+      out.push(w);
+    }
+    return out;
+  }
+
+  function loadSyn() {
+    if (SYN || synLoading) return synLoading || Promise.resolve();
+    synLoading = fetch('syn.json').then(r => r.json()).then(j => {
+      SYN = new Map(); SYND = new Map();
+      for (const k of Object.keys(j)) { const n = norm(k); SYN.set(n, j[k].split('|')); SYND.set(n, k); }
+    }).catch(() => { SYN = new Map(); });
+    return synLoading;
+  }
+
+  /* ---------- o teu uso ---------- */
+  function personal(data) {
+    const P = { byWord: new Map(), byEmo: new Map(), emoWords: [], all: new Map() };
+    for (const p of (data && data.packs) || []) for (const s of p.stickers || []) {
+      for (const w of s.words || []) {
+        const n = norm(w); if (!n) continue;
+        if (!P.byWord.has(n)) P.byWord.set(n, []);
+        P.byWord.get(n).push(s);
+        if (!P.all.has(n)) P.all.set(n, w);
+      }
+      for (const e of s.emojis || []) {
+        const k = stripVS(e);
+        if (!P.byEmo.has(k)) P.byEmo.set(k, []);
+        P.byEmo.get(k).push(s);
+      }
+    }
+    const ew = (data && data.emojiWords) || {};
+    for (const k of Object.keys(ew)) {
+      const list = ew[k] || [];
+      P.emoWords.push({ e: k, list, n: list.map(norm) });
+      list.forEach(w => { const n = norm(w); if (n && !P.all.has(n)) P.all.set(n, w); });
+    }
+    return P;
+  }
+
+  /* ---------- palavras ---------- */
+  function okWord(n) {
+    if (!n || n.length < 2) return false;
+    if (STOP.has(n) && n.length < 4) return false;
+    if (GENERIC.has(n)) return false;
+    if (n.split(/\s+/).length > 4) return false;
+    return true;
+  }
+
+  /**
+   * ctx: { words:[…já escolhidas], emojis:[…], data, avoid:[…palavras a não repetir], limit }
+   * Devolve [{ w, score, src:'teu'|'grupo'|'sin'|'unicode' }]
+   */
+  function words(ctx) {
+    const lex = buildLex();
+    const data = ctx.data || {};
+    const P = personal(data);
+    const have = (ctx.words || []).map(norm).filter(Boolean);
+    const haveSet = new Set(have);
+    const haveStems = new Set(have.filter(x => !x.includes(' ') && x.length >= 4).map(stem));
+    const soft = new Set((ctx.avoid || []).map(norm));
+    const C = new Map();
+    const add = (w, sc, src, seed) => {
+      const n = norm(w);
+      if (!okWord(n) || haveSet.has(n)) return;
+      if (!n.includes(' ') && n.length >= 4 && haveStems.has(stem(n))) return;
+      let c = C.get(n);
+      if (!c) { c = { w: lex.disp.get(n) || w, s: 0, src: {}, sup: new Set() }; C.set(n, c); }
+      c.s += sc; c.src[src] = (c.src[src] || 0) + sc; c.sup.add(seed);
+    };
+    const addCluster = (ci, wt, seed) => {
+      const cl = lex.cl[ci], size = cl.terms.length;
+      const k = wt / (0.75 + size / 70);
+      cl.terms.forEach((t, pos) => add(t, k * (1 - 0.35 * pos / size), 'grupo', seed));
+    };
+
+    // 1) a partir das palavras que já lá estão
+    for (const seed of have) {
+      const exact = lex.term.get(seed);
+      if (exact) for (const [ci, pos] of exact) addCluster(ci, 1 - 0.5 * pos / lex.cl[ci].terms.length, 'w:' + seed);
+      else {
+        const tk = toks(seed).filter(x => x.length >= 3 && !STOP.has(x));
+        for (const x of tk) {
+          for (const [ci, pos] of (lex.term.get(x) || [])) addCluster(ci, 0.5 * (1 - 0.5 * pos / lex.cl[ci].terms.length), 'w:' + seed);
+          for (const ci of (lex.tok.get(x) || [])) addCluster(ci, 0.3, 'w:' + seed);
+        }
+      }
+      // sinónimos
+      if (SYN) {
+        const ss = SYN.get(seed) || (seed.includes(' ') ? [] : SYN.get(stem(seed)) || []);
+        ss.forEach((w, i) => add(w, 0.55 * (1 - i * 0.06), 'sin', 'w:' + seed));
+      }
+      // emojis Unicode que têm esta palavra → as outras palavras deles
+      const hits = (emoIndex().kw.get(seed) || []).slice(0, 6);
+      for (const [i, wt] of hits) {
+        const o = EM[i];
+        emoKeywords(o.e).slice(0, 8).forEach(w => add(w, 0.22 * wt, 'unicode', 'w:' + seed));
+        for (const ci of (lex.emo.get(stripVS(o.e)) || [])) addCluster(ci, 0.25 * wt, 'w:' + seed);
+      }
+      // o teu uso: outros stickers e emojis com esta palavra
+      for (const s of (P.byWord.get(seed) || []).slice(0, 40)) for (const w of s.words || []) add(w, 0.9, 'teu', 'w:' + seed);
+      for (const x of P.emoWords) if (x.n.includes(seed)) x.list.forEach(w => add(w, 0.75, 'teu', 'w:' + seed));
+    }
+
+    // 2) a partir dos emojis
+    for (const e of (ctx.emojis || [])) {
+      const k = stripVS(e);
+      for (const ci of (lex.emo.get(k) || [])) addCluster(ci, 0.85, 'e:' + k);
+      emoKeywords(e).slice(0, 14).forEach((w, i) => add(w, 0.45 * (1 - i * 0.03), 'unicode', 'e:' + k));
+      for (const s of (P.byEmo.get(k) || []).slice(0, 60)) {
+        for (const w of s.words || []) add(w, 0.6, 'teu', 'e:' + k);
+        for (const l of M.learned(s)) add(l.w, 0.45 + 0.1 * Math.min(l.eff, 5), 'teu', 'e:' + k);
+      }
+    }
+
+    const out = [];
+    for (const [n, c] of C) {
+      let sc = c.s * (1 + 0.45 * (c.sup.size - 1));
+      if (n.split(/\s+/).length > 2) sc *= 0.8;
+      if (soft.has(n)) sc *= 0.3;
+      const src = (c.src.teu || 0) >= 0.6 ? 'teu' : Object.keys(c.src).sort((a, b) => c.src[b] - c.src[a])[0];
+      out.push({ w: c.w, n, score: sc, src });
+    }
+    out.sort((a, b) => b.score - a.score);
+    // o teclado já junta masculino/feminino/plural (sonolento = sonolenta): fica só um
+    const seenStem = new Set(), res = [];
+    for (const x of out) {
+      const k = !x.n.includes(' ') && x.n.length >= 4 ? stem(x.n) : null;
+      if (k && seenStem.has(k)) continue;
+      if (k) seenStem.add(k);
+      res.push(x);
+      if (res.length >= (ctx.limit || 30)) break;
+    }
+    return res;
+  }
+
+  /** Completa o que estás a escrever (ex.: "sau" → saudade, saudades). */
+  function complete(typed, ctx) {
+    const t = norm(typed);
+    if (t.length < 2) return [];
+    const lex = buildLex();
+    const have = new Set((ctx.words || []).map(norm));
+    const rel = new Map(words(Object.assign({}, ctx, { limit: 300 })).map(x => [x.n, x.score]));
+    const P = personal(ctx.data || {});
+    const C = new Map();
+    const starts = n => n.startsWith(t) || n.split(/\s+/).some(x => x.startsWith(t));
+    const add = (w, sc) => { const n = norm(w); if (n === t || have.has(n) || !okWord(n)) return; const c = C.get(n); if (!c || c.s < sc) C.set(n, { w: lex.disp.get(n) || w, s: sc }); };
+    for (const [n, list] of lex.term) if (starts(n)) add(lex.disp.get(n), 0.6 + 0.15 * list.length + (n.startsWith(t) ? 0.3 : 0) - n.length * 0.01 + (rel.get(n) || 0) * 2);
+    for (const [n, w] of P.all) if (starts(n)) add(w, 1.2 + (rel.get(n) || 0) * 2);
+    if (SYN && t.length >= 3) for (const [n] of SYN) if (n.startsWith(t)) add(SYND.get(n) || n, 0.3 + (rel.get(n) || 0) * 2 - n.length * 0.01);
+    return [...C.values()].sort((a, b) => b.s - a.s).slice(0, 8).map(x => x.w);
+  }
+
+  /* ---------- emojis ---------- */
+  const HEART = { vermelho: '❤️', rosa: '🩷', laranja: '🧡', amarelo: '💛', verde: '💚', azul: '💙', roxo: '💜', preto: '🖤', branco: '🤍', castanho: '🤎' };
+
+  /** A cor que mais se vê (ignora o fundo cinzento da impressão). col = 48 números (4×4 RGB). */
+  function mainColour(col) {
+    if (!col || col.length < 48) return null;
+    const cnt = {};
+    let n = 0;
+    for (let i = 0; i < 48; i += 3) {
+      const r = col[i], g = col[i + 1], b = col[i + 2];
+      if (Math.abs(r - 128) < 14 && Math.abs(g - 128) < 14 && Math.abs(b - 128) < 14) continue;
+      n++;
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, sat = mx - mn;
+      let name;
+      if (sat < 30) name = l < 60 ? 'preto' : l > 200 ? 'branco' : null;
+      else {
+        let h; const d = sat;
+        if (mx === r) h = ((g - b) / d) % 6; else if (mx === g) h = (b - r) / d + 2; else h = (r - g) / d + 4;
+        h = (h * 60 + 360) % 360;
+        if (h < 15 || h >= 340) name = (l > 170 ? 'rosa' : 'vermelho');
+        else if (h < 40) name = l < 110 ? 'castanho' : 'laranja';
+        else if (h < 70) name = 'amarelo';
+        else if (h < 165) name = 'verde';
+        else if (h < 255) name = 'azul';
+        else if (h < 300) name = 'roxo';
+        else name = 'rosa';
+      }
+      if (name) cnt[name] = (cnt[name] || 0) + 1;
+    }
+    if (n < 4) return null;
+    const best = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0];
+    return best && cnt[best] >= n * 0.5 ? best : null;
+  }
+
+  /**
+   * ctx: { emojis:[…já tem], words:[…], learned:[{w,eff}], ocr:[frases], packName, data, self:{p,f},
+   *        similar:[{p,f,w,same}], col:[48 números], limit }
+   * Devolve [{ e, score, why:[texto…] }]
+   */
+  function emojis(ctx) {
+    const lex = buildLex();
+    const data = ctx.data || {};
+    const P = personal(data);
+    const EI = emoIndex();
+    const have = new Set((ctx.emojis || []).map(stripVS));
+    const C = new Map();
+    const add = (e, sc, key, txt) => {
+      const k = stripVS(e);
+      if (!k || have.has(k)) return;
+      let c = C.get(k);
+      if (!c) { c = { e: (EI.by.get(k) || { e }).e, s: 0, why: new Map() }; C.set(k, c); }
+      c.s += sc;
+      const r = c.why.get(txt);
+      if (r) r.s += sc; else c.why.set(txt, { s: sc, txt });
+    };
+    const curated = {};
+    // emojis ligados a uma palavra: base de palavras, as tuas palavras dos emojis e a lista Unicode
+    function byWord(word, wt, txt) {
+      const n = norm(word);
+      if (!okWord(n)) return;
+      const cls = lex.term.get(n) || [];
+      for (const [ci, pos] of cls) {
+        const cl = lex.cl[ci];
+        const k = wt * (1 - 0.5 * pos / cl.terms.length) / Math.pow(cls.length, 0.25);
+        cl.emos.forEach((e, i) => add(e, k * (i === 0 ? 1 : 0.7), 'w:' + n, txt));
+      }
+      for (const x of P.emoWords) if (x.n.includes(n)) add(x.e, wt * 1.3, 'w:' + n, txt);
+      const hits = n.length >= 4 || !n.includes(' ') && n.length >= 3 && cls.length ? EI.kw.get(n) || [] : [];
+      const k = hits.length > 10 ? 10 / hits.length : 1;
+      hits.slice(0, 30).forEach(([i, w]) => add(EM[i].e, wt * 0.75 * w * k, 'w:' + n, txt));
+    }
+    for (const w of ctx.words || []) {
+      byWord(w, 1, `escreveste «${w}» nas palavras`);
+      const tk = toks(w).filter(x => x.length >= 3 && !STOP.has(x));
+      if (tk.length > 1) tk.forEach(x => byWord(x, 0.45, `escreveste «${w}» nas palavras`));
+    }
+    for (const l of ctx.learned || []) byWord(l.w, 0.35 + 0.12 * Math.min(l.eff, 5), `escreves «${l.w}» antes de o mandar`);
+    for (const ph of ctx.ocr || []) {
+      byWord(ph, 0.95, `a imagem diz «${ph}»`);
+      const tk = toks(ph).filter(x => x.length >= 3 && !STOP.has(x));
+      if (tk.length > 1) tk.forEach(x => byWord(x, 0.5, `a imagem diz «${ph}»`));
+    }
+    if (ctx.packName) for (const x of toks(ctx.packName).filter(x => x.length >= 3 && !STOP.has(x))) byWord(x, 0.3, `o pack chama-se «${ctx.packName}»`);
+
+    // emojis que já tem → os que costumam andar com eles
+    for (const e of ctx.emojis || []) {
+      const k = stripVS(e);
+      const others = (P.byEmo.get(k) || []).filter(s => !(ctx.self && s.f === ctx.self.f && s === ctx.self.s));
+      if (others.length >= 2) {
+        const cnt = new Map();
+        for (const s of others) for (const y of s.emojis || []) { const ky = stripVS(y); if (ky !== k) cnt.set(ky, (cnt.get(ky) || 0) + 1); }
+        for (const [ky, n] of cnt) if (n >= 1) add(ky, 1.3 * n / others.length + 0.1 * Math.min(n, 5), 'co:' + k + ky,
+          n > 1 ? `noutros ${n} stickers teus, o ${e} aparece com este` : `noutro sticker teu, o ${e} aparece com este`);
+      }
+      const seen = new Set();
+      for (const ci of (lex.emo.get(k) || [])) for (const y of lex.cl[ci].emos) {
+        if (y === k || seen.has(y)) continue; seen.add(y);
+        add(y, 0.4, 'lx:' + k + y, `o ${e} e este costumam andar juntos`);
+      }
+    }
+
+    // imagens parecidas com esta
+    const simCount = new Map();
+    for (const x of ctx.similar || []) {
+      const s = ((data.packs || []).find(p => p.id === x.p) || { stickers: [] }).stickers.find(t => t.f === x.f);
+      if (!s) continue;
+      for (const e of s.emojis || []) {
+        const k = stripVS(e);
+        const c = simCount.get(k) || { n: 0, same: false, s: 0 };
+        c.n++; c.same = c.same || x.same; c.s += (x.same ? 2.2 : 1.15) * x.w;
+        simCount.set(k, c);
+      }
+    }
+    for (const [k, c] of simCount) add(k, c.s, 'img', c.same ? 'é a mesma imagem de outro sticker teu, que tem este'
+      : c.n > 1 ? `a imagem parece-se com ${c.n} stickers teus que têm este` : 'a imagem parece-se com outro sticker teu que tem este');
+
+    // cor principal (só pesa um pouco)
+    const cor = mainColour(ctx.col);
+    if (cor) add(HEART[cor], 0.3, 'cor', `a cor principal da imagem é ${cor}`);
+
+    const out = [];
+    for (const [, c] of C) {
+      const why = [...c.why.values()].sort((a, b) => b.s - a.s);
+      // várias pistas diferentes a apontar para o mesmo emoji valem mais
+      const sc = c.s * (1 + 0.3 * (why.length - 1));
+      out.push({ e: c.e, score: sc, why: why.slice(0, 2).map(x => x.txt) });
+    }
+    out.sort((a, b) => b.score - a.score);
+    return out.slice(0, ctx.limit || 10);
+  }
+
+  window.Suggest = { words, complete, emojis, setEmojis, loadSyn, mainColour, _lex: buildLex };
+})();
