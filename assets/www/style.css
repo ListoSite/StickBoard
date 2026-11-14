@@ -480,3 +480,4 @@ html,body{background:var(--bg);-webkit-font-smoothing:antialiased}
 .schip.ph{border-color:rgba(255,184,77,.5);color:var(--amber);font-weight:600}
 .schip.ph.comp{background:rgba(255,184,77,.12);border-style:solid}
 .schip.ph.mine{border-color:rgba(37,211,102,.5);color:var(--green)}
+.pk-grid button.mine{box-shadow:inset 0 0 0 1.5px rgba(92,168,255,.4)}

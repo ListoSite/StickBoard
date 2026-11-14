@@ -815,6 +815,59 @@ function searchEmojis(q, limit = 80) {
 }
 
 /* Cria um seletor; onPick(e) é chamado ao tocar; isOn(e) marca os já escolhidos. */
+/**
+ * Emojis para uma palavra escrita no seletor, por ordem:
+ * 1) os que ligaste a essa palavra (e as palavras do teclado de cada emoji), 2) os dos teus stickers com essa palavra,
+ * 3) sugestões pelo significado, 4) a lista Unicode.
+ */
+function emojiSearchSections(q) {
+  const nq = norm(q);
+  const st = nq.length >= 4 ? Match.stem(nq) : nq;
+  const seen = new Set();
+  const take = (arr, max) => { const out = []; for (const x of arr) { const k = stripVS(x.e); if (seen.has(k)) continue; seen.add(k); out.push(x); if (out.length >= max) break; } return out; };
+  const score = w => {
+    const n = norm(w);
+    if (n === nq) return 4;
+    if (nq.length >= 4 && !n.includes(' ') && Match.stem(n) === st) return 3.5;
+    if (nq.length >= 2 && n.startsWith(nq)) return 3 - Math.min(1, (n.length - nq.length) * 0.05);
+    if (nq.length >= 2 && n.split(/[\s-]+/).some(t => t.startsWith(nq))) return 2;
+    if (nq.length >= 4 && n.includes(nq)) return 1;
+    return 0;
+  };
+  // 1) palavras do teclado de cada emoji: as que mudaste tu e as que vêm por defeito nos mais usados
+  const ew = S.data.emojiWords || {};
+  const mine = [];
+  const keys = new Set(Object.keys(ew).map(stripVS).concat(Object.keys(Match.CUR || {})));
+  for (const k of keys) {
+    const words = emoWords(k);
+    let best = 0, bw = '';
+    for (const w of words) { const v = score(w); if (v > best) { best = v; bw = w; } }
+    if (!best) continue;
+    const custom = Object.keys(ew).some(x => stripVS(x) === k);
+    const o = emoInfo(k);
+    mine.push({ e: o ? o.e : k, s: best + (custom ? 1 : 0), w: bw, custom });
+  }
+  mine.sort((a, b) => b.s - a.s);
+  // 2) emojis dos teus stickers que têm essa palavra
+  const cnt = new Map();
+  for (const p of S.data.packs) for (const s of p.stickers) {
+    let best = 0, bw = '';
+    for (const w of (s.words || []).concat(Match.learned(s).map(l => l.w))) { const v = score(w); if (v > best) { best = v; bw = w; } }
+    if (best < 2) continue;
+    for (const e of s.emojis || []) { const k = stripVS(e); const c = cnt.get(k) || { e, s: 0, w: bw }; c.s += best; cnt.set(k, c); }
+  }
+  const stick = [...cnt.values()].sort((a, b) => b.s - a.s);
+  // 3) pelo significado (base de palavras e expressões)
+  let sug = [];
+  try { if (nq.length >= 3) sug = Suggest.emojis({ data: S.data, words: [q], emojis: [], adult: adultOn(), limit: 16 }).map(x => ({ e: x.e })); } catch (e) {}
+  return [
+    { label: `Ligados a «${esc(q)}» no teu teclado`, list: take(mine, 40) },
+    { label: `Nos teus stickers com «${esc(q)}»`, list: take(stick, 24) },
+    { label: 'Sugestões', list: take(sug, 16) },
+    { label: 'Todos os emojis', list: take(searchEmojis(q).map(o => ({ e: o.e })), 80) }
+  ];
+}
+
 function makePicker(onPick, isOn) {
   const box = el(`<div class="picker"><div class="pk-search">${ICON.search}<input placeholder="Procura: gato, amor, rir, love…"></div><div class="pk-tabs"></div><div class="pk-grid"></div></div>`);
   const input = $('input', box), tabs = $('.pk-tabs', box), grid = $('.pk-grid', box);
@@ -841,9 +894,14 @@ function makePicker(onPick, isOn) {
     const q = input.value.trim();
     if (q) {
       const typed = splitEmojis(q);
-      const list = typed.length ? typed : searchEmojis(q).map(o => o.e);
-      if (!list.length) grid.appendChild(el('<div class="pk-free">Nada encontrado. Experimenta outra palavra (em português ou inglês) ou cola um emoji.</div>'));
-      list.forEach(e => grid.appendChild(btn(e)));
+      if (typed.length) { typed.forEach(e => grid.appendChild(btn(e))); return; }
+      const secs = emojiSearchSections(q);
+      if (!secs.some(x => x.list.length)) grid.appendChild(el('<div class="pk-free">Nada encontrado. Experimenta outra palavra (em português ou inglês) ou cola um emoji.</div>'));
+      for (const sec of secs) {
+        if (!sec.list.length) continue;
+        grid.appendChild(el(`<div class="pk-lbl">${sec.label}</div>`));
+        sec.list.forEach(x => { const b = btn(x.e); if (x.w) { b.title = x.w; b.classList.add('mine'); } grid.appendChild(b); });
+      }
       return;
     }
     if (tab === 'recent') {
@@ -1665,8 +1723,20 @@ function viewWords() {
       mine.slice(0, 16).forEach(({ p, s }) => { const i = el(`<img src="${imgUrl(p, s.f)}">`); i.onclick = () => { closeAllAndEdit(p, s); }; g.appendChild(i); });
       res.appendChild(g);
     }
-    const list = searchEmojis(q, 60);
-    res.appendChild(el(`<div class="sec">${list.length ? `Emojis para “${esc(q)}”` : `Nenhum emoji encontrado para “${esc(q)}”`}</div>`));
+    const secs = emojiSearchSections(q);
+    const linked = secs[0].list;
+    if (linked.length) {
+      res.appendChild(el(`<div class="sec">Ligados a “${esc(q)}” no teu teclado</div>`));
+      linked.forEach(x => {
+        const o = emoInfo(x.e) || { e: x.e, n: 'emoji', pt: [], en: [] };
+        const r = resultRow(o, nq);
+        const w = $('.w', r); if (w) { w.innerHTML = emoWords(x.e).map(y => hl(y, nq)).join(', '); w.style.color = 'var(--blue)'; }
+        res.appendChild(r);
+      });
+    }
+    const lk = new Set(linked.map(x => stripVS(x.e)));
+    const list = searchEmojis(q, 60).filter(o => !lk.has(stripVS(o.e)));
+    res.appendChild(el(`<div class="sec">${list.length ? `Emojis para “${esc(q)}”` : linked.length ? 'Mais nenhum emoji na lista Unicode' : `Nenhum emoji encontrado para “${esc(q)}”`}</div>`));
     list.forEach(o => res.appendChild(resultRow(o, nq)));
     res.appendChild(el(`<div class="note">As palavras vêm da lista oficial Unicode (CLDR) em português e inglês — a mesma que os teclados usam para sugerir emojis. O WhatsApp não publica a lista exata dele, por isso usa-a como guia.</div>`));
   }
