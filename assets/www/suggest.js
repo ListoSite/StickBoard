@@ -15,11 +15,11 @@
     'fechado', 'fechada', 'com', 'cor', 'tom', 'pele', 'homem', 'mulher', 'pessoa', 'grande', 'pequeno', 'desenho', 'contorno']);
   const toks = s => norm(s).replace(/[^a-z0-9ç\s'-]/g, ' ').split(/[\s'-]+/).filter(Boolean);
   // formas de escrever a mesma coisa em conversa
-  const CANON = (M.CANON && Object.assign({ tô: 'estou', cê: 'voce', amn: 'amanha', fds: 'fim de semana' }, M.CANON)) || { tou: 'estou', to: 'estou', tô: 'estou', ta: 'esta', tas: 'estas', tamos: 'estamos', tava: 'estava', pra: 'para', pro: 'para',
+  const CANON = (M.CANON && Object.assign({ tô: 'estou', cê: 'voce', amn: 'amanha' }, M.CANON)) || { tou: 'estou', to: 'estou', tô: 'estou', ta: 'esta', tas: 'estas', tamos: 'estamos', tava: 'estava', pra: 'para', pro: 'para',
     q: 'que', k: 'que', n: 'nao', nd: 'nada', tb: 'tambem', tbm: 'tambem', mt: 'muito', mto: 'muito', mta: 'muita', pq: 'porque', vc: 'voce',
     ce: 'voce', cê: 'voce', msm: 'mesmo', td: 'tudo', tds: 'todos', blz: 'beleza', vlw: 'valeu', obg: 'obrigado', pfv: 'por favor', pf: 'por favor',
     dps: 'depois', hj: 'hoje', amn: 'amanha', agr: 'agora', qnd: 'quando', cmg: 'comigo', ctg: 'contigo', bjs: 'beijos', bj: 'beijo', sla: 'sei la',
-    tmb: 'tambem', oq: 'o que', qq: 'qualquer', ngm: 'ninguem', vdd: 'verdade', fds: 'fim de semana' };
+    tmb: 'tambem', oq: 'o que', qq: 'qualquer', ngm: 'ninguem', vdd: 'verdade' };
   const ptoks = str => toks(str).flatMap(t => (CANON[t] || t).split(' '));
   const pstem = t => t.length >= 4 ? stem(t) : t;
   function tri(str) {
@@ -46,7 +46,7 @@
   }
   function phraseOf(str) { const tk = ptoks(str); return { tk, st: tk.map(pstem), tri: tri(tk.join(' ')) }; }
   /** Frase = 3+ palavras, ou 2 com uma palavra pequena ("a sério", "isso mesmo"). */
-  const isPhrase = n => { const t = n.split(/\s+/); return t.length >= 3 || (t.length === 2 && (t.some(x => STOP.has(x)) || (L && L.phr.has(n)))); };
+  const isPhrase = n => { const t = toks(n); return t.length >= 3 || (t.length === 2 && (t.some(x => STOP.has(x)) || (L && L.phr.has(n)))); };
 
   /* ---------- índices (feitos uma vez) ---------- */
   let L = null;          // base de palavras
@@ -59,13 +59,14 @@
   function buildLex() {
     if (L) return L;
     L = { cl: [], term: new Map(), tok: new Map(), emo: new Map(), disp: new Map(), ph: [], phBy: new Map(), byStart: new Map(), phr: new Set() };
-    for (const line of (window.LEX || [])) {
+    const nAll = (window.LEX || []).length;
+    for (const line of (window.LEX || []).concat(window.LEX_ADULT || [])) {
       const bar = line.indexOf('|');
       const emos = segEmojis(line.slice(0, bar)).map(stripVS);
       const terms = line.slice(bar + 1).split(',').map(x => x.trim()).filter(Boolean);
       const ci = L.cl.length;
-      L.cl.push({ emos, terms, n: terms.map(norm) });
-      const isFr = window.LEX_FR != null && ci >= window.LEX_FR;
+      L.cl.push({ emos, terms, n: terms.map(norm), adult: L.cl.length >= nAll });
+      const isFr = window.LEX_FR != null && ci >= window.LEX_FR && ci < (window.LEX_CA != null ? window.LEX_CA : 1e9);
       terms.forEach((t, pos) => {
         const n = norm(t);
         if (isFr && n.includes(' ')) L.phr.add(n);
@@ -231,8 +232,10 @@
       if (!c) { c = { w: lex.disp.get(n) || w, s: 0, src: {}, sup: new Set() }; C.set(n, c); }
       c.s += sc; c.src[src] = (c.src[src] || 0) + sc; c.sup.add(seed);
     };
+    const adultOk = !!ctx.adult;
     const addCluster = (ci, wt, seed) => {
       const cl = lex.cl[ci], size = cl.terms.length;
+      if (cl.adult && !adultOk) return;
       const k = wt / (0.75 + size / 70);
       cl.terms.forEach((t, pos) => add(t, k * (1 - 0.35 * pos / size), 'grupo', seed));
     };
@@ -309,9 +312,10 @@
     const C = new Map();
     const starts = n => n.startsWith(t) || n.split(/\s+/).some(x => x.startsWith(t));
     const add = (w, sc) => { const n = norm(w); if (n === t || have.has(n) || !okWord(n)) return; const c = C.get(n); if (!c || c.s < sc) C.set(n, { w: lex.disp.get(n) || w, s: sc }); };
-    for (const [n, list] of lex.term) if (starts(n)) add(lex.disp.get(n), 0.6 + 0.15 * list.length + (n.startsWith(t) ? 0.3 : 0) - n.length * 0.01 + (rel.get(n) || 0) * 2);
+    const okT = list => ctx.adult || list.some(([ci]) => !lex.cl[ci].adult);
+    for (const [n, list] of lex.term) if (starts(n) && okT(list)) add(lex.disp.get(n), 0.6 + 0.15 * list.length + (n.startsWith(t) ? 0.3 : 0) - n.length * 0.01 + (rel.get(n) || 0) * 2);
     for (const [n, w] of P.all) if (starts(n)) add(w, 1.2 + (rel.get(n) || 0) * 2);
-    if (t.includes(' ')) for (const [n, v] of matchTerms(t)) if (v >= 0.55) add(lex.disp.get(n) || n, 1 + v * 2 + (rel.get(n) || 0));
+    if (t.includes(' ')) for (const [n, v] of matchTerms(t)) if (v >= 0.55 && okT(lex.term.get(n))) add(lex.disp.get(n) || n, 1 + v * 2 + (rel.get(n) || 0));
     if (SYN && t.length >= 3) for (const [n] of SYN) if (n.startsWith(t)) add(SYND.get(n) || n, 0.3 + (rel.get(n) || 0) * 2 - n.length * 0.01);
     return [...C.values()].sort((a, b) => b.s - a.s).slice(0, 10).map(x => x.w);
   }
@@ -377,7 +381,7 @@
       const n = norm(word);
       if (!okWord(n)) return;
       let cls = [];
-      for (const [t, v] of matchTerms(n)) for (const [ci, pos] of lex.term.get(t)) cls.push([ci, pos, v]);
+      for (const [t, v] of matchTerms(n)) for (const [ci, pos] of lex.term.get(t)) if (ctx.adult || !lex.cl[ci].adult) cls.push([ci, pos, v]);
       for (const [ci, pos, v] of cls) {
         const cl = lex.cl[ci];
         const k = wt * Math.pow(v, 1.6) * (1 - 0.5 * pos / cl.terms.length) / Math.pow(cls.length, 0.25);
@@ -412,7 +416,7 @@
           n > 1 ? `noutros ${n} stickers teus, o ${e} aparece com este` : `noutro sticker teu, o ${e} aparece com este`);
       }
       const seen = new Set();
-      for (const ci of (lex.emo.get(k) || [])) for (const y of lex.cl[ci].emos) {
+      for (const ci of (lex.emo.get(k) || [])) if (ctx.adult || !lex.cl[ci].adult) for (const y of lex.cl[ci].emos) {
         if (y === k || seen.has(y)) continue; seen.add(y);
         add(y, 0.4, 'lx:' + k + y, `o ${e} e este costumam andar juntos`);
       }

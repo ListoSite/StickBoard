@@ -28,11 +28,14 @@
   }
 
   // formas de escrever a mesma coisa em conversa (tou = estou, q = que…)
-  const CANON = { tou: 'estou', to: 'estou', ta: 'esta', tas: 'estas', tamos: 'estamos', tava: 'estava', pra: 'para', pro: 'para',
+  const CANON = { tou: 'estou', to: 'estou', ta: 'esta', tas: 'estas', tamos: 'estamos', tava: 'estava', pra: 'para',
     q: 'que', k: 'que', n: 'nao', nd: 'nada', tb: 'tambem', tbm: 'tambem', tmb: 'tambem', mt: 'muito', mto: 'muito', mta: 'muita', pq: 'porque',
     vc: 'voce', ce: 'voce', msm: 'mesmo', td: 'tudo', tds: 'todos', blz: 'beleza', vlw: 'valeu', obg: 'obrigado', pfv: 'por favor', pf: 'por favor',
     dps: 'depois', hj: 'hoje', agr: 'agora', qnd: 'quando', cmg: 'comigo', ctg: 'contigo', bjs: 'beijos', bj: 'beijo', sla: 'sei la',
-    oq: 'o que', qq: 'qualquer', ngm: 'ninguem', vdd: 'verdade' };
+    oq: 'o que', qq: 'qualquer', ngm: 'ninguem', vdd: 'verdade',
+    crl: 'caralho', krl: 'caralho', crlh: 'caralho', krlh: 'caralho', caraio: 'caralho', carai: 'caralho', fodasse: 'foda se', fodase: 'foda se',
+    fdp: 'filho da puta', pqp: 'puta que pariu', vsf: 'vai se foder', vtf: 'vai te foder', vtnc: 'vai tomar no cu', tnc: 'tomar no cu',
+    fuder: 'foder', fudido: 'fodido', fudida: 'fodida', po: 'para o', pro: 'para o' };
   const canonToks = text => tokens(text).flatMap(t => (CANON[t] || t).split(' '));
   const pst = t => t.length >= 4 ? stem(t) : t;
   /** Uma expressão ("isso dizes tu", "a sério") guarda todas as palavras, também as pequenas, pela ordem. */
@@ -183,7 +186,7 @@
   function search(index, text, limit) {
     text = String(text || '');
     const line = text.split('\n').pop();
-    const q = tokens(line).slice(-14);
+    const q = canonToks(line).slice(-14);
     const qt = q.filter(x => !STOP.has(x)).map(x => ({ w: x, s: stem(x) }));
     const qstop = q.filter(x => STOP.has(x));
     const qe = emojisIn(line).map(stripVS);

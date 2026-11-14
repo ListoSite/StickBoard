@@ -176,7 +176,7 @@ window.LEX = [
 // ---------- calão PT ----------
 '😎🤙 | fixe, bué, bué fixe, brutal, altamente, baril, à maneira, porreiro, top, ya, yah, yap, bacano, bacana, na boa, tranquilo, sossega, tás bem, tás à vontade',
 '😂🙄 | epá, pá, então pá, ó pá, foda-se pá, mano, bro, oh mano, ya mano, bué, tipo, tás a ver, percebes, sabes',
-'🤙🇧🇷 | top, massa, show, show de bola, legal, maneiro, irado, firmeza, suave, tranquilo, de boa, tmj, valeu, demorou, partiu, bora, cê, véi, mano, parça',
+'🤙😎 | top, massa, show, show de bola, legal, maneiro, irado, firmeza, suave, tranquilo, de boa, tmj, valeu, demorou, partiu, bora, cê, véi, mano, parça',
 // ---------- inglês de chat ----------
 '😂💀 | lol, lmao, lmfao, rofl, xd, omg, wtf, bruh, dead, im dead, crying, i cant, no way, sus, cringe, based, vibe, vibes, mood, same, literally, fr, for real, ngl, idk, idc, tbh, slay, bestie',
 '❤️🥺 | love, love you, ily, miss you, cute, baby, babe, honey, sweetie, darling, xoxo, hug, kiss, crush',

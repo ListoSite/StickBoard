@@ -76,7 +76,7 @@ window.LEX = (window.LEX || []).concat([
 '🤦😑 | não acredito nisto, a sério isto, que vergonha alheia, para quê, porquê, porque é que fazes isto, outra vez a mesma coisa, não aprendes, és um caso perdido, és uma causa perdida, desisto de ti',
 '🥲🙂 | rir para não chorar, é o que há, a vida é assim, fazer o quê, que remédio, tem de ser, há dias assim, amanhã é outro dia, faz parte, siga, bola para a frente',
 // ---------- brasileiras ----------
-'😂🇧🇷 | kkkk, rachei, morri kkk, tô chorando, tô passada, tô passado, socorro kkk, não tô bem, me ajuda, que isso, oxe, vixe, eita, eita porra, mds, ai ai',
-'🙄🇧🇷 | aff, affs, ah tá, tá bom, sei, me poupe, me poupa, nem vem, nem vem que não tem, vai nessa, conta outra, papo furado, migué, que papo é esse, tô nem aí, problema seu',
-'👍🇧🇷 | beleza, blz, fechou, tá certo, demorou, firmeza, suave, de boa, tranquilo, show, show de bola, top demais, é nóis, tamo junto, valeu, valeu mesmo'
+'😂🤣 | kkkk, rachei, morri kkk, tô chorando, tô passada, tô passado, socorro kkk, não tô bem, me ajuda, que isso, oxe, vixe, eita, eita porra, mds, ai ai',
+'🙄😒 | aff, affs, ah tá, tá bom, sei, me poupe, me poupa, nem vem, nem vem que não tem, vai nessa, conta outra, papo furado, migué, que papo é esse, tô nem aí, problema seu',
+'👍🤙 | beleza, blz, fechou, tá certo, demorou, firmeza, suave, de boa, tranquilo, show, show de bola, top demais, é nóis, tamo junto, valeu, valeu mesmo'
 ]);

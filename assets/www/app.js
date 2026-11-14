@@ -1009,7 +1009,7 @@ function openEditor(packId, idx) {
     $('#gl', bd).onclick = () => { const r = JSON.parse(A.saveToGallery(p.id, s.f)); toast(r.error ? 'Não guardei: ' + r.error : 'Guardado em Imagens/StickTag ✓'); };
     wsg = wordSuggest($('#wsug', bd), () => {
       const c = cur();
-      return { words: c.words, emojis: c.emojis, avoid: c.emojis.flatMap(e => emoWords(e)).concat(Match.learned(c).map(l => l.w)) };
+      return { words: c.words, emojis: c.emojis, adult: adultOn() || Match.isAdult(p, c), avoid: c.emojis.flatMap(e => emoWords(e)).concat(Match.learned(c).map(l => l.w)) };
     }, (w, many) => {
       const c = cur();
       const inp = $('.words input', sheet); if (inp) inp.value = '';
@@ -1328,7 +1328,7 @@ function creatorExtras(sheet, packId) {
   let picker = null, why = null;
   const wdIn = $('#wd', sheet);
   const curWords = () => wdIn.value.split(',').map(x => x.trim()).filter(Boolean);
-  const csg = wordSuggest($('#cx-sug', box), () => ({ words: curWords(), emojis }), (w, many, comp) => {
+  const csg = wordSuggest($('#cx-sug', box), () => ({ words: curWords(), emojis, adult: adultOn() || !!(packOf(packId) || {}).adult }), (w, many, comp) => {
     const l = curWords();
     if (comp && l.length && !wdIn.value.trim().endsWith(',')) l.pop();
     if (l.some(y => norm(y) === norm(w))) return;
@@ -1717,7 +1717,7 @@ function openEmoji(e) {
     try { S.data = JSON.parse(A.setEmojiWords(o.e, list == null ? '' : JSON.stringify(list))); } catch (er) { toast('Erro a guardar'); }
     drawEW();
   };
-  const sg = wordSuggest($('#sug', sheet), () => ({ words: emoWords(o.e), emojis: [o.e] }), (w, many) => {
+  const sg = wordSuggest($('#sug', sheet), () => ({ words: emoWords(o.e), emojis: [o.e], adult: adultOn() }), (w, many) => {
     const l = emoWords(o.e).slice();
     if (l.some(y => norm(y) === norm(w))) return;
     l.push(w); saveEW(l);
@@ -1823,7 +1823,7 @@ async function analyseEmojis(o) {
   o.step && o.step('A escolher…');
   const sim = await withTimeout(simP, 15000, { list: [] });
   const list = Suggest.emojis({ emojis: o.emojis, words: o.words, learned: o.learned || [], ocr: ocr || [], packName: o.p ? o.p.name : '',
-    data: S.data, self: o.s ? { s: o.s, f: o.s.f } : null, similar: sim.list || [], col: sim.col, limit: 12 });
+    data: S.data, adult: adultOn() || Match.isAdult(o.p, o.s), self: o.s ? { s: o.s, f: o.s.f } : null, similar: sim.list || [], col: sim.col, limit: 12 });
   return { list, ocr: ocr || [] };
 }
 
