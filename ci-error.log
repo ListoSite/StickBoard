@@ -1,0 +1,6 @@
+/home/runner/work/StickBoard/StickBoard/src/com/josejunior/sticktag/Store.java:429: error: exception JSONException is never thrown in body of corresponding try statement
+            } catch (JSONException e) { return null; }
+              ^
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+1 error
