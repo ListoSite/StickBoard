@@ -569,3 +569,6 @@ html,body{background:var(--bg);-webkit-font-smoothing:antialiased}
 .sortr.on{background:var(--greenSoft);color:var(--text);font-weight:700}
 .sortr.on i{border-color:var(--green);background:var(--green)}
 .sortr.on i::after{content:'';width:8px;height:8px;border-radius:50%;background:#06210F}
+.pk-grid2 .fgrp{grid-column:1/-1}
+.pk-grid2 button .pin{position:absolute;left:5px;top:3px;color:var(--green);font-weight:800;font-size:13px;text-shadow:0 1px 3px #000}
+.sheet .ftools{margin-top:2px}

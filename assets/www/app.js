@@ -396,7 +396,7 @@ const FSORTS = [
 ];
 const FSORT_IC = { Data: '📅', Nome: '🔤', Tamanho: '📦', Outros: '🆕' };
 /** Folha "Ordenar": lista simples, por grupos, com a opção escolhida marcada. */
-function openSortSheet(curKey) {
+function openSortSheet(curKey, after) {
   const groups = [];
   FSORTS.forEach(o => { let g = groups.find(x => x.name === o[1]); if (!g) groups.push(g = { name: o[1], items: [] }); g.items.push(o); });
   const sheet = el(`<div class="sheet"><div class="hd"><h3>Ordenar</h3><button class="iconbtn" id="x">${ICON.close}</button></div><div class="bd">
@@ -407,7 +407,7 @@ function openSortSheet(curKey) {
   $('#x', sheet).onclick = () => closeOverlay(ov);
   $$('.sortr', sheet).forEach(b => b.onclick = () => {
     try { localStorage.setItem('fsort', b.dataset.k); } catch (e) {}
-    closeOverlay(ov); render();
+    closeOverlay(ov); (after || render)();
   });
 }
 function fsort() { try { return localStorage.getItem('fsort') || 'mod'; } catch (e) { return 'mod'; } }
@@ -449,8 +449,33 @@ function fileGroup(x, mode, isIn) {
   try { const s = new Intl.DateTimeFormat('pt-PT', { month: 'long', year: 'numeric' }).format(d); return s.charAt(0).toUpperCase() + s.slice(1); } catch (e) { return d.getFullYear() + '-' + (d.getMonth() + 1); }
 }
 
+/** Os ficheiros da pasta já com os títulos dos grupos pelo meio (Hoje, Ontem…). */
+function withGroups(files, mode, isIn) {
+  const shown = [];
+  let lastG = null, hdr = null;
+  for (const x of files) { const g = fileGroup(x, mode, isIn); if (g !== lastG) { hdr = { hdr: g, n: 0 }; shown.push(hdr); lastG = g; } hdr.n++; shown.push(x); }
+  return shown;
+}
+/** Os ficheiros que já estão num pack (para o ✓ e o «Só os novos»). */
+function folderHave() {
+  const have = new Set();
+  S.data.packs.forEach(p => p.stickers.forEach(s => { if (s.src) have.add(s.src); }));
+  return x => have.has(x.name + '|' + x.size);
+}
+/** Barra pequena: ordem (a mesma em toda a app) + «Só os novos» + quantos. */
+function folderTools(count, after) {
+  const fsm = fsort();
+  const cur = FSORTS.find(x => x[0] === fsm) || FSORTS[0];
+  const t = el(`<div class="ftools"><button class="fpill" data-a="sort"><span class="ic">↕</span>${esc(cur[2])}<span class="dn">▾</span></button><button class="fpill ${S.fonlyNew ? 'on' : ''}" data-a="new">${S.fonlyNew ? '✓ ' : ''}Só os novos</button><span class="fcount">${count}</span></div>`);
+  $('[data-a=sort]', t).onclick = () => openSortSheet(fsm, after);
+  $('[data-a=new]', t).onclick = () => { S.fonlyNew = !S.fonlyNew; after(); };
+  return t;
+}
+const fgrpEl = x => el(`<div class="fgrp"><span>${esc(x.hdr)}</span><small>${x.n}</small></div>`);
+
 function viewFolder() {
   const f = S.folder;
+  try { localStorage.setItem('lastFolder', f.uri); } catch (e) {}
   const v = el('<section class="view"></section>');
   if (!S.ffiles) {
     // ler a pasta em segundo plano (com milhares de ficheiros pode demorar uns segundos)
@@ -494,22 +519,16 @@ function viewFolder() {
   const dpf = acts.querySelector('#dpf'); if (dpf) dpf.onclick = () => findDupes(S.ffiles);
   const vw = acts.querySelector('#vw'); if (vw) vw.onclick = () => openFolderViewer(files, 0);
 
-  acts.querySelector('#ia').onclick = () => autoImportDialog(f, S.ffiles.filter(x => !isIn(x)));
+  // importa pela mesma ordem em que os vês
+  acts.querySelector('#ia').onclick = () => autoImportDialog(f, sortFiles(S.ffiles.filter(x => !isIn(x)), fsm, isIn));
   v.appendChild(acts);
   v.appendChild(opt);
   v.appendChild(el(`<div class="hint" style="margin-bottom:10px">Toca num sticker para o veres em grande. Carrega sem largar para escolher vários. Os que têm ✓ já estão num pack.</div>`));
-  const cur = FSORTS.find(x => x[0] === fsm) || FSORTS[0];
-  const tools = el(`<div class="ftools"><button class="fpill" id="fsort"><span class="ic">↕</span>${esc(cur[2])}<span class="dn">▾</span></button><button class="fpill ${S.fonlyNew ? 'on' : ''}" id="fl">${S.fonlyNew ? '✓ ' : ''}Só os novos</button><span class="fcount">${files.length}</span></div>`);
-  $('#fsort', tools).onclick = () => openSortSheet(fsm);
-  $('#fl', tools).onclick = () => { S.fonlyNew = !S.fonlyNew; render(); };
-  v.appendChild(tools);
+  v.appendChild(folderTools(files.length, render));
   const grid = el('<div class="grid" style="grid-template-columns:repeat(4,1fr);gap:8px;margin-top:0"></div>');
   // títulos dos grupos (Hoje, Ontem…, A, B…) no meio da grelha
-  const shown = [];
-  let lastG = null, hdr = null;
-  for (const x of files) { const g = fileGroup(x, fsm, isIn); if (g !== lastG) { hdr = { hdr: g, n: 0 }; shown.push(hdr); lastG = g; } hdr.n++; shown.push(x); }
-  progressive(grid, shown, x => {
-    if (x.hdr) return el(`<div class="fgrp"><span>${esc(x.hdr)}</span><small>${x.n}</small></div>`);
+  progressive(grid, withGroups(files, fsm, isIn), x => {
+    if (x.hdr) return fgrpEl(x);
     const c = el(`<div class="st" style="padding:4px"><div class="im"><img loading="lazy" src="d/${encodeURIComponent(x.uri)}"></div>${isIn(x) ? '<span class="cv" style="color:var(--green);left:10px;right:auto">✓</span>' : ''}<span class="ck" style="${S.fsel.size ? '' : 'display:none'}"></span></div>`);
     if (S.fsel.has(x.uri)) c.classList.add('sel');
     const toggle = () => {
@@ -3330,10 +3349,17 @@ function pickFromFolders() {
       });
     }
     function openFolder(f) {
+      try { localStorage.setItem('lastFolder', f.uri); } catch (e) {}
+      // a pasta que já está aberta na app: usa a lista que já foi lida (é instantâneo)
+      if (S.folder && S.folder.uri === f.uri && S.ffiles) {
+        folder = f; files = S.ffiles.slice();
+        $('#tt', sheet).textContent = f.name; $('#bk', sheet).style.display = ''; $('#ft', sheet).classList.remove('hidden');
+        return drawFiles();
+      }
       bd.innerHTML = '<div class="loading"><div class="spin"></div><b>A ler a pasta…</b></div>';
       S.flistCb = r => {
         if (!r || !r.ok) { toast((r && r.error) || 'erro'); drawFolders(); return; }
-        folder = f; files = r.files.sort((a, b) => (b.time || 0) - (a.time || 0));
+        folder = f; files = r.files;
         $('#tt', sheet).textContent = f.name; $('#bk', sheet).style.display = ''; $('#ft', sheet).classList.remove('hidden');
         drawFiles();
       };
@@ -3352,9 +3378,13 @@ function pickFromFolders() {
     }
     function drawFiles() {
       bd.innerHTML = '';
+      const isIn = folderHave(), mode = fsort();
+      const list = sortFiles(S.fonlyNew ? files.filter(x => !isIn(x)) : files, mode, isIn);
+      bd.appendChild(folderTools(list.length, drawFiles));
       const g = el('<div class="pk-grid2"></div>');
-      progressive(g, files, x => {
-        const b = el(`<button data-u="${esc(x.uri)}"><img loading="lazy" src="d/${encodeURIComponent(x.uri)}"></button>`);
+      progressive(g, withGroups(list, mode, isIn), x => {
+        if (x.hdr) return fgrpEl(x);
+        const b = el(`<button data-u="${esc(x.uri)}"><img loading="lazy" src="d/${encodeURIComponent(x.uri)}">${isIn(x) ? '<span class="pin">✓</span>' : ''}</button>`);
         b.onclick = () => { sel.has(x.uri) ? sel.delete(x.uri) : sel.add(x.uri); markSel(g); };
         return b;
       });
@@ -3363,7 +3393,10 @@ function pickFromFolders() {
     }
     $('#bk', sheet).onclick = drawFolders;
     $('#ok', sheet).onclick = () => { if (!sel.size) return; done = true; closeOverlay(ov); res([...sel]); };
-    drawFolders();
+    // abre logo a pasta onde estás a mexer (a aberta na app, a última usada, ou a única)
+    let last = null; try { last = localStorage.getItem('lastFolder'); } catch (e) {}
+    const start = (S.folder && fs.find(f => f.uri === S.folder.uri)) || fs.find(f => f.uri === last) || (fs.length === 1 ? fs[0] : null);
+    if (start) openFolder(start); else drawFolders();
   });
 }
 
