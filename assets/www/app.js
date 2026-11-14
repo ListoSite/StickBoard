@@ -834,8 +834,8 @@ function teachBox(box, o) {
     const more = x.more.slice(0, open ? 12 : (x.items.length ? 3 : 5));
     if (!x.items.length && !more.length) return '';
     return `<div class="tr ${k === fk ? 'on' : ''}"><span class="emo">${esc(x.e)}</span><div class="tc">
-      ${x.items.map(i => `<button class="tchip ${i.src}" data-e="${esc(x.e)}" data-w="${esc(i.w)}" title="${i.like ? 'parece-se com «' + esc(i.like) + '»' : ''}">${i.src === 'texto' ? '📖 ' : i.src === 'aprendi' ? '🧠 ' : ''}${esc(i.w)}</button>`).join('')}
-      ${more.map(w => `<button class="tchip idea" data-e="${esc(x.e)}" data-w="${esc(w)}">${esc(w)}</button>`).join('')}
+      ${x.items.map(i => `<button class="tchip ${i.src}" data-e="${esc(x.e)}" data-w="${esc(i.w)}" title="${i.like ? 'parece-se com «' + esc(i.like) + '»' : ''}">${i.src === 'texto' ? '📖 ' : i.src === 'aprendi' ? '🧠 ' : ''}${esc(i.w)}${crossTag(crossOf(i.w, x.e))}</button>`).join('')}
+      ${more.map(w => `<button class="tchip idea" data-e="${esc(x.e)}" data-w="${esc(w)}">${esc(w)}${crossTag(crossOf(w, x.e))}</button>`).join('')}
       ${x.more.length > 3 ? `<button class="tchip tog" data-k="${esc(k)}">${open ? 'menos' : 'mais…'}</button>` : ''}
     </div></div>`;
   }).join('');
@@ -852,7 +852,8 @@ function teachBox(box, o) {
     if (!l.some(y => norm(y) === norm(w))) {
       l.push(w);
       try { S.data = JSON.parse(A.setEmojiWords(e, JSON.stringify(l))); } catch (er) { return toast('Erro a guardar'); }
-      toast(`«${w}» juntada ao ${e}`);
+      const cx = crossOf(w, e);
+      toast(cx.length ? `⚠ «${w}» juntada ao ${e}, mas também está em ${cx.join(' ')}` : `«${w}» juntada ao ${e}`);
     }
     box._open[stripVS(e)] = true;
     o.after && o.after();
@@ -1070,11 +1071,13 @@ function openEditor(packId, idx) {
       <div class="emoinfo">${s.emojis.map(e => {
         const o = emoInfo(e); const others = (used.get(stripVS(e)) || []).filter(x => x.s.f !== s.f).length;
         const cats = WA_CAT_OF.get(stripVS(e));
-        return `<div class="r"><span class="e emo">${esc(e)}</span><div><b>${esc(o ? o.n : 'emoji')}</b> · <span style="color:var(--blue)">${esc(emoWords(e).join(', ') || '—')}</span><div class="dim">${others ? `Também em ${others} sticker${others > 1 ? 's' : ''} teu${others > 1 ? 's' : ''}` : 'Só este sticker tem este emoji ✓'}${cats ? ' · categoria do WhatsApp: ' + cats.map(c => c.pt).join(', ') : ''}</div></div></div>`;
+        const cw = emoWords(e).filter(w => crossOf(w, e).length);
+        return `<div class="r"><span class="e emo">${esc(e)}</span><div><b>${esc(o ? o.n : 'emoji')}</b> · <span style="color:var(--blue)">${esc(emoWords(e).join(', ') || '—')}</span>${cw.length ? `<div class="xline" data-e="${esc(e)}">⚠ Cruzadas com outros emojis: ${cw.slice(0, 5).map(w => `<b>${esc(w)}</b> ${crossOf(w, e).slice(0, 3).map(esc).join('')}`).join(' · ')}${cw.length > 5 ? ' …' : ''}</div>` : ''}<div class="dim">${others ? `Também em ${others} sticker${others > 1 ? 's' : ''} teu${others > 1 ? 's' : ''}` : 'Só este sticker tem este emoji ✓'}${cats ? ' · categoria do WhatsApp: ' + cats.map(c => c.pt).join(', ') : ''}</div></div></div>`;
       }).join('')}</div><div class="teachbox"></div>`;
     drawTeach();
     $$('.slot.f', top).forEach(sl => sl.onclick = () => { const e = cur().emojis.splice(+sl.dataset.i, 1)[0]; commit(); if (why) { const x = why.added.find(y => stripVS(y.e) === stripVS(e)); if (x) { why.added = why.added.filter(y => y !== x); why.alts.unshift(x); } drawWhyEd(); } drawTop(); redrawPicker(); });
     $('#ai', top).onclick = e => autoEmojis(e.currentTarget);
+    $$('.xline', top).forEach(b => b.onclick = () => openEmoji(b.dataset.e));
     const pv = $('#pv', top), nx = $('#nx', top);
     pv.onclick = () => { const j = step(-1); if (j >= 0) { idx = j; drawAll(); } };
     nx.onclick = () => { const j = step(1); if (j >= 0) { idx = j; drawAll(); } };
@@ -1780,12 +1783,19 @@ function viewWords() {
     res.innerHTML = '';
     if (!q) {
       const used = usage();
+      const CL = crossList();
+      if (CL.length) {
+        const c = el(`<div class="xcard big"><div><b>⚠ ${CL.length} palavra${CL.length === 1 ? '' : 's'} cruzada${CL.length === 1 ? '' : 's'}</b><div class="small">Estão em 2+ emojis, por isso o teclado mistura stickers diferentes: ${CL.slice(0, 6).map(x => `<b>${esc(x.w)}</b> ${x.emos.slice(0, 3).map(esc).join('')}`).join(' · ')}${CL.length > 6 ? ' …' : ''}</div></div><button class="btn sm primary">Arrumar</button></div>`);
+        c.onclick = () => openCross();
+        res.appendChild(c);
+      }
       if (used.size) {
         res.appendChild(el(`<div class="sec" style="margin-top:6px">Os teus emojis e as palavras deles</div>`));
         Array.from(used.keys()).forEach(k => {
           const e = used.get(k)[0].s.emojis.find(x => stripVS(x) === k) || k;
           const o = emoInfo(e) || { e, n: 'emoji', pt: [], en: [] };
-          const r = el(`<div class="res"><div class="e emo">${esc(e)}</div><div class="t"><div class="n">${esc(o.n)}</div><div class="w" style="color:var(--blue)">${esc(emoWords(e).join(', ') || '—')}</div></div><div class="mine"><span class="chip">${used.get(k).length}</span></div></div>`);
+          const nx = emoWords(e).filter(w => crossOf(w, e).length).length;
+          const r = el(`<div class="res"><div class="e emo">${esc(e)}</div><div class="t"><div class="n">${esc(o.n)}${nx ? ` <span class="xw">⚠${nx}</span>` : ''}</div><div class="w" style="color:var(--blue)">${esc(emoWords(e).join(', ') || '—')}</div></div><div class="mine"><span class="chip">${used.get(k).length}</span></div></div>`);
           r.onclick = () => openEmoji(e);
           res.appendChild(r);
         });
@@ -1867,6 +1877,8 @@ function openEmoji(e) {
     <div class="sec">Palavras do teclado para este emoji</div>
     <div class="words" id="ew"></div>
     <div class="row" style="margin-top:8px;justify-content:space-between"><span class="hint">Os stickers com este emoji aparecem no teclado quando escreves estas palavras. Toca numa palavra em baixo para a juntar.</span><button class="btn sm" id="ewr">Repor</button></div>
+    <div class="xhint" id="ewx"></div>
+    <div id="ecross"></div>
     <div class="sugbox" id="sug"></div>
     <div id="elrn"></div>
     <div class="sec">Palavras Unicode em português</div><div class="kw">${(o.pt.length ? [o.n].concat(o.pt) : ['—']).map(w => `<span>${esc(w)}</span>`).join('')}</div>
@@ -1880,8 +1892,21 @@ function openEmoji(e) {
   $('#cp', sheet).onclick = () => { A.copy(o.e); toast('Emoji copiado'); };
   const saveEW = list => {
     try { S.data = JSON.parse(A.setEmojiWords(o.e, list == null ? '' : JSON.stringify(list))); } catch (er) { toast('Erro a guardar'); }
-    drawEW();
+    drawEW(); if (typeof drawCrossHint === 'function') drawCrossHint();
   };
+  // enquanto escreves: avisa se a palavra já está noutro emoji
+  function typingCross(v) {
+    const b = $('#ewx', sheet), w = v.trim();
+    const cx = w.length >= 2 ? crossOf(w, o.e) : [];
+    b.innerHTML = cx.length ? `⚠ «${esc(w)}» já está em ${cx.map(esc).join(' ')} — se a juntares, o teclado mistura os stickers dos dois.` : '';
+  }
+  // resumo das palavras deste emoji que estão cruzadas
+  function drawCrossHint() {
+    const b = $('#ecross', sheet);
+    const n = emoWords(o.e).filter(w => crossOf(w, o.e).length).length;
+    b.innerHTML = n ? `<div class="xcard">⚠ ${n} palavra${n === 1 ? '' : 's'} deste emoji também ${n === 1 ? 'está' : 'estão'} noutros emojis. Toca no ⚠ de cada uma para escolher onde fica. <button class="btn sm" id="ecx">Ver todas</button></div>` : '';
+    const bt = $('#ecx', b); if (bt) bt.onclick = () => openCross();
+  }
   function drawELrn() {
     const box = $('#elrn', sheet);
     const L = Match.emojiLearned(S.data, o.e, true).filter(l => !emoWords(o.e).some(y => norm(y) === norm(l.w)));
@@ -1905,36 +1930,41 @@ function openEmoji(e) {
       drawELrn();
     };
   }
-  const sg = wordSuggest($('#sug', sheet), () => ({ words: emoWords(o.e), emojis: [o.e], adult: adultOn() }), (w, many) => {
+  const sg = wordSuggest($('#sug', sheet), () => ({ words: emoWords(o.e), emojis: [o.e], adult: adultOn(), crossFor: o.e }), (w, many) => {
     const l = emoWords(o.e).slice();
     if (l.some(y => norm(y) === norm(w))) return;
     l.push(w); saveEW(l);
-    if (!many) toast(`«${w}» adicionada`);
+    const cx = crossOf(w, o.e);
+    if (!many) toast(cx.length ? `⚠ «${w}» também está em ${cx.join(' ')}` : `«${w}» adicionada`);
   });
   function drawEW() {
     const box = $('#ew', sheet);
     const list = emoWords(o.e);
-    box.innerHTML = list.map((x, i) => `<span class="wchip">${esc(x)}<button data-i="${i}">×</button></span>`).join('') + '<input placeholder="nova palavra + Enter">';
+    box.innerHTML = list.map((x, i) => { const cx = crossOf(x, o.e); return `<span class="wchip ${cx.length ? 'cross' : ''}">${esc(x)}${cx.length ? `<span class="xw" data-w="${esc(x)}">⚠${cx.slice(0, 3).map(esc).join('')}</span>` : ''}<button data-i="${i}">×</button></span>`; }).join('') + '<input placeholder="nova palavra + Enter">';
     $$('.wchip button', box).forEach(b => b.onclick = () => { const l = emoWords(o.e).slice(); l.splice(+b.dataset.i, 1); saveEW(l); });
+    $$('.wchip .xw', box).forEach(b => b.onclick = () => resolveCross(b.dataset.w, o.e, () => { drawEW(); drawCrossHint(); }));
     const inp = $('input', box);
     const add = () => {
       const parts = inp.value.split(',').map(x => x.trim()).filter(Boolean);
       if (!parts.length) return;
       const l = emoWords(o.e).slice();
-      for (const x of parts) if (!l.some(y => norm(y) === norm(x))) l.push(x);
+      const warn = [];
+      for (const x of parts) if (!l.some(y => norm(y) === norm(x))) { l.push(x); const cx = crossOf(x, o.e); if (cx.length) warn.push(`«${x}» também está em ${cx.join(' ')}`); }
       saveEW(l); $('#ew input', sheet).focus();
+      if (warn.length) toast('⚠ ' + warn.join(' · '));
     };
     inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); add(); } });
     let tq = null;
-    inp.addEventListener('input', () => { if (inp.value.includes(',')) return add(); clearTimeout(tq); tq = setTimeout(() => sg.draw(inp.value), 120); });
+    inp.addEventListener('input', () => { if (inp.value.includes(',')) return add(); clearTimeout(tq); tq = setTimeout(() => { sg.draw(inp.value); typingCross(inp.value); }, 120); });
     sg.draw('');
   }
-  drawEW(); drawELrn();
+  drawEW(); drawELrn(); drawCrossHint();
   $$('.kw span', sheet).forEach(sp => sp.onclick = () => {
     const w = sp.textContent.trim(); if (!w || w === '—') return;
     const l = emoWords(o.e).slice();
     if (l.some(y => norm(y) === norm(w))) return toast('Já está na lista');
-    l.push(w); saveEW(l); toast(`“${w}” adicionada`);
+    l.push(w); saveEW(l);
+    const cx = crossOf(w, o.e); toast(cx.length ? `⚠ «${w}» também está em ${cx.join(' ')}` : `“${w}” adicionada`);
   });
   $('#ewr', sheet).onclick = () => { saveEW(null); toast('Palavras repostas'); };
   $$('.mygrid img', sheet).forEach(img => img.onclick = () => { const x = used[+img.dataset.i]; closeOverlay(ov); closeAllAndEdit(x.p, x.s); });
@@ -1949,7 +1979,8 @@ function openEmoji(e) {
 function wordSuggest(box, getCtx, onPick) {
   let more = { f: false, w: false }, typed = '', hidden = new Set();
   Suggest.loadSyn().then(() => draw(typed));
-  const chip = x => `<button class="schip ${x.src === 'teu' ? 'mine' : ''} ${x.phrase ? 'ph' : ''}" data-w="${esc(x.w)}">${x.src === 'teu' ? '<i></i>' : ''}${esc(x.w)}</button>`;
+  const cross = w => { const c = getCtx(); return c.crossFor ? crossOf(w, c.crossFor) : []; };
+  const chip = x => { const cx = cross(x.w); return `<button class="schip ${x.src === 'teu' ? 'mine' : ''} ${x.phrase ? 'ph' : ''} ${cx.length ? 'cross' : ''}" data-w="${esc(x.w)}">${x.src === 'teu' ? '<i></i>' : ''}${esc(x.w)}${crossTag(cx)}</button>`; };
   // tocar numa sugestão não tira o foco da caixa de texto (senão o que estava escrito era guardado primeiro)
   box.addEventListener('mousedown', e => { if (e.target.closest('.schip, .btn')) e.preventDefault(); });
   function draw(t) {
@@ -1965,13 +1996,13 @@ function wordSuggest(box, getCtx, onPick) {
       return;
     }
     const nf = more.f ? 30 : 10, nw = more.w ? 50 : 16;
-    box.innerHTML = `${comp.length ? `<div class="sugh"><span>✨ Completar</span></div><div class="sugl">${comp.map(w => `<button class="schip comp ${Suggest.isPhrase(norm(w)) ? 'ph' : ''}" data-w="${esc(w)}">${esc(w)}</button>`).join('')}</div>` : ''}
+    box.innerHTML = `${comp.length ? `<div class="sugh"><span>✨ Completar</span></div><div class="sugl">${comp.map(w => { const cx = cross(w); return `<button class="schip comp ${Suggest.isPhrase(norm(w)) ? 'ph' : ''} ${cx.length ? 'cross' : ''}" data-w="${esc(w)}">${esc(w)}${crossTag(cx)}</button>`; }).join('')}</div>` : ''}
       ${fr.length ? `<div class="sugh"><span>💬 Expressões</span></div>
       <div class="sugl">${fr.slice(0, nf).map(chip).join('')}${fr.length > 10 ? `<button class="schip more" data-m="f">${more.f ? 'Menos' : `Mais ${Math.min(fr.length, 30) - 10}…`}</button>` : ''}</div>` : ''}
       ${wd.length ? `<div class="sugh"><span>✨ Palavras</span>${wd.length > 5 ? '<button class="btn sm ghost" id="sg5">＋ Juntar as 5 primeiras</button>' : ''}</div>
       <div class="sugl">${wd.slice(0, nw).map(chip).join('')}${wd.length > 16 ? `<button class="schip more" data-m="w">${more.w ? 'Menos' : `Mais ${Math.min(wd.length, 50) - 16}…`}</button>` : ''}</div>` : ''}
       ${raw.adultHint ? '<div class="hint sugn">🔞 As tuas palavras vão para o lado +18: liga o modo +18 para veres mais ideias desse género.</div>' : ''}
-      <div class="hint sugn">Toca para juntar · carrega sem largar para esconder. As com ponto verde vêm do teu próprio uso.</div>`;
+      <div class="hint sugn">Toca para juntar · carrega sem largar para esconder. As com ponto verde vêm do teu próprio uso${getCtx().crossFor ? '; as com ⚠ já estão noutro emoji' : ''}.</div>`;
     $$('.schip[data-w]', box).forEach(b => {
       let tm = null;
       b.onclick = () => { if (tm === 'x') { tm = null; return; } onPick(b.dataset.w, false, b.classList.contains('comp')); };
@@ -1979,7 +2010,8 @@ function wordSuggest(box, getCtx, onPick) {
       b.addEventListener('touchend', () => { if (tm !== 'x') { clearTimeout(tm); tm = null; } });
     });
     $$('.schip.more', box).forEach(b => b.onclick = () => { more[b.dataset.m] = !more[b.dataset.m]; draw(typed); });
-    const f5 = $('#sg5', box); if (f5) f5.onclick = () => { wd.slice(0, 5).forEach(x => onPick(x.w, true)); };
+    // as 5 primeiras que não estão noutro emoji
+    const f5 = $('#sg5', box); if (f5) f5.onclick = () => { wd.filter(x => !cross(x.w).length).slice(0, 5).forEach(x => onPick(x.w, true)); };
   }
   return { draw };
 }
@@ -2043,6 +2075,115 @@ function drawWhy(box, info, h) {
   $$('.walt', box).forEach(b => b.onclick = () => h.add(info.alts[+b.dataset.i]));
   const u = $('#wyu', box); if (u) u.onclick = () => h.undo();
   const ow = $('#wyo', box); if (ow) ow.onclick = () => h.addWords(ocrNew);
+}
+
+/* ---------- Palavras cruzadas (a mesma palavra em 2+ emojis) ---------- */
+/** Chave para comparar palavras: junta variações (safado/safada, tou/estou, dizes-te/dizes te). */
+function crossKey(w) {
+  const n = norm(w);
+  if (!n) return '';
+  const t = Match.canonToks(n);
+  if (t.length > 1) return t.map(x => x.length >= 4 ? Match.stem(x) : x).join(' ');
+  const x = t[0] || n;
+  return x.length >= 4 ? Match.stem(x) : x;
+}
+function crossOk() { try { return new Set(JSON.parse(S.data.crossOk || '[]')); } catch (e) { return new Set(); } }
+/** Os emojis que contam: os que puseste em stickers e os que têm palavras mudadas por ti. */
+function crossEmojis() {
+  const ks = new Map();
+  for (const [k, list] of usage()) ks.set(k, list[0].s.emojis.find(x => stripVS(x) === k) || k);
+  for (const e of Object.keys(S.data.emojiWords || {})) if (!ks.has(stripVS(e))) ks.set(stripVS(e), e);
+  return ks;
+}
+let _cx = null;
+/** Mapa palavra → emojis onde está. Refeito sempre que os dados mudam. */
+function crossIndex() {
+  const sig = JSON.stringify(S.data.emojiWords || {}) + '|' + (S.data.crossOk || '') + '|' + S.data.packs.reduce((a, p) => a + p.stickers.length + ':' + p.version, '');
+  if (_cx && _cx.sig === sig) return _cx.map;
+  const map = new Map(), ok = crossOk();
+  for (const [k, e] of crossEmojis()) for (const w of emoWords(e)) {
+    const key = crossKey(w);
+    if (!key || ok.has(key)) continue;
+    if (!map.has(key)) map.set(key, { w, key, emos: [] });
+    const x = map.get(key);
+    if (!x.emos.some(y => stripVS(y) === k)) x.emos.push(e);
+  }
+  _cx = { sig, map };
+  return map;
+}
+/** Noutros emojis (fora de "except") onde esta palavra já está. */
+function crossOf(w, except) {
+  const x = crossIndex().get(crossKey(w));
+  if (!x) return [];
+  const ex = new Set((Array.isArray(except) ? except : [except]).filter(Boolean).map(stripVS));
+  return x.emos.filter(e => !ex.has(stripVS(e)));
+}
+/** Todas as palavras que estão em 2+ emojis. */
+function crossList() { return [...crossIndex().values()].filter(x => x.emos.length >= 2).sort((a, b) => b.emos.length - a.emos.length || norm(a.w).localeCompare(norm(b.w))); }
+const crossTag = list => list.length ? `<span class="xw" title="Também está em ${list.map(esc).join(' ')}">⚠${list.slice(0, 3).map(esc).join('')}${list.length > 3 ? '…' : ''}</span>` : '';
+
+/** Tira uma palavra (e as variações dela) das palavras de um emoji. */
+function removeFromEmoji(e, key) {
+  const l = emoWords(e).filter(w => crossKey(w) !== key);
+  try { S.data = JSON.parse(A.setEmojiWords(e, JSON.stringify(l))); } catch (er) { toast('Erro a guardar'); }
+}
+function keepCross(key) {
+  const ok = crossOk(); ok.add(key);
+  try { S.data = JSON.parse(A.setText('crossOk', JSON.stringify([...ok]))); } catch (e) {}
+}
+/** Onde deve ficar uma palavra cruzada: no emoji onde encaixa melhor (sem contar com ela própria). */
+function bestHome(x) {
+  let best = null;
+  for (const e of x.emos) {
+    const f = Suggest.fit(x.w, e, em => emoWords(em).filter(w => crossKey(w) !== x.key), adultOn()).f;
+    if (!best || f > best.f) best = { e, f };
+  }
+  return best ? best.e : x.emos[0];
+}
+/** Perguntar onde fica uma palavra que está em vários emojis. */
+async function resolveCross(w, here, after) {
+  const key = crossKey(w);
+  const x = crossIndex().get(key);
+  if (!x || x.emos.length < 2) return;
+  const home = bestHome(x);
+  const r = await dialog({
+    title: `«${x.w}» está em ${x.emos.length} emojis`,
+    html: `<div class="hint">Quando escreves «${esc(x.w)}», o teclado mistura os stickers de ${x.emos.map(esc).join(' ')}. Escolhe onde deve ficar.<br><br>✨ Onde encaixa melhor: <b>${esc(home)}</b></div>`,
+    buttons: x.emos.map(e => ({ label: `Fica só no ${e}${stripVS(e) === stripVS(home) ? ' ✨' : ''}`, value: 'k:' + e }))
+      .concat([{ label: 'Deixar nos dois (não avisar mais)', cls: 'ghost', value: 'ok' }, { label: 'Fechar', cls: 'ghost', value: null }])
+  });
+  if (!r) return;
+  if (r === 'ok') { keepCross(key); toast('Fica nos dois'); }
+  else { const k = r.slice(2); x.emos.forEach(e => { if (stripVS(e) !== stripVS(k)) removeFromEmoji(e, key); }); toast(`«${x.w}» fica só no ${k}`); }
+  after && after();
+}
+/** Folha com todas as palavras cruzadas e o "resolver tudo". */
+function openCross() {
+  const sheet = el(`<div class="sheet"><div class="hd"><h3>⚠ Palavras cruzadas</h3><button class="iconbtn" id="x">${ICON.close}</button></div><div class="bd"></div></div>`);
+  const ov = openOverlay(sheet, { onClose: () => render() });
+  $('#x', sheet).onclick = () => closeOverlay(ov);
+  function draw() {
+    const L = crossList();
+    const bd = $('.bd', sheet);
+    if (!L.length) { bd.innerHTML = '<div class="tr-end"><div class="big">✅</div><h3>Nenhuma palavra cruzada</h3><p class="hint">Cada palavra está só num emoji.</p></div>'; return; }
+    bd.innerHTML = `<div class="hint">Estas palavras estão em mais do que um emoji, por isso o teclado mistura stickers diferentes quando as escreves. Toca no emoji onde cada uma deve ficar.</div>
+      <button class="btn primary block" id="cxall" style="margin:12px 0">✨ Resolver tudo sozinho (${L.length})</button>
+      ${L.map((x, i) => `<div class="cxr"><div class="cxw">${esc(x.w)}</div><div class="cxe">${x.emos.map(e => `<button class="cxb" data-i="${i}" data-e="${esc(e)}"><span class="emo">${esc(e)}</span></button>`).join('')}<button class="btn sm ghost cxk" data-i="${i}">Deixar</button></div></div>`).join('')}`;
+    $$('.cxb', bd).forEach(b => b.onclick = () => {
+      const x = L[+b.dataset.i], k = b.dataset.e;
+      x.emos.forEach(e => { if (stripVS(e) !== stripVS(k)) removeFromEmoji(e, x.key); });
+      toast(`«${x.w}» fica só no ${k}`); draw();
+    });
+    $$('.cxk', bd).forEach(b => b.onclick = () => { keepCross(L[+b.dataset.i].key); draw(); });
+    $('#cxall', bd).onclick = async () => {
+      const plan = L.map(x => ({ x, home: bestHome(x) }));
+      const ok = await dialog({ title: 'Resolver tudo?', html: `<div class="hint">Cada palavra fica no emoji onde encaixa melhor (pela família de palavras dele):</div><div class="cxplan">${plan.slice(0, 40).map(p => `<div><b>${esc(p.x.w)}</b> → ${esc(p.home)} <span class="muted">(sai de ${p.x.emos.filter(e => stripVS(e) !== stripVS(p.home)).map(esc).join(' ')})</span></div>`).join('')}${plan.length > 40 ? `<div class="muted">… e mais ${plan.length - 40}</div>` : ''}</div>`, buttons: [{ label: 'Resolver', value: true }, { label: 'Cancelar', cls: 'ghost', value: false }] });
+      if (!ok) return;
+      for (const p of plan) p.x.emos.forEach(e => { if (stripVS(e) !== stripVS(p.home)) removeFromEmoji(e, p.x.key); });
+      toast(`${plan.length} palavra${plan.length === 1 ? '' : 's'} arrumada${plan.length === 1 ? '' : 's'} ✓`); draw();
+    };
+  }
+  draw();
 }
 
 /* ---------- Atalhos ---------- */
