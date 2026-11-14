@@ -386,13 +386,30 @@ function viewFolders() {
 }
 
 /* ---------- ordenar as pastas ---------- */
+// [chave, grupo, nome curto (no botão), nome na lista]
 const FSORTS = [
-  ['mod', '🕘 Modificados recentemente'], ['modOld', '🕘 Modificados há mais tempo'],
-  ['created', '📅 Criados recentemente'], ['createdOld', '📅 Criados há mais tempo'],
-  ['az', '🔤 Nome (A → Z)'], ['za', '🔤 Nome (Z → A)'],
-  ['big', '📦 Maiores primeiro'], ['small', '📦 Mais pequenos primeiro'],
-  ['new', '🆕 Os que não estão na app primeiro']
+  ['mod', 'Data', 'Modificados · recentes', 'Modificados há menos tempo'], ['modOld', 'Data', 'Modificados · antigos', 'Modificados há mais tempo'],
+  ['created', 'Data', 'Criados · recentes', 'Criados há menos tempo'], ['createdOld', 'Data', 'Criados · antigos', 'Criados há mais tempo'],
+  ['az', 'Nome', 'Nome A–Z', 'De A a Z'], ['za', 'Nome', 'Nome Z–A', 'De Z a A'],
+  ['big', 'Tamanho', 'Maiores', 'Maiores primeiro'], ['small', 'Tamanho', 'Mais pequenos', 'Mais pequenos primeiro'],
+  ['new', 'Outros', 'Novos primeiro', 'Os que ainda não estão na app primeiro']
 ];
+const FSORT_IC = { Data: '📅', Nome: '🔤', Tamanho: '📦', Outros: '🆕' };
+/** Folha "Ordenar": lista simples, por grupos, com a opção escolhida marcada. */
+function openSortSheet(curKey) {
+  const groups = [];
+  FSORTS.forEach(o => { let g = groups.find(x => x.name === o[1]); if (!g) groups.push(g = { name: o[1], items: [] }); g.items.push(o); });
+  const sheet = el(`<div class="sheet"><div class="hd"><h3>Ordenar</h3><button class="iconbtn" id="x">${ICON.close}</button></div><div class="bd">
+    ${groups.map(g => `<div class="sortg"><div class="sortgh">${FSORT_IC[g.name] || ''} ${esc(g.name)}</div>${g.items.map(o => `<button class="sortr ${o[0] === curKey ? 'on' : ''}" data-k="${o[0]}"><span>${esc(o[3])}</span><i></i></button>`).join('')}</div>`).join('')}
+    <div class="hint" style="margin-top:12px">A data de criação vem do nome do ficheiro (o WhatsApp põe lá o dia em que o sticker chegou). Se o nome não tiver data, conta a data de modificação.</div>
+  </div></div>`);
+  const ov = openOverlay(sheet);
+  $('#x', sheet).onclick = () => closeOverlay(ov);
+  $$('.sortr', sheet).forEach(b => b.onclick = () => {
+    try { localStorage.setItem('fsort', b.dataset.k); } catch (e) {}
+    closeOverlay(ov); render();
+  });
+}
 function fsort() { try { return localStorage.getItem('fsort') || 'mod'; } catch (e) { return 'mod'; } }
 /** Data de criação: o WhatsApp põe-na no nome (STK-20241113-WA0007); se não houver, a data de modificação. */
 function fileCreated(x) {
@@ -465,7 +482,7 @@ function viewFolder() {
   tp.querySelector('#bk').onclick = () => { S.folder = null; S.fsel = null; render(); };
   tp.querySelector('#rf').onclick = () => { S.ffiles = null; render(); };
   v.appendChild(tp);
-  const acts = el(`<div class="row" style="margin-bottom:12px;flex-wrap:wrap"><button class="btn primary" id="ia" ${nNew ? '' : 'disabled'}>Importar tudo${nNew ? ` (${nNew})` : ''}</button><button class="btn" id="fsort">↕ ${esc((FSORTS.find(x => x[0] === fsm) || FSORTS[0])[1].replace(/^\S+\s/, ''))}</button><button class="btn" id="fl">${S.fonlyNew ? 'Ver todos' : 'Só os novos'}</button>${files.length ? '<button class="btn" id="vw">▶ Rever um a um</button>' : ''}${S.ffiles.length > 1 ? '<button class="btn" id="dpf">👯 Repetidos</button>' : ''}${nHave ? `<button class="btn danger" id="cln">🧹 Apagar os que já tens (${nHave})</button>` : ''}</div>`);
+  const acts = el(`<div class="row" style="margin-bottom:12px;flex-wrap:wrap"><button class="btn primary" id="ia" ${nNew ? '' : 'disabled'}>Importar tudo${nNew ? ` (${nNew})` : ''}</button>${files.length ? '<button class="btn" id="vw">▶ Rever um a um</button>' : ''}${S.ffiles.length > 1 ? '<button class="btn" id="dpf">👯 Repetidos</button>' : ''}${nHave ? `<button class="btn danger" id="cln">🧹 Apagar os que já tens (${nHave})</button>` : ''}</div>`);
   const cln = acts.querySelector('#cln');
   if (cln) cln.onclick = async () => {
     if (!await confirmBox(`Apagar ${nHave} ficheiro${nHave === 1 ? '' : 's'} da pasta?`, 'São os que já estão nos teus packs (com ✓). A app guarda a sua própria cópia, por isso continuam no StickTag.', 'Apagar')) return;
@@ -476,17 +493,16 @@ function viewFolder() {
   $('.sw', opt).onclick = e => { try { S.data = JSON.parse(A.setOption('folderDelete', !folderDeleteOn())); } catch (er) {} e.currentTarget.classList.toggle('on', folderDeleteOn()); toast(folderDeleteOn() ? 'Os importados vão sair da pasta' : 'Os importados ficam na pasta'); };
   const dpf = acts.querySelector('#dpf'); if (dpf) dpf.onclick = () => findDupes(S.ffiles);
   const vw = acts.querySelector('#vw'); if (vw) vw.onclick = () => openFolderViewer(files, 0);
-  acts.querySelector('#fl').onclick = () => { S.fonlyNew = !S.fonlyNew; render(); };
-  acts.querySelector('#fsort').onclick = async () => {
-    const r = await dialog({ title: 'Ordenar por', html: '<div class="hint">A data de criação vem do nome do ficheiro (o WhatsApp põe lá o dia); se não tiver, usa a data de modificação.</div>', buttons: FSORTS.map(([k, l]) => ({ label: (k === fsm ? '✓ ' : '') + l, cls: k === fsm ? '' : 'ghost', value: k })).concat([{ label: 'Fechar', cls: 'ghost', value: null }]) });
-    if (!r) return;
-    try { localStorage.setItem('fsort', r); } catch (e) {}
-    render();
-  };
+
   acts.querySelector('#ia').onclick = () => autoImportDialog(f, S.ffiles.filter(x => !isIn(x)));
   v.appendChild(acts);
   v.appendChild(opt);
   v.appendChild(el(`<div class="hint" style="margin-bottom:10px">Toca num sticker para o veres em grande. Carrega sem largar para escolher vários. Os que têm ✓ já estão num pack.</div>`));
+  const cur = FSORTS.find(x => x[0] === fsm) || FSORTS[0];
+  const tools = el(`<div class="ftools"><button class="fpill" id="fsort"><span class="ic">↕</span>${esc(cur[2])}<span class="dn">▾</span></button><button class="fpill ${S.fonlyNew ? 'on' : ''}" id="fl">${S.fonlyNew ? '✓ ' : ''}Só os novos</button><span class="fcount">${files.length}</span></div>`);
+  $('#fsort', tools).onclick = () => openSortSheet(fsm);
+  $('#fl', tools).onclick = () => { S.fonlyNew = !S.fonlyNew; render(); };
+  v.appendChild(tools);
   const grid = el('<div class="grid" style="grid-template-columns:repeat(4,1fr);gap:8px;margin-top:0"></div>');
   // títulos dos grupos (Hoje, Ontem…, A, B…) no meio da grelha
   const shown = [];
