@@ -385,6 +385,53 @@ function viewFolders() {
   return v;
 }
 
+/* ---------- ordenar as pastas ---------- */
+const FSORTS = [
+  ['mod', '🕘 Modificados recentemente'], ['modOld', '🕘 Modificados há mais tempo'],
+  ['created', '📅 Criados recentemente'], ['createdOld', '📅 Criados há mais tempo'],
+  ['az', '🔤 Nome (A → Z)'], ['za', '🔤 Nome (Z → A)'],
+  ['big', '📦 Maiores primeiro'], ['small', '📦 Mais pequenos primeiro'],
+  ['new', '🆕 Os que não estão na app primeiro']
+];
+function fsort() { try { return localStorage.getItem('fsort') || 'mod'; } catch (e) { return 'mod'; } }
+/** Data de criação: o WhatsApp põe-na no nome (STK-20241113-WA0007); se não houver, a data de modificação. */
+function fileCreated(x) {
+  const m = /(20\d{2})(\d{2})(\d{2})/.exec(x.name || '');
+  if (m) {
+    const t = new Date(+m[1], +m[2] - 1, +m[3]).getTime();
+    const wa = /WA(\d+)/i.exec(x.name || '');
+    if (t > 0) return t + (wa ? Math.min(+wa[1], 86399) * 1000 : 0);
+  }
+  return x.time || 0;
+}
+function sortFiles(list, mode, isIn) {
+  const a = list.slice();
+  const nm = x => (x.name || '').toLowerCase();
+  const cmp = {
+    mod: (x, y) => (y.time || 0) - (x.time || 0), modOld: (x, y) => (x.time || 0) - (y.time || 0),
+    created: (x, y) => fileCreated(y) - fileCreated(x), createdOld: (x, y) => fileCreated(x) - fileCreated(y),
+    az: (x, y) => nm(x).localeCompare(nm(y), 'pt', { numeric: true }), za: (x, y) => nm(y).localeCompare(nm(x), 'pt', { numeric: true }),
+    big: (x, y) => (y.size || 0) - (x.size || 0), small: (x, y) => (x.size || 0) - (y.size || 0),
+    new: (x, y) => (isIn(x) ? 1 : 0) - (isIn(y) ? 1 : 0) || (y.time || 0) - (x.time || 0)
+  }[mode] || ((x, y) => (y.time || 0) - (x.time || 0));
+  return a.sort(cmp);
+}
+/** Título do grupo de cada ficheiro (Hoje, Ontem, Esta semana… / A, B, C… / tamanhos). */
+function fileGroup(x, mode, isIn) {
+  if (mode === 'az' || mode === 'za') { const c = (x.name || '?').trim()[0] || '?'; return /[a-z]/i.test(c) ? c.toUpperCase() : '#'; }
+  if (mode === 'big' || mode === 'small') { const k = (x.size || 0) / 1024; return k < 50 ? 'Até 50 KB' : k < 100 ? '50 – 100 KB' : k < 300 ? '100 – 300 KB' : 'Mais de 300 KB'; }
+  if (mode === 'new') return isIn(x) ? '✓ Já estão na app' : '🆕 Ainda não estão na app';
+  const t = mode.startsWith('created') ? fileCreated(x) : (x.time || 0);
+  if (!t) return 'Sem data';
+  const d = new Date(t), now = new Date();
+  const day = 86400000, start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (t >= start) return 'Hoje';
+  if (t >= start - day) return 'Ontem';
+  if (t >= start - 6 * day) return 'Esta semana';
+  if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) return 'Este mês';
+  try { const s = new Intl.DateTimeFormat('pt-PT', { month: 'long', year: 'numeric' }).format(d); return s.charAt(0).toUpperCase() + s.slice(1); } catch (e) { return d.getFullYear() + '-' + (d.getMonth() + 1); }
+}
+
 function viewFolder() {
   const f = S.folder;
   const v = el('<section class="view"></section>');
@@ -410,14 +457,15 @@ function viewFolder() {
   const have = new Set();
   S.data.packs.forEach(p => p.stickers.forEach(s => { if (s.src) have.add(s.src); }));
   const isIn = x => have.has(x.name + '|' + x.size);
-  const files = S.fonlyNew ? S.ffiles.filter(x => !isIn(x)) : S.ffiles;
+  const fsm = fsort();
+  const files = sortFiles(S.fonlyNew ? S.ffiles.filter(x => !isIn(x)) : S.ffiles, fsm, isIn);
   const nNew = S.ffiles.filter(x => !isIn(x)).length;
   const nHave = S.ffiles.length - nNew;
   const tp = el(`<div class="top"><button class="iconbtn" id="bk">${ICON.back}</button><div style="flex:1;min-width:0"><h1>${esc(f.name)}</h1><div class="sub">${S.ffiles.length} imagens · ${nNew} ainda não estão na app</div></div><button class="iconbtn" id="rf" title="Atualizar">⟳</button></div>`);
   tp.querySelector('#bk').onclick = () => { S.folder = null; S.fsel = null; render(); };
   tp.querySelector('#rf').onclick = () => { S.ffiles = null; render(); };
   v.appendChild(tp);
-  const acts = el(`<div class="row" style="margin-bottom:12px;flex-wrap:wrap"><button class="btn primary" id="ia" ${nNew ? '' : 'disabled'}>Importar tudo${nNew ? ` (${nNew})` : ''}</button><button class="btn" id="fl">${S.fonlyNew ? 'Ver todos' : 'Só os novos'}</button>${files.length ? '<button class="btn" id="vw">▶ Rever um a um</button>' : ''}${S.ffiles.length > 1 ? '<button class="btn" id="dpf">👯 Repetidos</button>' : ''}${nHave ? `<button class="btn danger" id="cln">🧹 Apagar os que já tens (${nHave})</button>` : ''}</div>`);
+  const acts = el(`<div class="row" style="margin-bottom:12px;flex-wrap:wrap"><button class="btn primary" id="ia" ${nNew ? '' : 'disabled'}>Importar tudo${nNew ? ` (${nNew})` : ''}</button><button class="btn" id="fsort">↕ ${esc((FSORTS.find(x => x[0] === fsm) || FSORTS[0])[1].replace(/^\S+\s/, ''))}</button><button class="btn" id="fl">${S.fonlyNew ? 'Ver todos' : 'Só os novos'}</button>${files.length ? '<button class="btn" id="vw">▶ Rever um a um</button>' : ''}${S.ffiles.length > 1 ? '<button class="btn" id="dpf">👯 Repetidos</button>' : ''}${nHave ? `<button class="btn danger" id="cln">🧹 Apagar os que já tens (${nHave})</button>` : ''}</div>`);
   const cln = acts.querySelector('#cln');
   if (cln) cln.onclick = async () => {
     if (!await confirmBox(`Apagar ${nHave} ficheiro${nHave === 1 ? '' : 's'} da pasta?`, 'São os que já estão nos teus packs (com ✓). A app guarda a sua própria cópia, por isso continuam no StickTag.', 'Apagar')) return;
@@ -429,12 +477,23 @@ function viewFolder() {
   const dpf = acts.querySelector('#dpf'); if (dpf) dpf.onclick = () => findDupes(S.ffiles);
   const vw = acts.querySelector('#vw'); if (vw) vw.onclick = () => openFolderViewer(files, 0);
   acts.querySelector('#fl').onclick = () => { S.fonlyNew = !S.fonlyNew; render(); };
+  acts.querySelector('#fsort').onclick = async () => {
+    const r = await dialog({ title: 'Ordenar por', html: '<div class="hint">A data de criação vem do nome do ficheiro (o WhatsApp põe lá o dia); se não tiver, usa a data de modificação.</div>', buttons: FSORTS.map(([k, l]) => ({ label: (k === fsm ? '✓ ' : '') + l, cls: k === fsm ? '' : 'ghost', value: k })).concat([{ label: 'Fechar', cls: 'ghost', value: null }]) });
+    if (!r) return;
+    try { localStorage.setItem('fsort', r); } catch (e) {}
+    render();
+  };
   acts.querySelector('#ia').onclick = () => autoImportDialog(f, S.ffiles.filter(x => !isIn(x)));
   v.appendChild(acts);
   v.appendChild(opt);
   v.appendChild(el(`<div class="hint" style="margin-bottom:10px">Toca num sticker para o veres em grande. Carrega sem largar para escolher vários. Os que têm ✓ já estão num pack.</div>`));
   const grid = el('<div class="grid" style="grid-template-columns:repeat(4,1fr);gap:8px;margin-top:0"></div>');
-  progressive(grid, files, x => {
+  // títulos dos grupos (Hoje, Ontem…, A, B…) no meio da grelha
+  const shown = [];
+  let lastG = null, hdr = null;
+  for (const x of files) { const g = fileGroup(x, fsm, isIn); if (g !== lastG) { hdr = { hdr: g, n: 0 }; shown.push(hdr); lastG = g; } hdr.n++; shown.push(x); }
+  progressive(grid, shown, x => {
+    if (x.hdr) return el(`<div class="fgrp"><span>${esc(x.hdr)}</span><small>${x.n}</small></div>`);
     const c = el(`<div class="st" style="padding:4px"><div class="im"><img loading="lazy" src="d/${encodeURIComponent(x.uri)}"></div>${isIn(x) ? '<span class="cv" style="color:var(--green);left:10px;right:auto">✓</span>' : ''}<span class="ck" style="${S.fsel.size ? '' : 'display:none'}"></span></div>`);
     if (S.fsel.has(x.uri)) c.classList.add('sel');
     const toggle = () => {
