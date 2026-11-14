@@ -452,5 +452,78 @@
     return out.slice(0, ctx.limit || 10);
   }
 
-  window.Suggest = { words, complete, emojis, setEmojis, loadSyn, mainColour, matchTerms, phraseSim, isPhrase, _lex: buildLex };
+
+  /* ---------- ensinar palavras aos emojis ---------- */
+  /** As palavras de um emoji para comparar: as do teclado, as da base de palavras e as Unicode. */
+  function vocabOf(e, wordsOf, adult) {
+    const lex = buildLex(), k = stripVS(e);
+    const out = [], seen = new Set();
+    const push = (w, wt) => { const n = norm(w); if (!n || seen.has(n)) return; seen.add(n); out.push({ w, wt, f: phraseOf(n) }); };
+    (wordsOf(e) || []).forEach(w => push(w, 1));
+    for (const ci of (lex.emo.get(k) || [])) { const cl = lex.cl[ci]; if (cl.adult && !adult) continue; cl.terms.slice(0, 30).forEach(w => push(w, 0.8)); }
+    emoKeywords(e).slice(0, 15).forEach(w => push(w, 0.55));
+    return out;
+  }
+  /** Quanto uma frase encaixa num emoji (0 = nada; ~1 = muito bem) e com que palavra dele se parece mais. */
+  function fit(phrase, e, wordsOf, adult) {
+    const A = phraseOf(norm(phrase));
+    const content = new Set(A.st.filter((x, i) => !STOP.has(A.tk[i])));
+    const voc = vocabOf(e, wordsOf, adult);
+    const sims = [];
+    const shared = new Set();
+    let like = '';
+    for (const v of voc) {
+      sims.push([phraseSim(A, v.f) * v.wt, v.w]);
+      v.f.st.forEach((x, i) => { if (content.has(x) && !STOP.has(v.f.tk[i])) shared.add(x); });
+    }
+    sims.sort((a, b) => b[0] - a[0]);
+    if (sims.length) like = sims[0][1];
+    let f = (sims[0] ? sims[0][0] : 0) + 0.35 * (sims[1] ? sims[1][0] : 0) + 0.2 * (sims[2] ? sims[2][0] : 0);
+    f += 0.25 * Math.min(2, shared.size);
+    // se só uma parte da frase bate certo ("bom" de "bom dia"), conta menos
+    if (content.size) f *= 0.45 + 0.55 * Math.min(1, shared.size / content.size);
+    // a base de palavras diz que esta frase é da família deste emoji
+    const lex = buildLex(), k = stripVS(e);
+    for (const [t, v] of matchTerms(phrase)) for (const [ci] of lex.term.get(t)) if (lex.cl[ci].emos.includes(k) && (adult || !lex.cl[ci].adult)) { f += 0.6 * v; break; }
+    return { f, like };
+  }
+  /**
+   * ctx: { emojis:[…do sticker], phrases:[{w, src}], wordsOf(e), data, adult, focus }
+   * Devolve { per:[{ e, items:[{w, src, fit, like}], more:[palavras] }], elsewhere:[{ e, w }] }
+   */
+  function teach(ctx) {
+    const wordsOf = ctx.wordsOf;
+    const ems = ctx.emojis || [];
+    const per = ems.map(e => ({ e, items: [], more: [] }));
+    const elsewhere = [];
+    const seenP = new Set();
+    for (const ph of ctx.phrases || []) {
+      const n = norm(ph.w);
+      if (!n || seenP.has(n) || n.length < 2) continue;
+      seenP.add(n);
+      let best = -1, bf = 0, like = '';
+      ems.forEach((e, i) => { const r = fit(ph.w, e, wordsOf, ctx.adult); if (r.f > bf) { bf = r.f; best = i; like = r.like; } });
+      // já está nas palavras desse emoji (ou é quase igual)?
+      const has = i => (wordsOf(ems[i]) || []).some(w => { const m = norm(w); return m === n || phraseSim(phraseOf(m), phraseOf(n)) >= 0.86; });
+      // o melhor emoji de todos para esta frase (pode não estar no sticker)
+      let gb = null;
+      for (const g of emojis({ data: ctx.data, words: [ph.w], emojis: ems, adult: ctx.adult, limit: 3 })) {
+        const r = fit(ph.w, g.e, wordsOf, ctx.adult);
+        if (!gb || r.f > gb.f) gb = { e: g.e, f: r.f };
+      }
+      const better = gb && gb.f >= 0.8 && gb.f > bf * 1.3;
+      if (better) elsewhere.push({ e: gb.e, w: ph.w });
+      if (best >= 0 && bf >= 0.35 && (!better || bf >= 0.9)) { if (!has(best)) per[best].items.push({ w: ph.w, src: ph.src, fit: bf, like }); }
+      else if (!better && ctx.focus != null) { const i = ems.findIndex(x => stripVS(x) === stripVS(ctx.focus)); if (i >= 0 && !has(i)) per[i].items.push({ w: ph.w, src: ph.src, fit: bf, like }); }
+    }
+    per.forEach(x => {
+      x.items.sort((a, b) => b.fit - a.fit);
+      const seeds = (wordsOf(x.e) || []).concat(x.items.map(i => i.w));
+      x.more = words({ data: ctx.data, words: seeds, emojis: [x.e], adult: ctx.adult, limit: 14 })
+        .filter(y => !x.items.some(i => norm(i.w) === y.n)).map(y => y.w);
+    });
+    return { per, elsewhere };
+  }
+
+  window.Suggest = { teach, fit, words, complete, emojis, setEmojis, loadSyn, mainColour, matchTerms, phraseSim, isPhrase, _lex: buildLex };
 })();
