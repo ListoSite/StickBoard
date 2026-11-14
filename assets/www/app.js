@@ -2191,13 +2191,28 @@ function viewKeyboard() {
   const op = el(`<div class="card" style="padding:4px 14px">
     <div class="opt"><div class="t"><b>Apagar a frase ao enviar</b><div class="small muted">Depois de enviares o sticker, o texto que estava escrito é apagado.</div></div><button class="sw ${d.kbDelete !== false ? 'on' : ''}" data-k="kbDelete"></button></div>
     <div class="opt"><div class="t"><b>Ordem aleatória nas sugestões</b><div class="small muted">Os stickers que combinam aparecem por ordem diferente de cada vez (também há o botão 🔀 no teclado).</div></div><button class="sw ${d.kbShuffle ? 'on' : ''}" data-k="kbShuffle"></button></div>
-    <div class="opt" style="display:block"><b>Altura do teclado</b><div class="seg" id="kh" style="grid-template-columns:repeat(3,1fr);margin-top:8px">${[['s', 'Baixo'], ['m', 'Médio'], ['l', 'Alto']].map(([k, l]) => `<button data-h="${k}" class="${k === ho ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+    <div class="opt" style="display:block"><b>Tamanho dos stickers</b><div class="small muted">No teclado e na caixa da bolha. Nos maiores, a caixa da bolha também fica mais alta. Carrega sem largar num sticker para o ver em grande.</div><div class="seg" id="ksz" style="grid-template-columns:repeat(4,1fr);margin-top:8px">${[['s', 'Pequeno'], ['m', 'Médio'], ['l', 'Grande'], ['xl', 'Enorme']].map(([k, l]) => `<button data-z="${k}" class="${k === (d.stkSize || 'm') ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="szprev" id="szp"></div></div>
+    <div class="opt" style="display:block"><b>Altura do teclado</b><div class="seg" id="kh" style="grid-template-columns:repeat(4,1fr);margin-top:8px">${[['s', 'Baixo'], ['m', 'Médio'], ['l', 'Alto'], ['xl', 'Muito alto']].map(([k, l]) => `<button data-h="${k}" class="${k === ho ? 'on' : ''}">${l}</button>`).join('')}</div></div>
   </div>`);
   $$('.sw', op).forEach(b => b.onclick = () => {
     const val = !b.classList.contains('on');
     try { S.data = JSON.parse(A.setOption(b.dataset.k, val)); } catch (e) {}
     b.classList.toggle('on', val);
   });
+  const szPrev = () => {
+    const px = { s: 68, m: 86, l: 110, xl: 150 }[S.data.stkSize || 'm'] || 86;
+    const st = [];
+    for (const p of S.data.packs) for (const x of visible(p)) { if (!hideAdult(p, x)) st.push([p, x]); if (st.length >= 6) break; }
+    $('#szp', op).innerHTML = st.map(([p, x]) => `<img src="${imgUrl(p, x.f)}" style="width:${px}px;height:${px}px">`).join('');
+  };
+  $$('#ksz button', op).forEach(b => b.onclick = () => {
+    try { S.data = JSON.parse(A.setText('stkSize', b.dataset.z)); } catch (e) {}
+    $$('#ksz button', op).forEach(x => x.classList.toggle('on', x === b));
+    szPrev();
+    if (b.dataset.z === 'xl' && (S.data.kbHeight || 'm') === 's') toast('Dica: põe a altura do teclado em «Alto» para caberem mais');
+  });
+  setTimeout(szPrev, 0);
   $$('#kh button', op).forEach(b => b.onclick = () => {
     try { S.data = JSON.parse(A.setText('kbHeight', b.dataset.h)); } catch (e) {}
     $$('#kh button', op).forEach(x => x.classList.toggle('on', x === b));

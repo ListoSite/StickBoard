@@ -15,7 +15,7 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0}
 .tab{flex:none;min-width:46px;height:42px;padding:0 8px;display:grid;place-items:center;font-size:19px;opacity:.6;border-bottom:2px solid transparent}
 .tab.on{opacity:1;border-color:#25D366}
 .tab img{width:28px;height:28px;object-fit:contain}
-.grid{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(68px,1fr));gap:4px;padding:6px;align-content:start}
+.grid{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--stk,68px),1fr));gap:4px;padding:6px;align-content:start}
 .s{aspect-ratio:1;border-radius:12px;display:grid;place-items:center;position:relative}
 .s:active{background:#1d2620}
 .s img{width:92%;height:92%;object-fit:contain}
@@ -43,8 +43,8 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0}
 
 #srch,#multi{font-size:17px}
 #multi.on{background:rgba(37,211,102,.16)}
-.grid.strip{display:flex;flex:none;height:78px;overflow-x:auto;overflow-y:hidden;gap:4px;padding:5px 6px}
-.grid.strip .s{width:66px;height:66px;flex:none}
+.grid.strip{display:flex;flex:none;height:calc(var(--sstk,66px) + 12px);overflow-x:auto;overflow-y:hidden;gap:4px;padding:5px 6px}
+.grid.strip .s{width:var(--sstk,66px);height:var(--sstk,66px);flex:none}
 .grid.strip .msg{white-space:nowrap}
 .keys{flex:1;display:flex;flex-direction:column;gap:5px;padding:4px 4px 6px;border-top:1px solid #20252E;min-height:0}
 .krow{display:flex;gap:4px;flex:1;min-height:30px}

@@ -526,3 +526,6 @@ html,body{background:var(--bg);-webkit-font-smoothing:antialiased}
 .trainer .tr-end{text-align:center;padding:30px 10px}
 .trainer .tr-end .big{font-size:60px}
 .lchip.weak{opacity:.6}
+.szprev{display:flex;gap:6px;overflow-x:auto;margin-top:10px;padding-bottom:4px;scrollbar-width:none}
+.szprev:empty{display:none}
+.szprev img{flex:none;object-fit:contain;border-radius:12px;background:var(--card);transition:width .2s,height .2s}

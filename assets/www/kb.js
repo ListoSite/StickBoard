@@ -39,6 +39,10 @@ async function loadEmoji() {
 function refresh() {
   try { DATA = M.modeData(JSON.parse(K.getData())); } catch (e) { DATA = { packs: [] }; }
   document.body.classList.toggle('adult', !!DATA.adultMode);
+  // tamanho dos stickers (Pequeno a Enorme)
+  const SZ = { s: [68, 66], m: [86, 80], l: [110, 96], xl: [150, 120] }[DATA.stkSize || 'm'] || [86, 80];
+  document.documentElement.style.setProperty('--stk', SZ[0] + 'px');
+  document.documentElement.style.setProperty('--sstk', SZ[1] + 'px');
   $('#adult').classList.toggle('on', !!DATA.adultMode);
   IDX = M.buildIndex(DATA, info);
   if (!['sug', 'rec', 'fav', 'spc'].includes(tab) && !DATA.packs.some(p => p.id === tab)) tab = 'sug';

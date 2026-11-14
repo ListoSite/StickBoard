@@ -154,6 +154,7 @@ public class KeyboardService extends InputMethodService {
         String h = Store.load(this).optString("kbHeight", "m");
         if (h.equals("s")) return 250;
         if (h.equals("l")) return 380;
+        if (h.equals("xl")) return 460;
         return 310;
     }
 

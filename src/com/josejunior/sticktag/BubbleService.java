@@ -126,7 +126,19 @@ public class BubbleService extends AccessibilityService {
         if (appsCache != null && m == optsMtime) return;
         optsMtime = m;
         appsCache = readAllowedApps();
-        onCache = Store.load(this).optBoolean("bubbleOn", true);
+        JSONObject d0 = Store.load(this);
+        onCache = d0.optBoolean("bubbleOn", true);
+        sizeCache = d0.optString("stkSize", "m");
+    }
+    String sizeCache = "m";
+
+    /** Altura da caixa dos stickers, conforme o tamanho escolhido (Pequeno a Enorme). */
+    int panelHeight() {
+        loadOpts();
+        if ("s".equals(sizeCache)) return dp(244);
+        if ("l".equals(sizeCache)) return dp(340);
+        if ("xl".equals(sizeCache)) return dp(330);
+        return dp(290);
     }
 
     Set<String> allowedApps() { loadOpts(); return appsCache; }
@@ -347,8 +359,9 @@ public class BubbleService extends AccessibilityService {
     void positionPanel() {
         if (!shown || lp == null) return;
         int sw = getResources().getDisplayMetrics().widthPixels;
-        int h = dp(244);
         int top = imeRect.top > 0 ? imeRect.top : getResources().getDisplayMetrics().heightPixels / 2;
+        // nunca maior do que o espaço por cima do teclado
+        int h = Math.max(dp(180), Math.min(panelHeight(), top - dp(40)));
         lp.width = sw - dp(12); lp.height = h; lp.x = dp(6); lp.y = Math.max(0, top - h - dp(4));
         try { wm.updateViewLayout(web, lp); } catch (Exception ignored) {}
     }
