@@ -426,7 +426,7 @@ public final class Store {
                 }
                 save(c, data);
                 return data.toString();
-            } catch (JSONException e) { return null; }
+            } catch (Exception e) { return null; }
         }
     }
 

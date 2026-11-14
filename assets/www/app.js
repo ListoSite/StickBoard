@@ -1957,18 +1957,20 @@ function wordSuggest(box, getCtx, onPick) {
     const ctx = Object.assign({ data: S.data }, getCtx());
     const comp = typed.trim().length >= 2 ? Suggest.complete(typed, ctx) : [];
     const cs = new Set(comp.map(norm));
-    const all = Suggest.words(Object.assign({}, ctx, { limit: 120 })).filter(x => !hidden.has(x.n) && !cs.has(x.n));
+    const raw = Suggest.words(Object.assign({}, ctx, { limit: 120 }));
+    const all = raw.filter(x => !hidden.has(x.n) && !cs.has(x.n));
     const fr = all.filter(x => x.phrase), wd = all.filter(x => !x.phrase);
     if (!comp.length && !all.length) {
       box.innerHTML = (ctx.words || []).length || (ctx.emojis || []).length ? '' : '<div class="hint">Escreve uma palavra ou uma expressão e eu sugiro outras parecidas.</div>';
       return;
     }
-    const nf = more.f ? 24 : 6, nw = more.w ? 40 : 12;
+    const nf = more.f ? 30 : 10, nw = more.w ? 50 : 16;
     box.innerHTML = `${comp.length ? `<div class="sugh"><span>✨ Completar</span></div><div class="sugl">${comp.map(w => `<button class="schip comp ${Suggest.isPhrase(norm(w)) ? 'ph' : ''}" data-w="${esc(w)}">${esc(w)}</button>`).join('')}</div>` : ''}
       ${fr.length ? `<div class="sugh"><span>💬 Expressões</span></div>
-      <div class="sugl">${fr.slice(0, nf).map(chip).join('')}${fr.length > 6 ? `<button class="schip more" data-m="f">${more.f ? 'Menos' : `Mais ${Math.min(fr.length, 24) - 6}…`}</button>` : ''}</div>` : ''}
+      <div class="sugl">${fr.slice(0, nf).map(chip).join('')}${fr.length > 10 ? `<button class="schip more" data-m="f">${more.f ? 'Menos' : `Mais ${Math.min(fr.length, 30) - 10}…`}</button>` : ''}</div>` : ''}
       ${wd.length ? `<div class="sugh"><span>✨ Palavras</span>${wd.length > 5 ? '<button class="btn sm ghost" id="sg5">＋ Juntar as 5 primeiras</button>' : ''}</div>
-      <div class="sugl">${wd.slice(0, nw).map(chip).join('')}${wd.length > 12 ? `<button class="schip more" data-m="w">${more.w ? 'Menos' : `Mais ${Math.min(wd.length, 40) - 12}…`}</button>` : ''}</div>` : ''}
+      <div class="sugl">${wd.slice(0, nw).map(chip).join('')}${wd.length > 16 ? `<button class="schip more" data-m="w">${more.w ? 'Menos' : `Mais ${Math.min(wd.length, 50) - 16}…`}</button>` : ''}</div>` : ''}
+      ${raw.adultHint ? '<div class="hint sugn">🔞 As tuas palavras vão para o lado +18: liga o modo +18 para veres mais ideias desse género.</div>' : ''}
       <div class="hint sugn">Toca para juntar · carrega sem largar para esconder. As com ponto verde vêm do teu próprio uso.</div>`;
     $$('.schip[data-w]', box).forEach(b => {
       let tm = null;

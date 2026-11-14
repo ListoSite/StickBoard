@@ -274,7 +274,7 @@
     for (const h of have) if (h.includes(' ')) for (const [t, v] of matchTerms(h)) if (v >= 0.84) near.add(t);
     const soft = new Set((ctx.avoid || []).map(norm));
     const C = new Map();
-    const add = (w, sc, src, seed) => {
+    const add = (w, sc, src, seed, ci) => {
       const n = norm(w);
       if (!okWord(n) || haveSet.has(n)) return;
       if (!n.includes(' ') && n.length >= 4 && haveStems.has(stem(n))) return;
@@ -282,13 +282,14 @@
       let c = C.get(n);
       if (!c) { c = { w, s: 0, src: {}, sup: new Set() }; C.set(n, c); }
       c.s += sc; c.src[src] = (c.src[src] || 0) + sc; c.sup.add(seed);
+      if (ci != null) { c.cl = c.cl || {}; c.cl[ci] = (c.cl[ci] || 0) + sc; }
     };
     const adultOk = !!ctx.adult;
     const addCluster = (ci, wt, seed) => {
       const cl = lex.cl[ci], size = cl.terms.length;
       if (cl.adult && !adultOk) return;
       const k = wt / (0.75 + size / 70);
-      cl.terms.forEach((t, pos) => add(t, k * (1 - 0.35 * pos / size), 'grupo', seed));
+      cl.terms.forEach((t, pos) => add(t, k * (1 - 0.35 * pos / size), 'grupo', seed, ci));
     };
 
     // 1) a partir das palavras que já lá estão
@@ -325,11 +326,12 @@
       for (const x of P.emoWords) if (x.n.includes(seed)) x.list.forEach(w => add(w, 0.75, 'teu', 'w:' + seed));
     }
 
-    // 2) a partir dos emojis
+    // 2) a partir dos emojis — as tuas palavras mandam: com 3+ palavras tuas o emoji conta pouco
+    const wE = have.length >= 3 ? 0.3 : have.length ? 0.55 : 1;
     for (const e of (ctx.emojis || [])) {
       const k = stripVS(e);
-      for (const ci of (lex.emo.get(k) || [])) addCluster(ci, 0.85, 'e:' + k);
-      emoKeywords(e).slice(0, 14).forEach((w, i) => add(w, 0.45 * (1 - i * 0.03), 'unicode', 'e:' + k));
+      for (const ci of (lex.emo.get(k) || [])) addCluster(ci, 0.85 * wE, 'e:' + k);
+      emoKeywords(e).slice(0, 14).forEach((w, i) => add(w, 0.45 * wE * (1 - i * 0.03), 'unicode', 'e:' + k));
       for (const s of (P.byEmo.get(k) || []).slice(0, 60)) {
         for (const w of s.words || []) add(w, 0.6, 'teu', 'e:' + k);
         for (const l of M.learned(s)) add(l.w, 0.45 + 0.1 * Math.min(l.eff, 5), 'teu', 'e:' + k);
@@ -338,25 +340,80 @@
       for (const l of M.emojiLearned(data, k, true).slice(0, 20)) add(l.w, 0.5 + 0.12 * Math.min(l.eff, 6) + (l.d >= 2 ? 0.3 : 0), 'teu', 'e:' + k);
     }
 
+    // tema: que grupos de sentido as TUAS palavras apontam (cada palavra conta uma vez por grupo)
+    const hits = new Map();
+    const seedCl = seed => {
+      const set = new Set();
+      for (const [t] of matchTerms(seed)) for (const [ci] of lex.term.get(t)) set.add(ci);
+      if (!seed.includes(' ')) for (const t of sisters(seed)) for (const [ci] of (lex.term.get(t) || [])) set.add(ci);
+      if (!set.size) for (const x of toks(seed)) if (x.length >= 3 && !STOP.has(x)) { for (const [ci] of (lex.term.get(x) || [])) set.add(ci); for (const ci of (lex.tok.get(x) || [])) set.add(ci); }
+      return set;
+    };
+    for (const seed of have) for (const ci of seedCl(seed)) hits.set(ci, (hits.get(ci) || 0) + 1);
+    for (const e of (ctx.emojis || [])) for (const ci of (lex.emo.get(stripVS(e)) || [])) hits.set(ci, (hits.get(ci) || 0) + (have.length ? 0.5 : 1));
+    let maxHit = 0;
+    for (const [ci, h] of hits) if (adultOk || !lex.cl[ci].adult) maxHit = Math.max(maxHit, h);
+    const topical = have.length >= 2 && maxHit >= 2;
+    const coh = ci => {
+      if (!topical) return 1;
+      const h = hits.get(ci) || 0;
+      let v = 0.1 + 0.9 * Math.pow(h / maxHit, 1.2);
+      // no modo +18, os grupos +18 para onde as tuas palavras apontam também contam a sério
+      if (adultOk && lex.cl[ci].adult && h >= 2) v = Math.max(v, 1.15);
+      return v;
+    };
+    const topicMul = n => {
+      if (!topical) {
+        // uma só palavra: o que está nos grupos dela vale mais do que sinónimos soltos (que podem ser de outro sentido)
+        if (!maxHit) return 1;
+        let inHit = false, inAny = false;
+        for (const [ci] of (lex.term.get(n) || [])) { inAny = true; if (hits.get(ci)) inHit = true; }
+        return inHit ? 1 : inAny ? 0.55 : 0.5;
+      }
+      let m = -1;
+      for (const [ci] of (lex.term.get(n) || [])) if (adultOk || !lex.cl[ci].adult) m = Math.max(m, coh(ci));
+      return m < 0 ? 0.4 : m;
+    };
+    // há mais ideias no modo +18? (as tuas palavras apontam para lá)
+    let adultHint = false;
+    if (!adultOk) for (const [ci, h] of hits) if (lex.cl[ci].adult && h >= 2) adultHint = true;
+
     const out = [];
     for (const [n, c] of C) {
-      let sc = c.s * (1 + 0.45 * (c.sup.size - 1));
+      // várias palavras tuas a apontar para a mesma sugestão contam mais (até um limite, para outros grupos do tema também aparecerem)
+      let sc = Math.pow(c.s, 0.7) * Math.min(2.6, 1 + 0.45 * (c.sup.size - 1));
+      const tm = topicMul(n);
+      sc *= c.src.teu ? Math.max(tm, 0.5) : tm;
       const nw = n.split(/\s+/).length;
       if (nw > 6) sc *= 0.85;
       if (soft.has(n)) sc *= 0.3;
       const src = (c.src.teu || 0) >= 0.6 ? 'teu' : Object.keys(c.src).sort((a, b) => c.src[b] - c.src[a])[0];
-      out.push({ w: c.w, n, score: sc, src, phrase: isPhrase(n) });
+      let fam = null;
+      if (c.cl) { let bv = 0; for (const k in c.cl) if (c.cl[k] > bv) { bv = c.cl[k]; fam = k; } }
+      // no modo +18, quando as tuas palavras vão para esse lado, as sugestões +18 ficam à frente
+      if (adultOk && fam != null && lex.cl[fam].adult && (hits.get(+fam) || 0) >= 2) sc *= 1.8;
+      out.push({ w: c.w, n, score: sc, src, phrase: isPhrase(n), fam });
     }
     out.sort((a, b) => b.score - a.score);
+    // variedade: cada sugestão a mais da mesma família vale um pouco menos (outras famílias do tema aparecem)
+    const pool = out.slice(0, 400), ordered = [], famN = {};
+    while (pool.length && ordered.length < 400) {
+      let bi = 0, bv = -1;
+      for (let i = 0; i < pool.length; i++) { const x = pool[i]; const f = x.fam || x.src; const v = x.score * Math.max(0.5, Math.pow(0.93, famN[f] || 0)); if (v > bv) { bv = v; bi = i; } }
+      const x = pool.splice(bi, 1)[0];
+      const f = x.fam || x.src; famN[f] = (famN[f] || 0) + 1;
+      ordered.push(x);
+    }
     // o teclado já junta masculino/feminino/plural (sonolento = sonolenta): fica só um
     const seenStem = new Set(), res = [];
-    for (const x of out) {
+    for (const x of ordered) {
       const k = x.n.includes(' ') ? 'f:' + ptoks(x.n).map(pstem).join(' ') : x.n.length >= 4 ? stem(x.n) : null;
       if (k && seenStem.has(k)) continue;
       if (k) seenStem.add(k);
       res.push(x);
       if (res.length >= (ctx.limit || 30)) break;
     }
+    res.adultHint = adultHint;
     return res;
   }
 

@@ -35,7 +35,7 @@
     oq: 'o que', qq: 'qualquer', ngm: 'ninguem', vdd: 'verdade',
     crl: 'caralho', krl: 'caralho', crlh: 'caralho', krlh: 'caralho', caraio: 'caralho', carai: 'caralho', fodasse: 'foda se', fodase: 'foda se',
     fdp: 'filho da puta', pqp: 'puta que pariu', vsf: 'vai se foder', vtf: 'vai te foder', vtnc: 'vai tomar no cu', tnc: 'tomar no cu',
-    fuder: 'foder', fudido: 'fodido', fudida: 'fodida', po: 'para o', pro: 'para o' };
+    dlc: 'delicia', dlç: 'delicia', fuder: 'foder', fudido: 'fodido', fudida: 'fodida', po: 'para o', pro: 'para o' };
   const canonToks = text => tokens(text).flatMap(t => (CANON[t] || t).split(' '));
   const pst = t => t.length >= 4 ? stem(t) : t;
   /** Uma expressão ("isso dizes tu", "a sério") guarda todas as palavras, também as pequenas, pela ordem. */
