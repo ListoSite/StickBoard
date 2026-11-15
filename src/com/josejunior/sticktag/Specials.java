@@ -66,6 +66,8 @@ public final class Specials {
         long started, waitUntil, ignoreOut;
         List<ChatDiff.Row> base;
         final List<Pending.Item> queue = new ArrayList<Pending.Item>();
+        // «continuar a conversa»: os que ainda não saíram, o último que saiu e quantas respostas já houve
+        List<Integer> left; int lastIdx = -1, rounds;
     }
 
     /* ---------- dados ---------- */
@@ -572,6 +574,32 @@ public final class Specials {
             r.waiting = false;
             log("✓ respondeu depois de " + r.nudged + " insistência" + (r.nudged == 1 ? "" : "s"));
             r.queue.addAll(items(d.optJSONArray("then"), first, 1500));
+        } else if (r.type.equals("reply") && d.optBoolean("multi", false)) {
+            // continuar a conversa: a cada resposta vai UM sticker (pela ordem ou ao calhas, com ou sem repetir)
+            List<Pending.Item> all = items(d.optJSONArray("then"), first, first);
+            int n = all.size();
+            if (n == 0) { r.waiting = false; }
+            else {
+                boolean rnd = "random".equals(d.optString("order", "seq"));
+                boolean rep = d.optBoolean("repeat", false);
+                int max = d.optInt("maxRounds", 0);
+                if (r.left == null) { r.left = new ArrayList<Integer>(); for (int i = 0; i < n; i++) r.left.add(i); }
+                int idx;
+                if (rep) {
+                    if (rnd) { idx = RND.nextInt(n); if (n > 1 && idx == r.lastIdx) idx = (idx + 1 + RND.nextInt(n - 1)) % n; }
+                    else idx = (r.lastIdx + 1) % n;
+                } else {
+                    if (r.left.isEmpty()) { log("■ já mandou todos os stickers"); String nm = r.name; end(); toast("⚡ «" + nm + "» terminado: já foram todos os stickers"); return true; }
+                    idx = rnd ? r.left.remove(RND.nextInt(r.left.size())) : r.left.remove(0);
+                }
+                r.lastIdx = idx; r.rounds++;
+                r.waiting = false;
+                r.queue.add(all.get(idx));
+                boolean more = (max <= 0 || r.rounds < max) && (rep || !r.left.isEmpty());
+                log("💬 resposta " + r.rounds + (max > 0 ? "/" + max : "") + " → sticker " + (idx + 1) + " de " + n + (rnd ? " (ao calhas)" : ""));
+                if (more) r.then = "wait";
+                else log("🏁 " + (rep ? "chegou ao máximo de respostas" : "era o último sticker"));
+            }
         } else {
             r.waiting = false;
             r.queue.addAll(items(d.optJSONArray("then"), first, 1500));
