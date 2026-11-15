@@ -25,6 +25,11 @@ public final class ChatDiff {
 
     static final Pattern TIME = Pattern.compile("^\\s*\\d{1,2}[:.h]\\d{2}(\\s*[ap]\\.?\\s*m\\.?)?\\s*$", Pattern.CASE_INSENSITIVE);
 
+    /** O balão «a escrever…» / «a gravar áudio…» que o WhatsApp mostra na conversa: não é uma mensagem. */
+    static final Pattern TYPING = Pattern.compile("^\\s*(est[aá]\\s+)?(a\\s+escrever|escrevendo|digitando|a\\s+gravar(\\s+(um\\s+)?[aá]udio)?|gravando(\\s+[aá]udio)?|(is\\s+)?typing|(is\\s+)?recording(\\s+audio)?|escribiendo|grabando(\\s+audio)?|[ée]crit|en\\s+train\\s+d.[ée]crire|enregistre(\\s+un\\s+audio)?|schreibt|tippt|nimmt\\s+audio\\s+auf|typt|is\\s+aan\\s+het\\s+typen|neemt\\s+audio\\s+op)\\s*(\\.\\.\\.|…)?\\s*$", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+
+    public static boolean isTyping(String s) { return s != null && s.trim().length() > 0 && s.length() < 60 && TYPING.matcher(s).matches(); }
+
     public static boolean isTime(String s) { return s != null && TIME.matcher(s).matches(); }
 
     /**

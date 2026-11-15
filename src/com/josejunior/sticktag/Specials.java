@@ -68,6 +68,8 @@ public final class Specials {
         final List<Pending.Item> queue = new ArrayList<Pending.Item>();
         // «continuar a conversa»: os que ainda não saíram, o último que saiu e quantas respostas já houve
         List<Integer> left; int lastIdx = -1, rounds;
+        // n.º do envio (para o vigia de um envio antigo não cancelar o seguinte) e quando começou a enviar
+        int batchNo; long sendStart;
     }
 
     /* ---------- dados ---------- */
@@ -279,6 +281,7 @@ public final class Specials {
         // os seguintes com pouca espera vão juntos (sem trocar de teclado entre eles)
         while (!r.queue.isEmpty() && r.queue.get(0).gap <= 1500) batch.add(r.queue.remove(0));
         r.busy = true;
+        r.sendStart = 0;
         r.nextGap = head.gap;
         final int gen = r.gen;
         H.postDelayed(new Runnable() { @Override public void run() { dispatch(gen, batch); } }, head.gap);
@@ -308,6 +311,8 @@ public final class Specials {
             return;
         }
         r.focused = false;
+        final int bn = ++r.batchNo;
+        r.sendStart = System.currentTimeMillis();
         log("➤ a enviar " + batch.size() + " sticker" + (batch.size() > 1 ? "s" : "") + (direct ? " (teclado aberto)" : " (pela bolha)"));
         if (direct) {
             k.runBatch(batch, k.engineHolding, gen);
@@ -317,7 +322,7 @@ public final class Specials {
             final long tt = total;
             H.postDelayed(new Runnable() {
                 @Override public void run() {
-                    if (run != null && run.gen == gen && run.busy) { Pending.clear(); cancel("o teclado de stickers não respondeu"); }
+                    if (run != null && run.gen == gen && run.busy && run.batchNo == bn) { Pending.clear(); cancel("o teclado de stickers não respondeu"); }
                 }
             }, 6000 + tt);
         } else {
@@ -398,8 +403,15 @@ public final class Specials {
         for (ChatDiff.Row x : nw) {
             log("nova: " + rowStr(x) + (x.dir < 0 && ignoring ? " (enviada pelo StickTag)" : ""));
             if (x.dir < 0 && !ignoring) { cancel("respondeste na conversa"); return; }
-            if (x.dir > 0 && r.waiting && onReply(x)) return;
-            if (x.dir > 0 && !r.waiting && "wait".equals(r.then) && r.late == null) r.late = x; // respondeu enquanto o StickTag enviava
+            if (x.dir > 0 && r.waiting && onReply(x)) {
+                if (!r.def.optBoolean("multi", false)) return;
+                continue; // as outras mensagens deste mesmo momento juntam-se a esta resposta
+            }
+            if (x.dir > 0 && !r.waiting && "wait".equals(r.then) && r.late == null) {
+                // «continuar a conversa»: o que chega antes de o sticker começar a sair junta-se à resposta anterior
+                if (r.def.optBoolean("multi", false) && r.sendStart == 0) { log("   (junta-se à resposta anterior)"); continue; }
+                r.late = x; // respondeu enquanto o StickTag enviava
+            }
         }
     }
 
@@ -629,6 +641,8 @@ public final class Specials {
     }
 
     /** Lê as linhas visíveis da conversa (a lista com scroll maior do ecrã). */
+    static String join(List<String> l) { StringBuilder b = new StringBuilder(); for (String x : l) { if (b.length() > 0) b.append(' '); b.append(x); } return b.toString(); }
+
     static List<ChatDiff.Row> snapshot(AccessibilityNodeInfo root, int minGap) {
         List<ChatDiff.Row> out = new ArrayList<ChatDiff.Row>();
         AccessibilityNodeInfo list = null;
@@ -672,6 +686,8 @@ public final class Specials {
                 sig.append(s);
                 if (!ChatDiff.isTime(s)) { if (txt.length() > 0) txt.append(' '); txt.append(s); }
             }
+            // o balão «a escrever…» / «a gravar áudio…» não é uma mensagem
+            if (ChatDiff.isTyping(txt.toString()) || (txt.toString().trim().length() == 0 && ChatDiff.isTyping(join(descs)))) { dirs.remove(dirs.size() - 1); continue; }
             String sg = sig.length() > 300 ? sig.substring(0, 300) : sig.toString();
             StringBuilder alt = new StringBuilder();
             for (String s : descs) { if (alt.length() > 0) alt.append(' '); alt.append(s); }
