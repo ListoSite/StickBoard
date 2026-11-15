@@ -597,3 +597,51 @@ html,body{background:var(--bg);-webkit-font-smoothing:antialiased}
 .appr .t span{font-size:12.5px;color:var(--muted);line-height:1.35}
 .appr .t span.ok{color:var(--green)}
 .appr .dn{color:var(--muted);font-size:20px}
+/* ---------- editar sticker arrumado (5.4) ---------- */
+.sheet.ed2{display:flex;flex-direction:column}
+.sheet.ed2 .bd{padding-bottom:12px}
+.ed2-top{display:flex;gap:12px;align-items:stretch}
+.ed2-prev{flex:none;position:relative}
+.ed2-cv{position:relative}
+.sheet.ed2 #cv{width:112px!important;height:112px!important;border-radius:14px!important;transition:width .25s ease,height .25s ease}
+.sheet.ed2.ed2-big .ed2-top{flex-direction:column;align-items:center}
+.sheet.ed2.ed2-big #cv{width:min(300px,78vw)!important;height:min(300px,78vw)!important}
+.ed2-zoom{position:absolute;right:4px;bottom:4px;width:26px;height:26px;border-radius:9px;background:rgba(0,0,0,.55);color:#fff;display:grid;place-items:center;font-size:14px;cursor:pointer}
+.ed2-emo{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px;justify-content:center}
+.sheet.ed2.ed2-big .ed2-emo{width:100%}
+.ed2-lbl{display:flex;align-items:baseline;gap:8px}
+.ed2-lbl b{font-size:15px}.ed2-lbl span{font-size:12px;color:var(--muted)}
+.ed2-emo .emq{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ed2-slots{display:flex;gap:8px}
+.ed2-slots .slot{width:54px;height:54px;border-radius:14px;display:grid;place-items:center;font-size:30px;position:relative;background:var(--card);border:1.5px solid var(--line)}
+.ed2-slots .slot.e{border-style:dashed;background:transparent}
+.ed2-slots .slot.f{border-color:var(--green);background:var(--greenSoft);cursor:pointer}
+.ed2-slots .slot .x{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:10px;background:var(--bg);border:1px solid var(--line);font-size:13px;line-height:18px;text-align:center;color:var(--muted)}
+.ed2-emo .aibtn{margin-top:0;height:36px}
+.ed2-pick{margin-top:10px}
+.ed2-pick .picker{margin-top:0}
+.ed2-pick .pk-grid{height:208px}
+.ed2-accs{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+.acc{border:1px solid var(--line);border-radius:14px;background:var(--card);overflow:hidden}
+.acc summary{list-style:none;display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;user-select:none}
+.acc summary::-webkit-details-marker{display:none}
+.acc summary .ic{font-size:18px;width:24px;text-align:center}
+.acc summary .tt{flex:1;min-width:0;display:flex;flex-direction:column}
+.acc summary .tt b{font-size:14.5px}
+.acc summary .tt small{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.acc summary .chev{width:9px;height:9px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg);transition:transform .2s;margin-right:4px}
+.acc[open] summary .chev{transform:rotate(-135deg)}
+.acc[open] summary{border-bottom:1px solid var(--line)}
+.acc-bd{padding:12px 14px 14px}
+.acc-bd>.field:first-child,.acc-bd>.seg:first-child{margin-top:0}
+.acc-bd .teach{margin-top:0}
+.ed2-foot{position:sticky;bottom:0;padding:10px 16px calc(12px + env(safe-area-inset-bottom));background:linear-gradient(to top,var(--bg) 70%,transparent);z-index:5}
+.ed2-foot .btn{width:100%}
+.ed2-pick.cx-pk{border:0;padding:0;background:none;margin-left:0;margin-right:0}
+.sheet.ed2.ed2-big .ed2-pick,.sheet.ed2.ed2-big .cx-why{display:none}
+.ed2-pick.cx-pk{max-height:none;overflow:visible}
+.sheet.ed2 .bd{display:flex;flex-direction:column}
+.sheet.ed2 .ed2-accs{display:flex;flex-direction:column}
+.sheet.ed2.ed2-big .acc[data-id=cut]{order:-1}
+.sheet.ed2.ed2-big .ed2-emo .ed2-lbl{display:none}
+.sheet.ed2.ed2-big .ed2-top{gap:8px}

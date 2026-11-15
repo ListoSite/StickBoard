@@ -1505,13 +1505,17 @@ function openAnimCreator(packId, media, opts = {}) {
   $$('#sh button', sheet).forEach(b => b.onclick = () => { st.shape = b.dataset.s; $$('#sh button', sheet).forEach(x => x.classList.toggle('on', x === b)); redraw(); });
   $('#ol', sheet).onclick = e => { st.outline = !st.outline; e.currentTarget.classList.toggle('on', st.outline); redraw(); };
   if (opts.edit) { st.shape = 'full'; st.outline = false; $$('#sh button', sheet).forEach(x => x.classList.toggle('on', x.dataset.s === 'full')); $('#ol', sheet).classList.remove('on'); }
-  const ex = opts.edit ? creatorExtras(sheet, packId) : null;
+  const ex = opts.edit ? creatorExtras(sheet, packId, { onChange: n => { if (sheet._ed2) sheet._ed2.update(); } }) : null;
+  if (opts.edit) organizeEdit(sheet, ex, p);
   $('#tt', sheet).oninput = e => { st.top = e.target.value; redraw(); };
   $('#tb', sheet).oninput = e => { st.bottom = e.target.value; redraw(); };
   $('#ts', sheet).oninput = e => { st.size = +e.target.value; redraw(); };
   $$('#tc button', sheet).forEach(b => b.onclick = () => { st.color = b.dataset.c; $$('#tc button', sheet).forEach(x => x.classList.toggle('on', x === b)); redraw(); });
   let drag = null;
-  cv.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, ox: st.ox, oy: st.oy }; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointerdown', e => {
+    if (opts.edit && !sheet.classList.contains('ed2-big')) { sheet._ed2 && sheet._ed2.grow(); return; }
+    drag = { x: e.clientX, y: e.clientY, ox: st.ox, oy: st.oy }; cv.setPointerCapture(e.pointerId);
+  });
   cv.addEventListener('pointermove', e => { if (!drag) return; const k = 512 / cv.getBoundingClientRect().width; st.ox = drag.ox + (e.clientX - drag.x) * k; st.oy = drag.oy + (e.clientY - drag.y) * k; redraw(); });
   cv.addEventListener('pointerup', () => drag = null);
   $('#pl', sheet).onclick = async () => {
@@ -1578,7 +1582,7 @@ function openAnimCreator(packId, media, opts = {}) {
  * Extras do criador quando vens das pastas (botão Editar): emojis e especial no mesmo ecrã,
  * para fazer tudo de uma vez sem abrir mais menus.
  */
-function creatorExtras(sheet, packId) {
+function creatorExtras(sheet, packId, inline) {
   const emojis = [];
   const box = el(`<div class="cx"><button class="btn sm block" id="cx-ocr" style="margin:-4px 0 14px">✨ Ler o texto do sticker para as palavras</button><div class="sugbox" id="cx-sug"></div><div class="field"><span>Emojis (tags) — 1 a 3</span><div class="emq"></div></div><div class="cx-teach"></div><div class="cx-why"></div><div class="cx-pk hidden"></div><div class="cx-sp"></div></div>`);
   const anchor = $('#wd', sheet).closest('.field');
@@ -1597,7 +1601,7 @@ function creatorExtras(sheet, packId) {
     csg.draw('');
     toast('Juntei: ' + add.join(', '));
   };
-  const emq = $('.emq', box), pkh = $('.cx-pk', box);
+  const emq = $('.emq', box), pkh = $('.cx-pk', box), teachEl = $('.cx-teach', box);
   let picker = null, why = null, lastAdded = null, cxOcr = null, cxReading = false;
   const cxKey = 'cx' + Date.now();
   const wdIn = $('#wd', sheet);
@@ -1606,7 +1610,7 @@ function creatorExtras(sheet, packId) {
       cxReading = true;
       withTimeout(OCR.read($('#cv', sheet).toDataURL('image/png')).catch(() => []), 15000, []).then(r => { cxOcr = r || []; cxReading = false; drawTeachCx(); });
     }
-    teachBox($('.cx-teach', box), {
+    teachBox(teachEl, {
       key: cxKey, stickerWords: curWords,
       addToSticker: w => { const l = curWords(); if (!l.some(y => norm(y) === norm(w))) { l.push(w); wdIn.value = l.join(', '); csg.draw(''); } },
       emojis, adult: adultOn() || !!(packOf(packId) || {}).adult, reading: cxReading,
@@ -1630,7 +1634,7 @@ function creatorExtras(sheet, packId) {
     drawWhy(whyBox, why, {
       words: curWords,
       close: () => { why = null; drawWhyCx(); },
-      add: x => { if (emojis.some(y => stripVS(y) === stripVS(x.e))) return; if (emojis.length >= 3) return toast('Já tem 3 emojis'); emojis.push(x.e); why.added.push(x); why.alts = why.alts.filter(y => y !== x); drawEm(); drawWhyCx(); },
+      add: x => { if (emojis.some(y => stripVS(y) === stripVS(x.e))) return; if (emojis.length >= 3) return toast('Já tem 3 emojis'); emojis.push(x.e); why.added.push(x); why.alts = why.alts.filter(y => y !== x); drawEm(); drawWhyCx(); refreshPicker(); },
       undo: () => { const rm = new Set(why.added.map(x => stripVS(x.e))); for (let i = emojis.length - 1; i >= 0; i--) if (rm.has(stripVS(emojis[i]))) emojis.splice(i, 1); why = null; drawEm(); drawWhyCx(); },
       addWords: ws => { const l = curWords(); ws.forEach(w => { if (!l.some(y => norm(y) === norm(w))) l.push(w); }); wdIn.value = l.join(', '); drawWhyCx(); csg.draw(''); }
     });
@@ -1646,30 +1650,43 @@ function creatorExtras(sheet, packId) {
       picks.forEach(x => emojis.push(x.e));
       why = r.list.length ? { added: picks, alts: r.list.filter(x => !picks.includes(x)).slice(0, 6), ocr: r.ocr } : null;
       if (!r.list.length) toast('Não encontrei pistas: escreve uma palavra e tenta outra vez');
-      drawEm(); drawWhyCx();
+      drawEm(); drawWhyCx(); refreshPicker();
     } finally { btn.disabled = false; btn.innerHTML = label; }
   }
   function drawEm() {
-    emq.innerHTML = emojis.map((e, i) => `<div class="slot emo" data-i="${i}">${esc(e)}<span class="x">×</span></div>`).join('') + (emojis.length < 3 ? `<button class="btn sm" id="cx-add">${picker ? 'Fechar' : '＋ Emoji'}</button>` : '') + `<button class="btn sm aibtn" id="cx-ai">${emojis.length < 3 ? '✨ Completar' : '✨ Ideias'}</button>`;
+    emq.innerHTML = inline
+      ? `<div class="ed2-slots">${[0, 1, 2].map(i => emojis[i] ? `<div class="slot emo f" data-i="${i}">${esc(emojis[i])}<span class="x">×</span></div>` : '<div class="slot e"></div>').join('')}</div><button class="btn sm aibtn" id="cx-ai">${emojis.length < 3 ? '✨ Completar' : '✨ Ideias'}</button>`
+      : emojis.map((e, i) => `<div class="slot emo" data-i="${i}">${esc(e)}<span class="x">×</span></div>`).join('') + (emojis.length < 3 ? `<button class="btn sm" id="cx-add">${picker ? 'Fechar' : '＋ Emoji'}</button>` : '') + `<button class="btn sm aibtn" id="cx-ai">${emojis.length < 3 ? '✨ Completar' : '✨ Ideias'}</button>`;
     $('#cx-ai', emq).onclick = e => autoCx(e.currentTarget);
     drawTeachCx();
-    $$('.slot', emq).forEach(sl => sl.onclick = () => { emojis.splice(+sl.dataset.i, 1); drawEm(); if (picker) showPicker(); });
+    $$('.slot[data-i]', emq).forEach(sl => sl.onclick = () => { emojis.splice(+sl.dataset.i, 1); drawEm(); if (picker) refreshPicker(); });
+    if (inline && typeof inline.onChange === 'function') inline.onChange(emojis.length);
     const add = $('#cx-add', emq);
     if (add) add.onclick = () => { if (picker) { picker = null; pkh.classList.add('hidden'); pkh.innerHTML = ''; drawEm(); } else showPicker(); };
   }
   function showPicker() {
     picker = makePicker(e => {
       const i = emojis.findIndex(x => stripVS(x) === stripVS(e));
-      if (i >= 0) emojis.splice(i, 1); else if (emojis.length < 3) { emojis.push(e); lastAdded = e; }
+      if (i >= 0) emojis.splice(i, 1);
+      else if (emojis.length < 3) { emojis.push(e); lastAdded = e; }
+      else return toast('Já tem 3 emojis: toca num lá em cima para o tirar');
       drawEm();
-      if (emojis.length >= 3) { picker = null; pkh.classList.add('hidden'); pkh.innerHTML = ''; drawEm(); }
+      // no modo organizado o seletor fica sempre aberto e no mesmo sítio
+      if (!inline && emojis.length >= 3) { picker = null; pkh.classList.add('hidden'); pkh.innerHTML = ''; drawEm(); }
     }, e => emojis.some(x => stripVS(x) === stripVS(e)));
     pkh.innerHTML = ''; pkh.appendChild(picker); pkh.classList.remove('hidden');
     drawEm();
   }
+  // marca/desmarca os emojis no seletor sem o recriar (a pesquisa e o sítio ficam iguais)
+  function refreshPicker() {
+    if (!picker) return;
+    $$('.pk-grid button.emo', picker).forEach(b => b.classList.toggle('on', emojis.some(x => stripVS(x) === stripVS(b.firstChild ? b.firstChild.textContent : b.textContent))));
+  }
   drawEm(); csg.draw('');
+  if (inline) showPicker();
   const sps = specialSection(() => null, () => packId, $('.cx-sp', box));
   return {
+    box, picker: () => pkh, wordsCount: () => curWords().length, words: curWords,
     validate: () => sps.validate(),
     // depois de o sticker ser criado: emojis + especial
     apply(file, words) {
@@ -1677,6 +1694,89 @@ function creatorExtras(sheet, packId) {
       sps.commit({ p: packId, f: file });
     }
   };
+}
+
+/**
+ * Editar um sticker (a partir das pastas), arrumado: emojis primeiro e sempre à mão,
+ * o resto em secções que só abres quando precisas. O seletor de emojis nunca muda de sítio.
+ */
+function organizeEdit(sheet, ex, pack) {
+  const bd = $('.bd', sheet);
+  const q = sel => $(sel, sheet);
+  const fieldOf = sel => { const n = q(sel); return n ? (n.closest('.field') || n) : null; };
+  sheet.classList.add('ed2');
+  $('.hd h3', sheet).textContent = 'Editar sticker';
+  const cvWrap = q('#cv').parentElement;
+  cvWrap.classList.add('ed2-cv');
+  cvWrap.insertAdjacentHTML('beforeend', '<div class="ed2-zoom">⤢</div>');
+  // topo: imagem pequena + emojis
+  const top = el(`<div class="ed2-top"><div class="ed2-prev"></div><div class="ed2-emo"><div class="ed2-lbl"><b>Emojis</b><span>escolhe 1 a 3</span></div></div></div>`);
+  $('.ed2-prev', top).appendChild(cvWrap);
+  $('.ed2-emo', top).appendChild($('.emq', ex.box));
+  const pick = ex.picker();
+  pick.classList.add('ed2-pick');
+  const why = $('.cx-why', ex.box);
+  // secções
+  const isAnim = !!q('#fp');
+  const SECS = [
+    ['words', '📝', 'Palavras e frases', [fieldOf('#wd'), q('#cx-ocr'), q('#cx-sug')]],
+    ['teach', '🧠', 'Ensinar os emojis', [q('.cx-teach')]],
+    isAnim
+      ? ['cut', '🎬', 'Tempo e animação', [q('#pl') && q('#pl').parentElement, fieldOf('#ss'), fieldOf('#sl'), fieldOf('#fp'), fieldOf('#zm'), q('.note')]]
+      : ['cut', '✂️', 'Recortar e apagar', [q('#tl'), q('#rmbg'), q('#brow'), q('#thint'), fieldOf('#zm')]],
+    ['look', '🎨', isAnim ? 'Forma e contorno' : 'Forma, fundo e contorno', [fieldOf('#sh'), fieldOf('#bgs'), q('#ol') && q('#ol').closest('.opt')]],
+    ['text', '🔤', 'Texto por cima', [fieldOf('#tt'), fieldOf('#tb'), fieldOf('#ts')]],
+    ['special', '⚡', 'Sticker especial', [$('.cx-sp', ex.box)]]
+  ];
+  const accs = el('<div class="ed2-accs"></div>');
+  const accEls = {};
+  for (const [id, ic, title, nodes] of SECS) {
+    if (!nodes.filter(Boolean).length) continue;
+    const a = el(`<details class="acc" data-id="${id}"><summary><span class="ic">${ic}</span><span class="tt"><b>${title}</b><small></small></span><i class="chev"></i></summary><div class="acc-bd"></div></details>`);
+    const body = $('.acc-bd', a);
+    nodes.filter(Boolean).forEach(n => body.appendChild(n));
+    accs.appendChild(a);
+    accEls[id] = a;
+  }
+  // guardar sempre visível
+  const sv = q('#sv');
+  const foot = el('<div class="ed2-foot"></div>');
+  foot.appendChild(sv);
+  sv.textContent = `Guardar no pack “${pack.name}”`;
+  // montar
+  bd.innerHTML = '';
+  bd.appendChild(top);
+  bd.appendChild(pick);
+  bd.appendChild(why);
+  bd.appendChild(accs);
+  bd.appendChild(ex.box); // o que sobra (escondido) continua a funcionar
+  ex.box.classList.add('hidden');
+  sheet.appendChild(foot);
+  // imagem grande só para editar
+  const grow = on => {
+    const big = on == null ? !sheet.classList.contains('ed2-big') : on;
+    sheet.classList.toggle('ed2-big', big);
+    if (big) cvWrap.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  };
+  $('.ed2-zoom', cvWrap).onclick = e => { e.stopPropagation(); grow(); };
+  accEls.cut.addEventListener('toggle', () => grow(accEls.cut.open));
+  // ao abrir a imagem em grande sem ser pelas ferramentas, abre-as também (ficam logo à mão)
+  const grow0 = grow;
+  // resumos nas secções fechadas
+  const update = () => {
+    const w = ex.words();
+    $('small', accEls.words).textContent = w.length ? w.slice(0, 4).join(', ') + (w.length > 4 ? ` +${w.length - 4}` : '') : 'nenhuma ainda';
+    const tz = q('.cx-teach');
+    $('small', accEls.teach).textContent = tz && tz.textContent.trim() ? 'ideias para as palavras dos emojis' : 'dá um emoji primeiro';
+    $('small', accEls.cut).textContent = isAnim ? 'início, duração, fluidez, zoom' : 'borracha, tirar o fundo, zoom';
+    if (accEls.look) $('small', accEls.look).textContent = isAnim ? 'cantos, redondo, contorno' : 'recorte, cantos, cores';
+    const tt = (q('#tt') || {}).value, tb = (q('#tb') || {}).value;
+    $('small', accEls.text).textContent = tt || tb ? [tt, tb].filter(Boolean).join(' / ') : 'em cima ou em baixo';
+    $('small', accEls.special).textContent = 'sequência, resposta, escolhas…';
+  };
+  ['#wd', '#tt', '#tb'].forEach(x => { const n = q(x); if (n) n.addEventListener('input', () => setTimeout(update, 200)); });
+  sheet._ed2 = { update, grow: () => grow(true) };
+  update();
 }
 
 /* ---------- Criar sticker a partir de uma foto ---------- */
@@ -1825,6 +1925,7 @@ function openCreator(packId, url, opts = {}) {
   }
   cv.addEventListener('pointerdown', e => {
     if (!url) return;
+    if (opts.edit && !sheet.classList.contains('ed2-big')) { sheet._ed2 && sheet._ed2.grow(); return; }
     cv.setPointerCapture(e.pointerId);
     if (st.tool === 'move') drag = { x: e.clientX, y: e.clientY, ox: st.ox, oy: st.oy };
     else {
@@ -1880,7 +1981,8 @@ function openCreator(packId, url, opts = {}) {
   $$('#bgs button', sheet).forEach(x => x.style.borderColor = x.dataset.b === st.bg ? 'var(--green)' : 'var(--line)');
   $('#ol', sheet).onclick = e => { st.outline = !st.outline; e.currentTarget.classList.toggle('on', st.outline); draw(); };
   if (opts.edit) { st.shape = 'full'; st.outline = false; $$('#sh button', sheet).forEach(x => x.classList.toggle('on', x.dataset.s === 'full')); $('#ol', sheet).classList.remove('on'); draw(); }
-  const ex = opts.edit ? creatorExtras(sheet, packId) : null;
+  const ex = opts.edit ? creatorExtras(sheet, packId, { onChange: n => { if (sheet._ed2) sheet._ed2.update(); } }) : null;
+  if (opts.edit) organizeEdit(sheet, ex, p);
   $('#tt', sheet).oninput = e => { st.top = e.target.value; draw(); };
   $('#tb', sheet).oninput = e => { st.bottom = e.target.value; draw(); };
   $('#ts', sheet).oninput = e => { st.size = +e.target.value; draw(); };
