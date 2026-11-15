@@ -589,3 +589,11 @@ html,body{background:var(--bg);-webkit-font-smoothing:antialiased}
 .tpick.done{opacity:.55}
 .tpick.tst{color:var(--blue)}
 .tpick:active{transform:scale(.95)}
+/* ---------- enviar noutras apps (5.3) ---------- */
+.apps{margin-top:10px;display:flex;flex-direction:column}
+.appr{display:flex;align-items:center;gap:10px;padding:11px 2px;border-top:1px solid var(--line);background:transparent;color:var(--text);text-align:left;width:100%}
+.appr .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.appr .t b{font-size:14.5px}
+.appr .t span{font-size:12.5px;color:var(--muted);line-height:1.35}
+.appr .t span.ok{color:var(--green)}
+.appr .dn{color:var(--muted);font-size:20px}

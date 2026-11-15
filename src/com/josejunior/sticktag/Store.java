@@ -412,6 +412,28 @@ public final class Store {
         }
     }
 
+    /** Regista o que uma app aceita do teclado e como foi o último envio. */
+    public static void logApp(Context c, String pkg, String mimes, String how) {
+        synchronized (LOCK) {
+            try {
+                JSONObject data = load(c);
+                JSONObject log = data.optJSONObject("appLog");
+                if (log == null) { log = new JSONObject(); data.put("appLog", log); }
+                JSONObject o = log.optJSONObject(pkg);
+                if (o == null) o = new JSONObject();
+                o.put("m", mimes); o.put("r", how); o.put("t", System.currentTimeMillis()); o.put("n", o.optInt("n", 0) + 1);
+                log.put(pkg, o);
+                if (log.length() > 40) {
+                    String old = null; long ot = Long.MAX_VALUE;
+                    java.util.Iterator<String> it = log.keys();
+                    while (it.hasNext()) { String k = it.next(); long t = log.optJSONObject(k) != null ? log.optJSONObject(k).optLong("t") : 0; if (t < ot) { ot = t; old = k; } }
+                    if (old != null) log.remove(old);
+                }
+                save(c, data);
+            } catch (Exception ignored) {}
+        }
+    }
+
     /** Esquecer o que um emoji aprendeu: uma palavra, tudo desse emoji (word = "") ou tudo de todos (emoji = ""). */
     public static String forgetEmoji(Context c, String emoji, String word) {
         synchronized (LOCK) {

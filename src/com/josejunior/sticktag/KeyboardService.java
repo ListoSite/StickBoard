@@ -237,6 +237,71 @@ public class KeyboardService extends InputMethodService {
         try { return (String[]) EditorInfo.class.getField("contentMimeTypes").get(info); } catch (Exception e) { return null; }
     }
 
+    /** Apps onde um WebP vira sticker a sério (Telegram trata qualquer WebP como sticker). */
+    static final java.util.Set<String> WEBP_APPS = new java.util.HashSet<String>(java.util.Arrays.asList(
+        "com.whatsapp", "com.whatsapp.w4b", "org.telegram.messenger", "org.telegram.messenger.web", "org.telegram.plus",
+        "org.thunderdog.challegram", "tw.nekomimi.nekogram", "nekox.messenger", "org.telegram.mdgram", "it.owlgram.android",
+        "org.thoughtcrime.securesms", "com.discord"));
+
+    static boolean accepts(String[] m, String type) {
+        if (m == null) return false;
+        for (String x : m) if (ClipDescription.compareMimeTypes(type, x)) return true;
+        return false;
+    }
+
+    /**
+     * Formato a usar nesta app: "wasticker", "webp", "png", "gif", ou null (a app não aceita imagens do teclado).
+     * want = escolha da pessoa para esta app ("auto" por defeito).
+     */
+    static String chooseFormat(String[] m, String pkg, boolean animated, String want) {
+        if (m == null || m.length == 0) return null;
+        for (String x : m) if ("image/webp.wasticker".equals(x)) return "wasticker";
+        boolean webp = accepts(m, "image/webp"), png = accepts(m, "image/png"), gif = accepts(m, "image/gif");
+        if ("webp".equals(want) && webp) return "webp";
+        if ("png".equals(want) && png) return "png";
+        if ("gif".equals(want) && gif) return "gif";
+        if (webp && pkg != null && WEBP_APPS.contains(pkg)) return "webp";
+        if (animated && gif) return "gif";
+        if (png) return "png";
+        if (gif) return "gif";
+        if (webp) return "webp";
+        return null;
+    }
+
+    /** Converte (uma vez, fica em cache) o sticker para PNG ou GIF, com fundo opcional. */
+    Uri convert(File f, String packId, String file, String fmt, int bg) throws Exception {
+        String name = (packId + "_" + file).replaceAll("[^A-Za-z0-9_.-]", "_") + "_" + f.lastModified() + "_" + Integer.toHexString(bg) + (fmt.equals("gif") ? ".gif" : ".png");
+        File out = new File(ShareProvider.cacheDir(this), name);
+        if (!out.exists()) {
+            byte[] b = Store.readFile(f);
+            if (fmt.equals("gif")) {
+                java.util.List<Gif.Frame> fr = Gif.frames(b, 320, 60);
+                if (fr.isEmpty()) throw new Exception("sem quadros");
+                byte[] g = Gif.encode(fr, bg);
+                for (Gif.Frame x : fr) x.bmp.recycle();
+                Store.writeFile(out, g);
+            } else {
+                Bitmap bm = BitmapFactory.decodeByteArray(b, 0, b.length);
+                if (bm == null) throw new Exception("não consegui ler a imagem");
+                bm = Gif.withBackground(bm, bg);
+                ByteArrayOutputStream o = new ByteArrayOutputStream();
+                bm.compress(Bitmap.CompressFormat.PNG, 100, o);
+                Store.writeFile(out, o.toByteArray());
+            }
+        }
+        return ShareProvider.cacheUri(this, name);
+    }
+
+    /** Guarda o que cada app aceita e como foi o último envio (para o ecrã «Enviar noutras apps»). */
+    void logApp(String pkg, String[] m, String how) {
+        if (pkg == null || pkg.equals(getPackageName())) return;
+        try {
+            StringBuilder sb = new StringBuilder();
+            if (m != null) for (String x : m) { if (sb.length() > 0) sb.append(','); sb.append(x); }
+            Store.logApp(this, pkg, sb.toString(), how);
+        } catch (Exception ignored) {}
+    }
+
     /** Que tipo de imagem a app aceita diretamente do teclado (null = não aceita). */
     static String chooseMime(EditorInfo info) {
         String[] m = contentMimes(info);
@@ -259,21 +324,30 @@ public class KeyboardService extends InputMethodService {
             if (!f.exists()) { if (!engine) js("onSent", "{\"ok\":false,\"error\":\"ficheiro não encontrado\"}"); return 0; }
             EditorInfo info = getCurrentInputEditorInfo();
             InputConnection ic = getCurrentInputConnection();
-            String mime = chooseMime(info);
+            String pkg = info != null ? info.packageName : null;
+            String[] mimes = contentMimes(info);
+            // o que a pessoa escolheu para esta app (formato e fundo)
+            JSONObject pref = Store.load(this).optJSONObject("appSend");
+            JSONObject ap = pref != null && pkg != null ? pref.optJSONObject(pkg) : null;
+            String want = ap != null ? ap.optString("fmt", "auto") : "auto";
+            String bgName = ap != null ? ap.optString("bg", "none") : "none";
+            int bg = "white".equals(bgName) ? 0xFFFFFFFF : "black".equals(bgName) ? 0xFF000000 : 0;
+            boolean animated = false;
+            try { Webp.Info wi = Webp.info(Store.readFile(f)); animated = wi != null && wi.animated; } catch (Exception ignored) {}
+            String fmt = "share".equals(want) ? null : chooseFormat(mimes, pkg, animated, want);
             Uri uri = ShareProvider.uriFor(this, packId, file);
-            String shareMime = "image/webp";
-            if ("image/png".equals(mime) || "image/gif".equals(mime)) {
-                // a app só aceita PNG: converte
-                Bitmap b = BitmapFactory.decodeFile(f.getAbsolutePath());
-                if (b != null) {
-                    String name = file.replace(".webp", "") + ".png";
-                    ByteArrayOutputStream out = new ByteArrayOutputStream();
-                    b.compress(Bitmap.CompressFormat.PNG, 100, out);
-                    Store.writeFile(new File(ShareProvider.cacheDir(this), name), out.toByteArray());
-                    uri = ShareProvider.cacheUri(this, name);
-                    mime = "image/png";
-                    shareMime = "image/png";
-                }
+            String mime = null;
+            if ("wasticker".equals(fmt)) mime = "image/webp.wasticker";
+            else if ("webp".equals(fmt)) mime = "image/webp";
+            else if ("png".equals(fmt) || "gif".equals(fmt)) {
+                try { uri = convert(f, packId, file, fmt, bg); mime = "image/" + fmt; }
+                catch (Exception e) { mime = accepts(mimes, "image/webp") ? "image/webp" : null; }
+            }
+            // para a partilha (apps que não aceitam do teclado): GIF se for animado, PNG se não (o WebP só onde vira sticker)
+            Uri shareUri = uri;
+            String shareMime = mime != null ? mime.replace(".wasticker", "") : "image/webp";
+            if (mime == null && (pkg == null || !WEBP_APPS.contains(pkg))) {
+                try { String sf = animated ? "gif" : "png"; shareUri = convert(f, packId, file, sf, bg); shareMime = "image/" + sf; } catch (Exception ignored) {}
             }
             boolean ok = false;
             if (mime != null && ic != null && Build.VERSION.SDK_INT >= 25) {
@@ -286,17 +360,17 @@ public class KeyboardService extends InputMethodService {
                 } catch (Exception e) { ok = false; }
             }
             if (engine) return ok ? 1 : 0;
+            logApp(pkg, mimes, ok ? "direct:" + fmt : "share:" + shareMime.replace("image/", ""));
             if (ok) {
                 if (Store.load(this).optBoolean("kbDelete", true)) deleteAllBefore();
-                result = "{\"ok\":true,\"mode\":\"direct\"}";
+                result = "{\"ok\":true,\"mode\":\"direct\",\"fmt\":\"" + fmt + "\"}";
                 mode = 1;
             } else {
                 Intent it = new Intent(Intent.ACTION_SEND);
                 it.setType(shareMime);
-                it.putExtra(Intent.EXTRA_STREAM, uri);
-                it.setClipData(ClipData.newRawUri("sticker", uri));
+                it.putExtra(Intent.EXTRA_STREAM, shareUri);
+                it.setClipData(ClipData.newRawUri("sticker", shareUri));
                 it.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-                String pkg = info != null ? info.packageName : null;
                 boolean started = false;
                 if (pkg != null) {
                     try { Intent t = new Intent(it); t.setPackage(pkg); startActivity(t); started = true; } catch (Exception ignored) {}

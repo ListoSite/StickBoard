@@ -2402,6 +2402,7 @@ function viewKeyboard() {
   c1.querySelector('#kp').onclick = () => A.showKeyboardPicker();
   v.appendChild(c1);
   v.appendChild(learnCard());
+  v.appendChild(appsCard());
   v.appendChild(am);
   // bolha flutuante
   let bs = {};
@@ -2820,6 +2821,85 @@ function learnBlock(s) {
     ${L.length ? `<div class="words" id="lw">${L.slice(0, 30).map(l => `<button class="lchip" data-w="${esc(l.w)}">${esc(l.w)} <span class="ld">${dots(l.eff)}</span></button>`).join('')}</div>
     <div class="hint" style="margin-top:6px">Palavras que escreves antes de mandar este sticker. Ganham força quando as usas e vão perdendo se deixares de as usar. Toca numa para a tornar fixa ou esquecer.</div>` : ''}`;
 }
+/* ---------- Enviar noutras apps ---------- */
+// [pacote, nome, dica]
+const KNOWN_APPS = [
+  ['com.whatsapp', 'WhatsApp', 'Vai como sticker a sério, também os animados.'],
+  ['com.whatsapp.w4b', 'WhatsApp Business', 'Vai como sticker a sério, também os animados.'],
+  ['org.telegram.messenger', 'Telegram', 'O Telegram transforma qualquer WebP em sticker a sério. Os animados mexem no Android e no computador; no iPhone podem ficar parados.'],
+  ['org.thoughtcrime.securesms', 'Signal', 'Vai como WebP (aceita animados).'],
+  ['com.discord', 'Discord', 'Vai como WebP; os animados mexem.'],
+  ['com.facebook.orca', 'Messenger', 'Vai como PNG transparente (GIF nos animados). Nas conversas privadas fica como sticker; nos grupos pode aparecer com fundo preto — se acontecer, escolhe fundo branco.'],
+  ['com.instagram.android', 'Instagram', 'Vai como imagem. Se aparecer com fundo preto, escolhe fundo branco.'],
+  ['com.google.android.apps.messaging', 'Mensagens (Google)', 'Vai como PNG (GIF nos animados).'],
+  ['com.samsung.android.messaging', 'Mensagens Samsung', 'Vai como PNG (GIF nos animados).'],
+  ['com.snapchat.android', 'Snapchat', 'Aceita imagens coladas do teclado.'],
+  ['com.zhiliaoapp.musically', 'TikTok', 'As mensagens do TikTok não aceitam imagens do teclado: abre a partilha.'],
+  ['com.twitter.android', 'X (Twitter)', 'Vai como PNG ou GIF.']
+];
+const WEBP_APPS_JS = ['com.whatsapp', 'com.whatsapp.w4b', 'org.telegram.messenger', 'org.telegram.messenger.web', 'org.telegram.plus', 'org.thunderdog.challegram', 'tw.nekomimi.nekogram', 'nekox.messenger', 'org.telegram.mdgram', 'it.owlgram.android', 'org.thoughtcrime.securesms', 'com.discord'];
+const FMT_NAME = { wasticker: 'sticker do WhatsApp', webp: 'WebP (sticker)', png: 'PNG', gif: 'GIF', share: 'partilha' };
+/** O mesmo que o teclado decide (para mostrar antes de enviares). */
+function autoFormat(mimes, pkg, animated) {
+  if (!mimes || !mimes.length) return null;
+  if (mimes.includes('image/webp.wasticker')) return 'wasticker';
+  const acc = t => mimes.some(m => m === t || m === 'image/*' || m === '*/*' || (m.endsWith('/*') && t.startsWith(m.slice(0, -1))));
+  if (acc('image/webp') && WEBP_APPS_JS.includes(pkg)) return 'webp';
+  if (animated && acc('image/gif')) return 'gif';
+  if (acc('image/png')) return 'png';
+  if (acc('image/gif')) return 'gif';
+  if (acc('image/webp')) return 'webp';
+  return null;
+}
+function appsCard() {
+  const log = S.data.appLog || {}, pref = S.data.appSend || {};
+  const pkgs = [...new Set(KNOWN_APPS.map(a => a[0]).concat(Object.keys(log)))];
+  let labels = {};
+  try { labels = JSON.parse(A.appLabels(JSON.stringify(pkgs))); } catch (e) {}
+  const rows = pkgs.filter(p => labels[p] || log[p]).map(p => {
+    const k = KNOWN_APPS.find(a => a[0] === p);
+    const name = labels[p] || (k && k[1]) || p;
+    const L = log[p], pr = pref[p];
+    const mimes = L && L.m ? L.m.split(',').filter(Boolean) : null;
+    let st;
+    if (pr && pr.fmt === 'share') st = '↗ Sempre pela partilha';
+    else if (!L) st = 'Ainda não usaste o teclado aqui';
+    else if (!mimes || !mimes.length) st = '↗ Não aceita imagens do teclado: vai pela partilha';
+    else {
+      const s1 = autoFormat(mimes, p, false), s2 = autoFormat(mimes, p, true);
+      const f = pr && pr.fmt && pr.fmt !== 'auto' ? pr.fmt : null;
+      st = '✓ Direto: ' + (f ? FMT_NAME[f] + ' (escolhido por ti)' : s1 === s2 ? FMT_NAME[s1] : `${FMT_NAME[s1]}; animados em ${FMT_NAME[s2]}`);
+    }
+    const bg = pr && pr.bg && pr.bg !== 'none' ? ` · fundo ${pr.bg === 'white' ? 'branco' : 'preto'}` : '';
+    return { p, name, st: st + bg, ok: L && mimes && mimes.length };
+  });
+  const c = el(`<div class="card" style="margin-bottom:12px"><b>📤 Enviar noutras apps</b>
+    <div class="hint" style="margin-top:4px">O teclado escolhe sozinho o melhor formato para cada app: sticker a sério onde dá (WhatsApp, Telegram, Signal, Discord), PNG transparente ou GIF animado nas outras. Toca numa app para mudar.</div>
+    <div class="apps">${rows.map(r => `<button class="appr" data-p="${esc(r.p)}"><div class="t"><b>${esc(r.name)}</b><span class="${r.ok ? 'ok' : ''}">${esc(r.st)}</span></div><span class="dn">›</span></button>`).join('') || '<div class="hint">Usa o teclado numa app e ela aparece aqui.</div>'}</div></div>`);
+  $$('.appr', c).forEach(b => b.onclick = () => openAppSend(b.dataset.p, rows.find(r => r.p === b.dataset.p).name));
+  return c;
+}
+function openAppSend(pkg, name) {
+  const k = KNOWN_APPS.find(a => a[0] === pkg);
+  const L = (S.data.appLog || {})[pkg];
+  const cur = Object.assign({ fmt: 'auto', bg: 'none' }, (S.data.appSend || {})[pkg] || {});
+  const mimes = L && L.m ? L.m.split(',').filter(Boolean) : [];
+  const nice = mimes.map(m => m.replace('image/webp.wasticker', 'sticker WhatsApp').replace('image/', '').toUpperCase()).join(' · ');
+  const FM = [['auto', 'Automático (recomendado)'], ['webp', 'WebP — sticker onde a app o reconhece'], ['png', 'PNG — imagem transparente (sem animação)'], ['gif', 'GIF — mantém a animação'], ['share', 'Usar sempre a partilha']];
+  const BG = [['none', 'Transparente'], ['white', 'Branco'], ['black', 'Preto']];
+  const sheet = el(`<div class="sheet"><div class="hd"><h3>${esc(name)}</h3><button class="iconbtn" id="x">${ICON.close}</button></div><div class="bd">
+    ${k ? `<div class="hint">${esc(k[2])}</div>` : ''}
+    <div class="hint" style="margin-top:6px">${L ? (mimes.length ? `Aceita do teclado: <b>${esc(nice)}</b>` : 'Esta app não aceita imagens do teclado (vai pela partilha).') + ` · ${L.n || 1} envio${(L.n || 1) === 1 ? '' : 's'}` : 'Ainda não usaste o teclado nesta app — usa uma vez e eu vejo o que ela aceita.'}</div>
+    <div class="sortg"><div class="sortgh">Formato</div>${FM.map(([v, l]) => `<button class="sortr ${cur.fmt === v ? 'on' : ''}" data-f="${v}"><span>${l}</span><i></i></button>`).join('')}</div>
+    <div class="sortg"><div class="sortgh">Fundo (PNG e GIF)</div><div class="hint" style="margin:0 4px 6px">Se a app mostrar os stickers com fundo preto, escolhe branco.</div>${BG.map(([v, l]) => `<button class="sortr ${cur.bg === v ? 'on' : ''}" data-b="${v}"><span>${l}</span><i></i></button>`).join('')}</div>
+  </div></div>`);
+  const ov = openOverlay(sheet, { onClose: () => render() });
+  $('#x', sheet).onclick = () => closeOverlay(ov);
+  const save = () => { try { S.data = JSON.parse(A.setAppSend(pkg, cur.fmt, cur.bg)); } catch (e) { toast('Erro a guardar'); } };
+  $$('[data-f]', sheet).forEach(b => b.onclick = () => { cur.fmt = b.dataset.f; $$('[data-f]', sheet).forEach(x => x.classList.toggle('on', x === b)); save(); });
+  $$('[data-b]', sheet).forEach(b => b.onclick = () => { cur.bg = b.dataset.b; $$('[data-b]', sheet).forEach(x => x.classList.toggle('on', x === b)); save(); });
+}
+
 function learnCard() {
   let nW = 0, nS = 0;
   S.data.packs.forEach(p => p.stickers.forEach(s => { const n = Match.learned(s).length; if (n) { nS++; nW += n; } }));

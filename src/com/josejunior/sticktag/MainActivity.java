@@ -1249,6 +1249,36 @@ public class MainActivity extends Activity {
             return d == null ? err("erro") : d;
         }
 
+        /** Nome e se está instalada, para cada app (lista de pacotes em JSON). */
+        @JavascriptInterface
+        public String appLabels(String pkgsJson) {
+            JSONObject out = new JSONObject();
+            try {
+                JSONArray a = new JSONArray(pkgsJson);
+                android.content.pm.PackageManager pm = getPackageManager();
+                for (int i = 0; i < a.length(); i++) {
+                    String p = a.optString(i);
+                    try { out.put(p, pm.getApplicationLabel(pm.getApplicationInfo(p, 0)).toString()); }
+                    catch (Exception e) { out.put(p, ""); }
+                }
+            } catch (Exception ignored) {}
+            return out.toString();
+        }
+
+        /** Como enviar numa app: formato (auto, webp, png, gif, share) e fundo (none, white, black). */
+        @JavascriptInterface
+        public String setAppSend(String pkg, String fmt, String bg) {
+            try {
+                JSONObject d = Store.load(MainActivity.this);
+                JSONObject m = d.optJSONObject("appSend");
+                if (m == null) { m = new JSONObject(); d.put("appSend", m); }
+                if ("auto".equals(fmt) && "none".equals(bg)) m.remove(pkg);
+                else m.put(pkg, new JSONObject().put("fmt", fmt).put("bg", bg));
+                Store.save(MainActivity.this, d);
+                return d.toString();
+            } catch (Exception e) { return err("erro"); }
+        }
+
         @JavascriptInterface
         public String forgetEmojiLearned(String emoji, String word) {
             String d = Store.forgetEmoji(MainActivity.this, emoji, word);
