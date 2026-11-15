@@ -915,11 +915,42 @@ function searchEmojis(q, limit = 80) {
  * aprendeu) que encaixam nele + ideias de palavras novas. Tocar junta a palavra ao emoji (vale para todos os stickers).
  * o: { emojis, phrases:[{w,src}], adult, focus, reading, onAddEmoji(e) , after() }
  */
+S.typed = {};
+/** Junta uma palavra às palavras de um emoji (com aviso se estiver cruzada). */
+function addEmojiWord(e, w) {
+  const l = emoWords(e).slice();
+  if (l.some(y => norm(y) === norm(w))) return false;
+  l.push(w);
+  try { S.data = JSON.parse(A.setEmojiWords(e, JSON.stringify(l))); } catch (er) { toast('Erro a guardar'); return false; }
+  const cx = crossOf(w, e);
+  toast(cx.length ? `⚠ «${w}» juntada ao ${e}, mas também está em ${cx.join(' ')}` : `«${w}» juntada ao ${e}`);
+  return true;
+}
 function teachBox(box, o) {
-  if (!o.emojis.length) { box.innerHTML = ''; return; }
+  if (!o.emojis.length) { box.innerHTML = ''; box._c = null; return; }
+  // a caixa de escrever fica sempre a mesma (não se perde o que estás a escrever quando o resto se atualiza)
+  if (!box._c || !box.contains(box._c)) {
+    box.innerHTML = '<div class="teach"><div class="tcx"></div><div class="tinp"><input placeholder="✏️ O que diz o sticker? Escreve e Enter"><button class="btn sm">＋</button></div></div>';
+    box._c = $('.tcx', box);
+    const inp = $('.tinp input', box);
+    const go = () => {
+      const t = inp.value.trim().replace(/[.!?…]+$/, '');
+      if (!t) return;
+      const L = S.typed[box._o.key] = S.typed[box._o.key] || [];
+      if (!L.some(y => norm(y) === norm(t))) L.unshift(t);
+      inp.value = '';
+      teachBox(box, box._o);
+    };
+    inp.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); go(); } });
+    $('.tinp button', box).onclick = go;
+  }
+  box._o = o;
+  const typed = (o.key && S.typed[o.key]) || [];
+  const typedN = new Set(typed.map(norm));
   let r;
-  try { r = Suggest.teach({ emojis: o.emojis, phrases: o.phrases, wordsOf: e => emoWords(e), data: S.data, adult: o.adult, focus: o.focus }); }
-  catch (e) { console.error(e); box.innerHTML = ''; return; }
+  try { r = Suggest.teach({ emojis: o.emojis, phrases: o.phrases.concat(typed.map(w => ({ w, src: 'escrito' }))), wordsOf: e => emoWords(e), data: S.data, adult: o.adult, focus: o.focus }); }
+  catch (e) { console.error(e); r = { per: [], elsewhere: [] }; }
+  r.per.forEach(x => { x.items = x.items.filter(i => !typedN.has(norm(i.w))); });
   box._open = box._open || {};
   const fk = o.focus ? stripVS(o.focus) : null;
   const rows = r.per.map(x => {
@@ -934,26 +965,32 @@ function teachBox(box, o) {
     </div></div>`;
   }).join('');
   const els = o.emojis.length < 3 ? r.elsewhere.filter((x, i, a) => a.findIndex(y => stripVS(y.e) === stripVS(x.e)) === i).slice(0, 3) : [];
-  if (!rows && !els.length && !o.reading) { box.innerHTML = ''; return; }
-  box.innerHTML = `<div class="teach"><div class="th"><b>🧠 Ensinar os emojis</b><span>Toca para juntar a palavra ao emoji — vale para todos os stickers com ele.</span></div>
+  // o que escreveste: um botão por emoji (✨ onde encaixa melhor) e para as palavras do sticker
+  const typedHtml = typed.map((t, i) => {
+    let best = null, bf = -1;
+    o.emojis.forEach(e => { const f = Suggest.fit(t, e, em => emoWords(em).filter(w => norm(w) !== norm(t)), o.adult).f; if (f > bf) { bf = f; best = e; } });
+    const inSt = o.stickerWords && o.stickerWords().some(y => norm(y) === norm(t));
+    return `<div class="ttyped"> <div class="ttw"><span>✏️ <b>${esc(t)}</b></span><button class="ttx" data-i="${i}">${ICON.close}</button></div><div class="ttb">
+      ${o.emojis.map(e => { const done = emoWords(e).some(y => norm(y) === norm(t)); return `<button class="tpick ${done ? 'done' : ''} ${stripVS(e) === stripVS(best) && !done ? 'best' : ''}" data-e="${esc(e)}" data-t="${esc(t)}">${done ? '✓' : '＋'} <span class="emo">${esc(e)}</span>${stripVS(e) === stripVS(best) && !done ? ' ✨' : ''}${done ? '' : crossTag(crossOf(t, e))}</button>`; }).join('')}
+      ${o.addToSticker ? `<button class="tpick tst ${inSt ? 'done' : ''}" data-st="${esc(t)}">${inSt ? '✓' : '＋'} palavras do sticker</button>` : ''}
+    </div></div>`;
+  }).join('');
+  box._c.innerHTML = `<div class="th"><b>🧠 Ensinar os emojis</b><span>Toca para juntar a palavra ao emoji — vale para todos os stickers com ele. Se o sticker tiver texto que eu não li, escreve-o em baixo.</span></div>
+    ${typedHtml}
     ${rows}
     ${els.map(x => `<div class="tel">«${esc(x.w)}» encaixa melhor em <button class="tadd" data-e="${esc(x.e)}"><span class="emo">${esc(x.e)}</span> ＋ juntar ao sticker</button></div>`).join('')}
-    ${o.reading ? '<div class="tread">📖 A ler o texto do sticker…</div>' : ''}
-  </div>`;
-  $$('.tchip[data-w]', box).forEach(b => b.onclick = () => {
-    const e = b.dataset.e, w = b.dataset.w;
-    const l = emoWords(e).slice();
-    if (!l.some(y => norm(y) === norm(w))) {
-      l.push(w);
-      try { S.data = JSON.parse(A.setEmojiWords(e, JSON.stringify(l))); } catch (er) { return toast('Erro a guardar'); }
-      const cx = crossOf(w, e);
-      toast(cx.length ? `⚠ «${w}» juntada ao ${e}, mas também está em ${cx.join(' ')}` : `«${w}» juntada ao ${e}`);
-    }
-    box._open[stripVS(e)] = true;
+    ${o.reading ? '<div class="tread">📖 A ler o texto do sticker… (podes ir escrevendo em baixo)</div>' : ''}`;
+  const c = box._c;
+  $$('.tchip[data-w]', c).forEach(b => b.onclick = () => {
+    addEmojiWord(b.dataset.e, b.dataset.w);
+    box._open[stripVS(b.dataset.e)] = true;
     o.after && o.after();
   });
-  $$('.tchip.tog', box).forEach(b => b.onclick = () => { box._open[b.dataset.k] = !box._open[b.dataset.k]; teachBox(box, o); });
-  $$('.tadd', box).forEach(b => b.onclick = () => o.onAddEmoji && o.onAddEmoji(b.dataset.e));
+  $$('.tpick[data-e]', c).forEach(b => b.onclick = () => { if (b.classList.contains('done')) return; addEmojiWord(b.dataset.e, b.dataset.t); o.after ? o.after() : teachBox(box, o); });
+  $$('.tpick[data-st]', c).forEach(b => b.onclick = () => { if (b.classList.contains('done')) return; o.addToSticker(b.dataset.st); toast(`«${b.dataset.st}» juntada às palavras do sticker`); teachBox(box, o); });
+  $$('.ttx', c).forEach(b => b.onclick = () => { typed.splice(+b.dataset.i, 1); teachBox(box, o); });
+  $$('.tchip.tog', c).forEach(b => b.onclick = () => { box._open[b.dataset.k] = !box._open[b.dataset.k]; teachBox(box, o); });
+  $$('.tadd', c).forEach(b => b.onclick = () => o.onAddEmoji && o.onAddEmoji(b.dataset.e));
 }
 
 /** Lê o texto de uma imagem uma vez (fica guardado) e avisa quando acabar. */
@@ -1122,6 +1159,8 @@ function openEditor(packId, idx) {
       .concat((S.ocrCache[key] || []).map(w => ({ w, src: 'texto' })))
       .concat(Match.learned(s).slice(0, 6).map(l => ({ w: l.w, src: 'aprendi' })));
     teachBox(box, {
+      key, stickerWords: () => cur().words || [],
+      addToSticker: w => { const c = cur(); if (!c.words.some(y => norm(y) === norm(w))) { c.words.push(w); commit(); drawWords(); if (wsg) wsg.draw(''); } },
       emojis: s.emojis, phrases, adult: adultOn() || Match.isAdult(p, s), reading: !!S.ocrRun[key],
       focus: lastAdded && s.emojis.some(x => stripVS(x) === stripVS(lastAdded)) ? lastAdded : s.emojis[s.emojis.length - 1],
       after: () => { p = packOf(packId); drawTop(); },
@@ -1560,6 +1599,7 @@ function creatorExtras(sheet, packId) {
   };
   const emq = $('.emq', box), pkh = $('.cx-pk', box);
   let picker = null, why = null, lastAdded = null, cxOcr = null, cxReading = false;
+  const cxKey = 'cx' + Date.now();
   const wdIn = $('#wd', sheet);
   function drawTeachCx() {
     if (emojis.length && !cxOcr && !cxReading) {
@@ -1567,6 +1607,8 @@ function creatorExtras(sheet, packId) {
       withTimeout(OCR.read($('#cv', sheet).toDataURL('image/png')).catch(() => []), 15000, []).then(r => { cxOcr = r || []; cxReading = false; drawTeachCx(); });
     }
     teachBox($('.cx-teach', box), {
+      key: cxKey, stickerWords: curWords,
+      addToSticker: w => { const l = curWords(); if (!l.some(y => norm(y) === norm(w))) { l.push(w); wdIn.value = l.join(', '); csg.draw(''); } },
       emojis, adult: adultOn() || !!(packOf(packId) || {}).adult, reading: cxReading,
       phrases: curWords().map(w => ({ w, src: 'palavra' })).concat((cxOcr || []).map(w => ({ w, src: 'texto' }))),
       focus: lastAdded && emojis.includes(lastAdded) ? lastAdded : emojis[emojis.length - 1],
