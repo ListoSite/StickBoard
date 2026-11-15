@@ -573,10 +573,10 @@ html,body{background:var(--bg);-webkit-font-smoothing:antialiased}
 .pk-grid2 button .pin{position:absolute;left:5px;top:3px;color:var(--green);font-weight:800;font-size:13px;text-shadow:0 1px 3px #000}
 .sheet .ftools{margin-top:2px}
 /* ---------- escrever o texto do sticker (5.2) ---------- */
-.teach .tinp{display:flex;gap:8px;margin-top:10px}
-.teach .tinp input{flex:1;min-width:0;height:40px;border-radius:12px;background:var(--bg);border:1px solid var(--line);color:var(--text);padding:0 12px;font-size:14px}
-.teach .tinp input:focus{border-color:var(--blue);outline:none}
-.teach .tinp .btn{height:40px;min-width:44px}
+.teach .tinp,.ewp .tinp{display:flex;gap:8px;margin-top:10px}
+.teach .tinp input,.ewp .tinp input{flex:1;min-width:0;height:40px;border-radius:12px;background:var(--bg);border:1px solid var(--line);color:var(--text);padding:0 12px;font-size:14px}
+.teach .tinp input:focus,.ewp .tinp input:focus{border-color:var(--blue);outline:none}
+.teach .tinp .btn,.ewp .tinp .btn{height:40px;min-width:44px}
 .ttyped{padding:8px 10px;margin:6px 0 8px;border-radius:12px;background:rgba(92,168,255,.08);border:1px solid rgba(92,168,255,.25)}
 .ttyped .ttw{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:14px;text-align:left}
 .ttyped .ttw span{flex:1;min-width:0}
@@ -645,3 +645,19 @@ html,body{background:var(--bg);-webkit-font-smoothing:antialiased}
 .sheet.ed2.ed2-big .acc[data-id=cut]{order:-1}
 .sheet.ed2.ed2-big .ed2-emo .ed2-lbl{display:none}
 .sheet.ed2.ed2-big .ed2-top{gap:8px}
+/* palavras do emoji (editar sticker) */
+.ewp{margin-top:12px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px}
+.ewp.off{display:flex;flex-direction:column;gap:2px;color:var(--muted);font-size:13px}
+.ewp.off b{color:var(--text)}
+.ewh{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.ewh .ewn{margin-left:auto;font-size:12px;color:var(--muted)}
+.ewtabs{display:flex;gap:6px}
+.ewt{width:38px;height:38px;border-radius:12px;font-size:22px;background:transparent;border:1.5px solid var(--line);display:grid;place-items:center;padding:0}
+.ewt.on{border-color:var(--green);background:var(--greenSoft)}
+.ewp .ewin{margin:0 0 4px}
+.ewl{font-size:12px;color:var(--muted);margin:10px 0 6px;display:flex;align-items:center;gap:8px}
+.ewall{background:none;border:0;color:var(--green);font-size:12px;padding:0}
+.ewc{display:flex;flex-wrap:wrap;gap:6px}
+.ewchip{display:inline-flex;align-items:center;gap:4px;padding:5px 4px 5px 10px;border-radius:999px;background:var(--bg);border:1px solid var(--line);font-size:13px}
+.ewx{width:22px;height:22px;border-radius:11px;border:0;background:transparent;color:var(--muted);font-size:16px;line-height:20px;padding:0}
+.ed2-slots .slot.sel{box-shadow:0 0 0 2px var(--green)}
