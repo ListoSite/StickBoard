@@ -1604,6 +1604,9 @@ function creatorExtras(sheet, packId, inline) {
   const emq = $('.emq', box), pkh = $('.cx-pk', box), teachEl = $('.cx-teach', box);
   let picker = null, why = null, lastAdded = null, cxOcr = null, cxReading = false;
   const ewEl = $('.cx-ew', box);
+  let a18 = false;
+  const packA18 = () => !!(packOf(packId) || {}).adult;
+  const cxAdult = () => adultOn() || packA18() || a18;
   let ewSel = null, ewAll = false, ewTyped = '';
   /* Palavras do emoji: juntar/tirar palavras ao emoji escolhido sem sair do sticker */
   function drawEw() {
@@ -1611,7 +1614,7 @@ function creatorExtras(sheet, packId, inline) {
     if (!emojis.length) { ewEl.innerHTML = '<div class="ewp off"><b>📝 Palavras do emoji</b><span>Escolhe um emoji e junta-lhe logo palavras aqui.</span></div>'; ewEl._inp = null; return; }
     if (!ewSel || !emojis.some(e => stripVS(e) === stripVS(ewSel))) ewSel = lastAdded && emojis.includes(lastAdded) ? lastAdded : emojis[emojis.length - 1];
     const e = ewSel;
-    const ad = adultOn() || !!(packOf(packId) || {}).adult;
+    const ad = cxAdult();
     const words = emoWords(e);
     const has = new Set(words.map(norm));
     // ideias: a escrever → completa o que escreves; sem escrever → as que encaixam neste sticker e neste emoji
@@ -1685,7 +1688,7 @@ function creatorExtras(sheet, packId, inline) {
     teachBox(teachEl, {
       key: cxKey, stickerWords: curWords,
       addToSticker: w => { const l = curWords(); if (!l.some(y => norm(y) === norm(w))) { l.push(w); wdIn.value = l.join(', '); csg.draw(''); } },
-      emojis, adult: adultOn() || !!(packOf(packId) || {}).adult, reading: cxReading,
+      emojis, adult: cxAdult(), reading: cxReading,
       phrases: curWords().map(w => ({ w, src: 'palavra' })).concat((cxOcr || []).map(w => ({ w, src: 'texto' }))),
       focus: lastAdded && emojis.includes(lastAdded) ? lastAdded : emojis[emojis.length - 1],
       after: () => drawTeachCx(),
@@ -1693,7 +1696,7 @@ function creatorExtras(sheet, packId, inline) {
     });
   }
   const curWords = () => wdIn.value.split(',').map(x => x.trim()).filter(Boolean);
-  const csg = wordSuggest($('#cx-sug', box), () => ({ words: curWords(), emojis, adult: adultOn() || !!(packOf(packId) || {}).adult }), (w, many, comp) => {
+  const csg = wordSuggest($('#cx-sug', box), () => ({ words: curWords(), emojis, adult: cxAdult() }), (w, many, comp) => {
     const l = curWords();
     if (comp && l.length && !wdIn.value.trim().endsWith(',')) l.pop();
     if (l.some(y => norm(y) === norm(w))) return;
@@ -1725,11 +1728,22 @@ function creatorExtras(sheet, packId, inline) {
       drawEm(); drawWhyCx(); refreshPicker();
     } finally { btn.disabled = false; btn.innerHTML = label; }
   }
+  function a18Btn() {
+    const on = a18 || packA18();
+    return `<button class="btn sm a18b ${on ? 'a18on' : ''}" id="cx-18" title="Sticker +18">${packA18() ? '🔞 Pack +18' : on ? '🔞 É +18' : '🔞 +18'}</button>`;
+  }
   function drawEm() {
     emq.innerHTML = inline
-      ? `<div class="ed2-slots">${[0, 1, 2].map(i => emojis[i] ? `<div class="slot emo f" data-i="${i}">${esc(emojis[i])}<span class="x">×</span></div>` : '<div class="slot e"></div>').join('')}</div><button class="btn sm aibtn" id="cx-ai">${emojis.length < 3 ? '✨ Completar' : '✨ Ideias'}</button>`
-      : emojis.map((e, i) => `<div class="slot emo" data-i="${i}">${esc(e)}<span class="x">×</span></div>`).join('') + (emojis.length < 3 ? `<button class="btn sm" id="cx-add">${picker ? 'Fechar' : '＋ Emoji'}</button>` : '') + `<button class="btn sm aibtn" id="cx-ai">${emojis.length < 3 ? '✨ Completar' : '✨ Ideias'}</button>`;
+      ? `<div class="ed2-slots">${[0, 1, 2].map(i => emojis[i] ? `<div class="slot emo f" data-i="${i}">${esc(emojis[i])}<span class="x">×</span></div>` : '<div class="slot e"></div>').join('')}</div><button class="btn sm aibtn" id="cx-ai">${emojis.length < 3 ? '✨ Completar' : '✨ Ideias'}</button>${a18Btn()}`
+      : emojis.map((e, i) => `<div class="slot emo" data-i="${i}">${esc(e)}<span class="x">×</span></div>`).join('') + (emojis.length < 3 ? `<button class="btn sm" id="cx-add">${picker ? 'Fechar' : '＋ Emoji'}</button>` : '') + `<button class="btn sm aibtn" id="cx-ai">${emojis.length < 3 ? '✨ Completar' : '✨ Ideias'}</button>` + a18Btn();
     $('#cx-ai', emq).onclick = e => autoCx(e.currentTarget);
+    const b18 = $('#cx-18', emq);
+    if (b18) b18.onclick = () => {
+      if (packA18()) return toast('Este pack já é todo +18 🔞');
+      a18 = !a18;
+      toast(a18 ? '🔞 Vai ficar +18: só aparece no teclado e na bolha no modo +18' : 'Já não fica +18');
+      drawEm(); csg.draw('');
+    };
     drawTeachCx();
     $$('.slot[data-i]', emq).forEach(sl => sl.onclick = ev => {
       const i = +sl.dataset.i;
@@ -1769,6 +1783,7 @@ function creatorExtras(sheet, packId, inline) {
     // depois de o sticker ser criado: emojis + especial
     apply(file, words) {
       if (emojis.length) { try { const d = JSON.parse(A.setStickerTags(packId, file, JSON.stringify(emojis), JSON.stringify(words || []))); if (!d.error) S.data = d; } catch (e) {} }
+      if (a18 && !packA18()) { try { const d = JSON.parse(A.setStickerFlag(packId, file, 'adult', true)); if (!d.error) S.data = d; } catch (e) {} }
       sps.commit({ p: packId, f: file });
     }
   };
