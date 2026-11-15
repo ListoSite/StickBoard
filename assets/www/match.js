@@ -35,6 +35,9 @@
     oq: 'o que', qq: 'qualquer', ngm: 'ninguem', vdd: 'verdade',
     crl: 'caralho', krl: 'caralho', crlh: 'caralho', krlh: 'caralho', caraio: 'caralho', carai: 'caralho', fodasse: 'foda se', fodase: 'foda se',
     fdp: 'filho da puta', pqp: 'puta que pariu', vsf: 'vai se foder', vtf: 'vai te foder', vtnc: 'vai tomar no cu', tnc: 'tomar no cu',
+    ns: 'nao sei', nsei: 'nao sei', obgd: 'obrigado', obgda: 'obrigada', sff: 'se faz favor', pfvr: 'por favor', pls: 'por favor', plz: 'por favor',
+    dsc: 'desculpa', dsclp: 'desculpa', tlm: 'telemovel', msg: 'mensagem', ctz: 'certeza', smp: 'sempre', nc: 'nunca', qlq: 'qualquer', ent: 'entao',
+    amn: 'amanha', pk: 'porque', bjo: 'beijo', bjx: 'beijos', bjss: 'beijos', fdx: 'foda se', fodex: 'foda se', fosgase: 'foda se', tranqs: 'tranquilo',
     dlc: 'delicia', dlç: 'delicia', fuder: 'foder', fudido: 'fodido', fudida: 'fodida', po: 'para o', pro: 'para o' };
   const canonToks = text => tokens(text).flatMap(t => (CANON[t] || t).split(' '));
   const pst = t => t.length >= 4 ? stem(t) : t;
