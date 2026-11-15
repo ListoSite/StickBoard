@@ -68,8 +68,33 @@ function splitEmojis(str) {
 const S = { data: { packs: [] }, tab: 'packs', packId: null, sel: null, wa: {}, q: '', ov: [] };
 function reload() { try { S.data = JSON.parse(A.getData()); } catch (e) { toast('Erro a ler os dados'); } }
 const packOf = id => S.data.packs.find(p => p.id === id);
-const imgUrl = (p, f) => `f/${encodeURIComponent(p.id)}/${encodeURIComponent(f)}?v=${p.version || 0}`;
-const trayUrl = p => `f/${encodeURIComponent(p.id)}/tray.png?v=${p.version || 0}`;
+/* ---------- conteúdo +18: sem «Mostrar +18 na app» ligado, fica totalmente escondido na app ----------
+   S.data passa a ser uma vista sem os packs/stickers +18; a cópia completa fica em S._raw. */
+const A18 = { keys: new Set(), srcs: new Set() };
+(function () {
+  let raw = S.data, view = raw, viewOf = null;
+  const build = () => {
+    A18.keys = new Set(); A18.srcs = new Set();
+    if (!raw || !Array.isArray(raw.packs)) return raw;
+    raw.packs.forEach(p => (p.stickers || []).forEach(s => { if (p.adult || s.adult) { A18.keys.add(p.id + '|' + s.f); if (s.src) A18.srcs.add(s.src); } }));
+    if (raw.showAdult) return raw;
+    const v = Object.assign({}, raw);
+    v.packs = raw.packs.filter(p => !p.adult).map(p => (p.stickers || []).some(s => s.adult) ? Object.assign({}, p, { stickers: p.stickers.filter(s => !s.adult) }) : p);
+    return v;
+  };
+  Object.defineProperty(S, 'data', {
+    get() { if (viewOf !== raw) { view = build(); viewOf = raw; } return view; },
+    set(d) { raw = d; viewOf = null; },
+    enumerable: true, configurable: true
+  });
+  Object.defineProperty(S, '_raw', { get() { return raw; } });
+})();
+const showAdult = () => !!(S._raw && S._raw.showAdult);
+/** Está escondido por ser +18? (pack ou sticker) */
+const isHidden18 = (pid, f) => { S.data; return !showAdult() && A18.keys.has(pid + '|' + f); };
+const A18_IMG = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="18" fill="#1c2028"/><text x="50" y="62" font-size="38" text-anchor="middle">🔞</text></svg>');
+const imgUrl = (p, f) => isHidden18(p.id, f) ? A18_IMG : `f/${encodeURIComponent(p.id)}/${encodeURIComponent(f)}?v=${p.version || 0}`;
+const trayUrl = p => (p.cover && isHidden18(p.id, p.cover)) ? A18_IMG : `f/${encodeURIComponent(p.id)}/tray.png?v=${p.version || 0}`;
 
 function usage() {
   const m = new Map();
@@ -106,7 +131,7 @@ const isAdded = st => st && (st.addedWa === 1 || st.addedW4b === 1);
 const isKb = p => p.kind === 'kb';
 const adultOn = () => !!S.data.adultMode;
 /* no modo normal, as imagens +18 aparecem desfocadas na app (toca em «Mostrar» para ver) */
-const hideAdult = (p, s) => !adultOn() && Match.isAdult(p, s) && !(S.reveal && S.reveal[p.id]);
+const hideAdult = (p, s) => false;
 const visible = p => p.stickers.filter(s => !s.hidden);
 const maxOf = p => isKb(p) ? Infinity : 30;
 const countLabel = p => { const v = visible(p).length, h = p.stickers.length - v; return (isKb(p) ? `${v} stickers` : `${v}/30 stickers`) + (h ? ` · +${h} em especiais` : ''); };
@@ -294,7 +319,7 @@ function viewPacks() {
     const iss = issues(p);
     let chip = iss.length ? `<span class="chip warn">${esc(iss[0].split(' (')[0])}</span>` : (isKb(p) ? '<span class="chip ok">⌨ No teclado</span>' : (isAdded(st) ? '<span class="chip ok">✓ No WhatsApp</span>' : '<span class="chip">Pronto para enviar</span>'));
     const nA = p.stickers.filter(s => Match.isAdult(p, s)).length;
-    const blurTray = !adultOn() && (p.adult || (p.cover && Match.isAdult(p, p.stickers.find(s => s.f === p.cover))));
+    const blurTray = false && (p.adult || (p.cover && Match.isAdult(p, p.stickers.find(s => s.f === p.cover))));
     const thumbs = visible(p).slice(0, 6).map(s => `<img loading="lazy" class="${hideAdult(p, s) ? 'nsfw' : ''}" src="${imgUrl(p, s.f)}">`).join('');
     const c = el(`<div class="pack"><div class="tray">${p.stickers.length ? `<img class="${blurTray ? 'nsfw' : ''}" src="${trayUrl(p)}">` : ICON.img}</div><div class="info"><div class="name">${p.adult ? '<span class="a18t">🔞</span> ' : ''}${esc(p.name)}</div><div class="meta">${countLabel(p)} · ${kindLabel(p)}${!p.adult && nA ? ` · ${nA} 🔞` : ''}</div>${chip}</div></div>`);
     if (thumbs) c.querySelector('.info').insertAdjacentHTML('beforeend', `<div class="thumbs" style="margin-top:8px">${thumbs}</div>`);
@@ -782,7 +807,7 @@ function viewPack() {
   v.appendChild(acts);
   if (!n) v.appendChild(el(`<div class="hint" style="margin-top:12px">“Do WhatsApp” abre a pasta onde o WhatsApp guarda os stickers que recebeste (Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Stickers). Também podes partilhar imagens de outra app diretamente para o StickTag.</div>`));
 
-  if (!adultOn() && p.stickers.some(s => Match.isAdult(p, s))) {
+  if (false) {
     const rv = S.reveal && S.reveal[p.id];
     const b = el(`<div class="banner a18ban"><div style="font-size:22px">🔞</div><div style="flex:1">${p.adult ? 'Pack +18' : 'Tem stickers +18'}: ${rv ? 'estão à vista.' : 'estão desfocados.'} No teclado e na bolha só aparecem no modo +18.</div><button class="btn sm">${rv ? 'Esconder' : 'Mostrar'}</button></div>`);
     b.querySelector('button').onclick = () => { S.reveal = S.reveal || {}; S.reveal[p.id] = !rv; render(); };
@@ -844,7 +869,8 @@ async function packMenu(p) {
   if (r === 'sec') { const n = await newSectionDialog(p); if (n) { S.secOf = Object.assign(S.secOf || {}, { [p.id]: n }); render(); } return; }
   if (r === 'adult') {
     try { S.data = JSON.parse(A.setPackFlag(p.id, 'adult', !p.adult)); } catch (e) {}
-    toast(!p.adult ? 'Pack +18 🔞: só aparece no teclado no modo +18' : 'Já não é +18');
+    toast(!p.adult ? (showAdult() ? 'Pack +18 🔞: só aparece no teclado no modo +18' : '🔞 Pack +18: fica escondido na app (liga «Mostrar +18 na app» nas Definições para o veres)') : 'Já não é +18', 3200);
+    if (!p.adult && !showAdult()) { S.packId = null; S.tab = 'packs'; }
     render();
   } else if (r === 'edit') {
     const r2 = await dialog({ title: 'Editar pack', html: `<label class="field"><span>Nome</span><input class="input" id="ep-n" maxlength="128" value="${esc(p.name)}"></label><label class="field"><span>Autor</span><input class="input" id="ep-p" maxlength="128" value="${esc(p.publisher)}"></label>`, buttons: [{ label: 'Cancelar', cls: 'ghost', value: null }, { label: 'Guardar', cls: 'primary', value: d => ({ n: $('#ep-n', d).value, p: $('#ep-p', d).value }) }] });
@@ -1313,6 +1339,7 @@ function openEditor(packId, idx) {
     const a18 = $('#a18', bd); if (a18) a18.onclick = () => {
       const c = cur(), on = !c.adult;
       try { const d = JSON.parse(A.setStickerFlag(p.id, c.f, 'adult', on)); if (!d.error) { S.data = d; p = packOf(packId); } } catch (e) {}
+      if (on && !showAdult()) { toast('🔞 Sticker +18: fica escondido na app (liga «Mostrar +18 na app» nas Definições para o veres)', 3200); closeOverlay(ov); render(); return; }
       toast(on ? 'Sticker +18 🔞: só aparece no modo +18' : 'Já não é +18');
       drawAll();
     };
@@ -1741,7 +1768,7 @@ function creatorExtras(sheet, packId, inline) {
     if (b18) b18.onclick = () => {
       if (packA18()) return toast('Este pack já é todo +18 🔞');
       a18 = !a18;
-      toast(a18 ? '🔞 Vai ficar +18: só aparece no teclado e na bolha no modo +18' : 'Já não fica +18');
+      toast(a18 ? (showAdult() ? '🔞 Vai ficar +18: só aparece no teclado e na bolha no modo +18' : '🔞 Vai ficar +18: depois de guardado fica escondido na app') : 'Já não fica +18', 2600);
       drawEm(); csg.draw('');
     };
     drawTeachCx();
@@ -2583,8 +2610,9 @@ function viewShortcuts() {
 function viewKeyboard() {
   const v = el('<section class="view"></section>');
   v.appendChild(el(`<div class="top"><div style="flex:1"><h1>Teclado de stickers</h1><div class="sub">Escreves no teu teclado, os stickers aparecem aqui</div></div></div>`));
-  const nAdult = S.data.packs.reduce((a, p) => a + p.stickers.filter(s => Match.isAdult(p, s)).length, 0);
-  const am = el(`<div class="card ${adultOn() ? 'a18card' : ''}" style="margin-bottom:12px"><div class="opt" style="padding:0;border:0"><div class="t"><b>🔞 Modo +18</b><div class="small muted">${adultOn() ? 'Ligado: o teclado, a bolha, as sugestões, a pesquisa e os recentes só mostram stickers +18.' : 'Desligado: os stickers +18 ficam escondidos em todo o lado.'} Tens ${nAdult} sticker${nAdult === 1 ? '' : 's'} +18. Também podes trocar com o botão 🔞 no teclado e na bolha.</div></div><button class="sw ${adultOn() ? 'on' : ''}" id="am"></button></div><div class="hint" style="margin-top:8px">Para marcar: no menu ⋮ de um pack («Marcar como 🔞 +18») ou num sticker (botão «🔞 +18»).</div></div>`);
+  const nAdult = S._raw.packs.reduce((a, p) => a + p.stickers.filter(s => Match.isAdult(p, s)).length, 0);
+  const am = el(`<div class="card ${adultOn() ? 'a18card' : ''}" style="margin-bottom:12px"><div class="opt" style="padding:0;border:0"><div class="t"><b>🔞 Modo +18</b><div class="small muted">${adultOn() ? 'Ligado: o teclado e a bolha só mostram stickers +18.' : 'Desligado: os stickers +18 ficam escondidos no teclado e na bolha.'} Tens ${nAdult} sticker${nAdult === 1 ? '' : 's'} +18. Também podes trocar com o botão 🔞 no teclado e na bolha.</div></div><button class="sw ${adultOn() ? 'on' : ''}" id="am"></button></div><div class="opt" style="padding:12px 0 0;border:0;margin-top:12px;border-top:1px solid var(--line)"><div class="t"><b>👁 Mostrar +18 na app</b><div class="small muted">${showAdult() ? 'Ligado: os packs e stickers +18 aparecem na app.' : 'Desligado: os packs e stickers +18 ficam totalmente escondidos na app (packs, pastas, pesquisa, especiais…).'}</div></div><button class="sw ${showAdult() ? 'on' : ''}" id="sa"></button></div><div class="hint" style="margin-top:8px">Para marcar: no menu ⋮ de um pack («Marcar como 🔞 +18») ou num sticker (botão «🔞 +18»).</div></div>`);
+  $('#sa', am).onclick = () => { try { S.data = JSON.parse(A.setOption('showAdult', !showAdult())); } catch (e) {} S.ffiles = null; if (!showAdult()) S.packId = null; toast(showAdult() ? '👁 +18 à vista na app' : '🔞 +18 escondido na app'); render(); };
   $('#am', am).onclick = () => { try { S.data = JSON.parse(A.setOption('adultMode', !adultOn())); } catch (e) {} toast(adultOn() ? '🔞 Modo +18 ligado' : 'Modo normal'); render(); };
   let st = {};
   try { st = JSON.parse(A.keyboardStatus()); } catch (e) {}
@@ -4161,7 +4189,10 @@ window.App = {
   onDupesProgress(done, total) { busy(`A comparar ${done} de ${total}…`); },
   onBulkProgress(r) { if (!r) return; busy(r.total > 0 ? `${r.label} ${r.done} de ${r.total}…` : `${r.label}…`, r.done, r.total); },
   onBulkDone(r) { if (S.bulkCb) S.bulkCb(r); else { busy(null); reload(); render(); } },
-  onFolderList(r) { if (S.flistCb) { const cb = S.flistCb; S.flistCb = null; cb(r); } },
+  onFolderList(r) {
+    if (r && r.ok && Array.isArray(r.files) && !showAdult()) { S.data; r.files = r.files.filter(x => !A18.srcs.has(x.name + '|' + x.size)); }
+    if (S.flistCb) { const cb = S.flistCb; S.flistCb = null; cb(r); }
+  },
   onDupes(r) { showDupes(r || { groups: [] }); },
   onSimilar(r) { const f = r && SIMW[r.id]; if (f) { delete SIMW[r.id]; f(r); } },
   onImported(r) {
