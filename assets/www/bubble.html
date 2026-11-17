@@ -114,21 +114,15 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&a
 const EM = new Map();
 const info = e => EM.get(M.stripVS(e));
 let DATA = { packs: [] }, IDX = [], text = '', mode = 'bubble', lastLoad = 0, tab = 'sug', lastCount = 0;
-// a mensagem que acabaste de mandar: os stickers continuam a aparecer até voltares a escrever
+// a mensagem que acabaste de mandar: os stickers continuam a aparecer até voltares a escrever.
+// Quem sabe qual foi é o Android (vê a caixa do WhatsApp mesmo quando escreves no outro teclado): chega em «k».
 let kept = null;
-const KEEP_MS = 15 * 60 * 1000;
-function takeText(t) {
+function takeText(t, k) {
   t = t || '';
-  if (!t.trim()) {
-    // a caixa ficou vazia de repente (mandaste a mensagem): fica a última frase
-    if (!kept && text.trim().length >= 3) kept = { t: text, at: Date.now() };
-    if (kept && Date.now() - kept.at < KEEP_MS) { text = kept.t; return; }
-    kept = null; text = ''; return;
-  }
-  if (kept && t !== kept.t) kept = null; // voltaste a escrever
-  text = t;
+  if (!t.trim() && k && String(k).trim()) { kept = { t: String(k), at: Date.now() }; text = kept.t; return; }
+  kept = null; text = t;
 }
-function dropKept() { kept = null; text = ''; }
+function dropKept() { kept = null; text = ''; try { (typeof K !== 'undefined' ? K : B).forgetKept(); } catch (e) {} }
 const img = (p, f) => `f/${encodeURIComponent(p.id)}/${encodeURIComponent(f)}?v=${p.version || 0}`;
 
 function load(force) {
@@ -322,9 +316,9 @@ window.BubbleApp = {
     if (m === 'panel') { const c = $('#card'); c.style.animation = 'none'; void c.offsetWidth; c.style.animation = ''; drawPanel(); }
     else drawBadge();
   },
-  onText(t) {
+  onText(t, k) {
     const was = text, wk = !!kept;
-    takeText(t);
+    takeText(t, k);
     if (wk && kept && text === was) return;
     load(false);
     if (mode === 'panel') drawPanel(); else drawBadge();
@@ -349,7 +343,7 @@ window.BubbleApp = {
     j.emojis.forEach(a => EM.set(M.stripVS(a[0]), { e: a[0], n: a[2], pt: a[3] ? a[3].split('|') : [] }));
   } catch (e) {}
   load(true);
-  try { takeText(B.getText()); } catch (e) {}
+  try { takeText(B.getText(), B.getKept ? B.getKept() : ''); } catch (e) {}
   BubbleApp.setMode('bubble');
 })();
 </script>

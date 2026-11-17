@@ -6,21 +6,15 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const EM = new Map();
 let DATA = { packs: [] }, IDX = [], text = '', tab = 'sug', direct = true;
-// a mensagem que acabaste de mandar: os stickers continuam a aparecer até voltares a escrever
+// a mensagem que acabaste de mandar: os stickers continuam a aparecer até voltares a escrever.
+// Quem sabe qual foi é o Android (vê a caixa do WhatsApp mesmo quando escreves no outro teclado): chega em «k».
 let kept = null;
-const KEEP_MS = 15 * 60 * 1000;
-function takeText(t) {
+function takeText(t, k) {
   t = t || '';
-  if (!t.trim()) {
-    // a caixa ficou vazia de repente (mandaste a mensagem): fica a última frase
-    if (!kept && text.trim().length >= 3) kept = { t: text, at: Date.now() };
-    if (kept && Date.now() - kept.at < KEEP_MS) { text = kept.t; return; }
-    kept = null; text = ''; return;
-  }
-  if (kept && t !== kept.t) kept = null; // voltaste a escrever
-  text = t;
+  if (!t.trim() && k && String(k).trim()) { kept = { t: String(k), at: Date.now() }; text = kept.t; return; }
+  kept = null; text = t;
 }
-function dropKept() { kept = null; text = ''; }
+function dropKept() { kept = null; text = ''; try { (typeof K !== 'undefined' ? K : B).forgetKept(); } catch (e) {} }
 let shufKey = null, shufOrder = [];
 let sugGrp = ''; // aba das sugestões: '' = todos, ou o emoji do tema
 let searching = false, sq = '', multi = null;
@@ -424,13 +418,13 @@ window.KBApp = {
   onBusy(label) { setBusy(label); },
   onOpen(o) {
     setBusy(o.busy || null);
-    takeText(o.text); direct = !!o.direct; tab = 'sug'; shufKey = null; multi = null;
+    takeText(o.text, o.kept); direct = !!o.direct; tab = 'sug'; shufKey = null; multi = null;
     $('#multi').classList.remove('on'); drawSend();
     if (searching) setSearch(false);
     closePv(); refresh(); $('#grid').scrollTop = 0;
   },
   onSaved(r) { flash(r && r.ok ? 'Guardado na galeria (Imagens/StickTag) ✓' : 'Não guardei: ' + ((r && r.error) || 'erro')); },
-  onText(t) { const was = text, wk = !!kept; takeText(t); if (wk && kept && text === was) return; if (searching) return; renderTop(); if (tab === 'sug' && !(multi && multi.length)) renderGrid(); },
+  onText(t, k) { const was = text, wk = !!kept; takeText(t, k); if (wk && kept && text === was) return; if (searching) return; renderTop(); if (tab === 'sug' && !(multi && multi.length)) renderGrid(); },
   onSent(r) {
     if (!r || !r.ok) flash('Não consegui enviar');
     else if (r.mode === 'share') flash('A abrir a partilha…');
@@ -440,6 +434,6 @@ window.KBApp = {
 
 (async function () {
   await loadEmoji();
-  try { takeText(K.getText()); } catch (e) {}
+  try { takeText(K.getText(), K.getKept ? K.getKept() : ''); } catch (e) {}
   refresh();
 })();

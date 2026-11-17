@@ -51,7 +51,7 @@ public class KeyboardService extends InputMethodService {
     String pendingOpen = null;
 
     final Runnable textChanged = new Runnable() {
-        @Override public void run() { js("onText", JSONObject.quote(currentText())); }
+        @Override public void run() { js("onText", JSONObject.quote(currentText()) + "," + JSONObject.quote(BubbleService.keptFor(curPkg()))); }
     };
 
     @Override public void onCreate() { super.onCreate(); inst = this; AutoBackup.maybeRun(this); }
@@ -201,6 +201,7 @@ public class KeyboardService extends InputMethodService {
         try {
             JSONObject o = new JSONObject();
             o.put("text", currentText());
+            o.put("kept", BubbleService.keptFor(curPkg()));
             o.put("app", info != null && info.packageName != null ? info.packageName : "");
             o.put("direct", chooseMime(info) != null);
             if (busyLabel != null) o.put("busy", busyLabel);
@@ -226,6 +227,8 @@ public class KeyboardService extends InputMethodService {
             }
         });
     }
+
+    String curPkg() { EditorInfo i = getCurrentInputEditorInfo(); return i == null || i.packageName == null ? "" : i.packageName; }
 
     String currentText() {
         InputConnection ic = getCurrentInputConnection();
@@ -499,6 +502,9 @@ public class KeyboardService extends InputMethodService {
         }
 
         /** Ao mandar o próximo sticker: apagar o que está escrito? (só 1 palavra ou exatamente uma palavra do sticker) */
+        @JavascriptInterface public void forgetKept() { BubbleService.forgetKept(); }
+        @JavascriptInterface public String getKept() { return BubbleService.keptFor(curPkg()); }
+
         @JavascriptInterface public void deleteHint(boolean del) { KeyboardService.deleteHint = del ? Boolean.TRUE : Boolean.FALSE; }
 
         @JavascriptInterface public void learn2(String packId, String file, String wordsJson, String skippedJson) {

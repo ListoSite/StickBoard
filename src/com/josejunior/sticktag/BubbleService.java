@@ -225,11 +225,16 @@ public class BubbleService extends AccessibilityService {
                 || type == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) {
             if (!allowedApps().contains(pkg)) return;
             app = pkg;
+            String before = text;
             if (e.isPassword()) { text = ""; } else {
                 String t = readText(e);
-                if (t != null) text = t;
+                if (t != null) text = isHint(t) ? "" : t;
             }
-            if (shown) js("onText", JSONObject.quote(text));
+            long now2 = System.currentTimeMillis();
+            if (text.trim().length() == 0) {
+                if (type == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED && before != null && before.trim().length() >= 3) { sentText = before; sentApp = pkg; sentAt = now2; }
+            } else if (!text.equals(sentText)) typedAt = now2;
+            if (shown) js("onText", JSONObject.quote(text) + "," + JSONObject.quote(keptFor(app)));
             checkKeyboard();
         } else if (type == AccessibilityEvent.TYPE_WINDOWS_CHANGED || type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && pkg.length() > 0 && !pkg.equals("com.android.systemui")) {
@@ -245,6 +250,33 @@ public class BubbleService extends AccessibilityService {
     boolean isImePackage(String pkg) {
         String cur = Settings.Secure.getString(getContentResolver(), "default_input_method");
         return cur != null && cur.startsWith(pkg + "/");
+    }
+
+    /* ---------- a mensagem que acabaste de mandar ----------
+       A caixa de texto ficou vazia de repente (mandaste a mensagem): guardamos o texto para o teclado de stickers
+       e a bolha continuarem a sugerir os stickers dessa mensagem até voltares a escrever. */
+    static volatile String sentText = "", sentApp = "";
+    static volatile long sentAt = 0, typedAt = 0;
+    static final long KEEP_MS = 15 * 60 * 1000L;
+    /** A mensagem que mandaste há pouco nesta app (ou "" se entretanto escreveste outra coisa). */
+    static String keptFor(String pkg) {
+        String t = sentText;
+        if (t == null || t.length() == 0) return "";
+        if (System.currentTimeMillis() - sentAt > KEEP_MS) return "";
+        if (typedAt > sentAt) return "";
+        if (pkg != null && pkg.length() > 0 && sentApp.length() > 0 && !sentApp.equals(pkg)) return "";
+        return t;
+    }
+    static void forgetKept() { sentText = ""; }
+    /** Textos de ajuda da caixa vazia («Mensagem», «Type a message»…): não são texto escrito. */
+    static boolean isHint(String t) {
+        String x = t == null ? "" : t.trim().toLowerCase();
+        if (x.length() == 0 || x.length() > 40) return false;
+        String[] H = { "mensagem", "message", "escreve uma mensagem", "escreva uma mensagem", "digite uma mensagem", "digita uma mensagem",
+            "type a message", "write a message", "bericht", "typ een bericht", "nachricht", "nachricht schreiben", "écrire un message", "ecrire un message",
+            "mensaje", "escribe un mensaje", "messaggio", "scrivi un messaggio", "message…", "mensagem…", "message...", "send a message", "enviar mensagem" };
+        for (String h : H) if (x.equals(h)) return true;
+        return false;
     }
 
     String readText(AccessibilityEvent e) {
@@ -320,7 +352,7 @@ public class BubbleService extends AccessibilityService {
         web.setWebViewClient(new WebViewClient() {
             @Override public WebResourceResponse shouldInterceptRequest(WebView v, String url) { return Web.serve(BubbleService.this, url); }
             @Override public boolean shouldOverrideUrlLoading(WebView v, String url) { return true; }
-            @Override public void onPageFinished(WebView v, String url) { pageReady = true; js("onText", JSONObject.quote(text)); js("onSpecial", Specials.state()); }
+            @Override public void onPageFinished(WebView v, String url) { pageReady = true; js("onText", JSONObject.quote(text) + "," + JSONObject.quote(keptFor(app))); js("onSpecial", Specials.state()); }
         });
         web.setOnTouchListener(new View.OnTouchListener() {
             @Override public boolean onTouch(View v, MotionEvent ev) {
@@ -347,7 +379,7 @@ public class BubbleService extends AccessibilityService {
         lp.y = by >= 0 ? Math.min(by, top - dp(60)) : top - dp(68);
         try { wm.addView(web, lp); shown = true; expanded = false; } catch (Exception e) { shown = false; return; }
         js("setMode", "'bubble'");
-        js("onText", JSONObject.quote(text));
+        js("onText", JSONObject.quote(text) + "," + JSONObject.quote(keptFor(app)));
     }
 
     void hide() {
@@ -493,6 +525,10 @@ public class BubbleService extends AccessibilityService {
         }
 
         /** Ao mandar o próximo sticker: apagar o que está escrito? (só 1 palavra ou exatamente uma palavra do sticker) */
+        /** O ✕ «limpar» das sugestões da mensagem enviada. */
+        @JavascriptInterface public void forgetKept() { BubbleService.forgetKept(); }
+        @JavascriptInterface public String getKept() { return BubbleService.keptFor(app); }
+
         @JavascriptInterface public void deleteHint(boolean del) { KeyboardService.deleteHint = del ? Boolean.TRUE : Boolean.FALSE; }
 
         @JavascriptInterface public void learn2(String packId, String file, String wordsJson, String skippedJson) {
