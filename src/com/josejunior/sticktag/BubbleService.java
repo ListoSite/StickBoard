@@ -219,6 +219,16 @@ public class BubbleService extends AccessibilityService {
             // rede de segurança: se a bolha devia estar à vista e não está, volta a verificar (no máximo a cada 1,5 s)
             long now = System.currentTimeMillis();
             if (!shown && now - lastCheck > 1500 && allowedApps().contains(pkg)) { lastCheck = now; checkKeyboard(); }
+            // a app apagou a caixa sem avisar (mandaste a mensagem)? vê a caixa de texto (no máximo a cada 0,4 s)
+            if (text != null && text.trim().length() >= 3 && now - lastBoxCheck > 400 && allowedApps().contains(pkg)) {
+                lastBoxCheck = now;
+                String t = focusedBoxText();
+                if (t != null && t.trim().length() == 0) {
+                    sentText = text; sentApp = pkg; sentAt = now;
+                    text = "";
+                    if (shown) js("onText", JSONObject.quote(text) + "," + JSONObject.quote(keptFor(app)));
+                }
+            }
             return;
         }
         if (type == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED || type == AccessibilityEvent.TYPE_VIEW_FOCUSED
@@ -232,7 +242,9 @@ public class BubbleService extends AccessibilityService {
             }
             long now2 = System.currentTimeMillis();
             if (text.trim().length() == 0) {
-                if (type == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED && before != null && before.trim().length() >= 3) { sentText = before; sentApp = pkg; sentAt = now2; }
+                // a caixa ficou vazia de repente: mandaste a mensagem. No WhatsApp isto chega muitas vezes como
+                // «o cursor mudou» (o texto é apagado pela app, não por ti), por isso valem os dois avisos.
+                if (type != AccessibilityEvent.TYPE_VIEW_FOCUSED && before != null && before.trim().length() >= 3) { sentText = before; sentApp = pkg; sentAt = now2; }
             } else if (!text.equals(sentText)) typedAt = now2;
             if (shown) js("onText", JSONObject.quote(text) + "," + JSONObject.quote(keptFor(app)));
             checkKeyboard();
@@ -277,6 +289,23 @@ public class BubbleService extends AccessibilityService {
             "mensaje", "escribe un mensaje", "messaggio", "scrivi un messaggio", "message…", "mensagem…", "message...", "send a message", "enviar mensagem" };
         for (String h : H) if (x.equals(h)) return true;
         return false;
+    }
+
+    long lastBoxCheck = 0;
+    /** O texto da caixa onde se escreve (null se não der para ver; "" se estiver vazia ou só com o texto de ajuda). */
+    String focusedBoxText() {
+        try {
+            AccessibilityNodeInfo root = getRootInActiveWindow();
+            if (root == null) return null;
+            AccessibilityNodeInfo f = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+            if (f == null || !f.isEditable()) return null;
+            if (Build.VERSION.SDK_INT >= 26) {
+                try { Method m = AccessibilityNodeInfo.class.getMethod("isShowingHintText"); if ((Boolean) m.invoke(f)) return ""; } catch (Exception ignored) {}
+            }
+            CharSequence t = f.getText();
+            String x = t == null ? "" : t.toString();
+            return isHint(x) ? "" : x;
+        } catch (Exception e) { return null; }
     }
 
     String readText(AccessibilityEvent e) {
