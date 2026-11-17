@@ -26,7 +26,7 @@ window.LEX = [
 '😌😇🧘 | calma, calminho, tranquilo, tranquila, tranquilidade, relaxar, relaxado, relaxada, relax, zen, paz, em paz, sossego, sossegado, de boa, na boa, descansado, alívio, ufa, uff, respira',
 // ---------- raiva / irritação ----------
 '😡😠🤬👿💢 | raiva, zangado, zangada, irritado, irritada, furioso, furiosa, fúria, bravo, brava, puto, puta da vida, passado, passada, possesso, chateado, chateada, odeio, ódio, grr, argh, aff, que raiva, estou fulo, fulo, irado, nervoso, nervosa',
-'🙄😒😑😤 | aff, afff, pff, pfff, tédio, sério, a sério, a sério?, tá bom, que seca, que chato, chato, chata, chatice, aborrecido, aborrecida, farto, farta, fartinho, cansado disto, outra vez, de novo, já chega, sem paciência, paciência zero',
+'🙄😒😑😤 | aff, afff, pff, pfff, tédio, sério, a sério, a sério?, tá bom, que seca, que chato, chato, chata, chatice, aborrecido, aborrecida, farto, farta, fartinho, cansado disto, de novo, já chega, sem paciência, paciência zero',
 '🤬💩🖕 | merda, porra, caralho, foda-se, fds, puta que pariu, pqp, vai-te lixar, vai à merda, droga, que se lixe, lixo, porcaria, bosta, idiota, estúpido, estúpida, burro, burra, otário, otária, palerma, parvo, parva, cretino',
 '😤💪 | orgulho, orgulhoso, orgulhosa, teimoso, teimosa, determinado, determinada, decidido, foco, vamos lá, não desisto, ninguém me para',
 // ---------- surpresa / medo / nojo / vergonha ----------

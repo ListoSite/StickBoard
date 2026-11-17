@@ -301,7 +301,48 @@ public final class Store {
 
     public static void learn(Context c, String packId, String file, JSONArray words) { learn(c, packId, file, words, null); }
 
-    public static void learn(Context c, String packId, String file, JSONArray words, JSONArray skipped) {
+    public static void learn(Context c, String packId, String file, JSONArray words, JSONArray skipped) { learn(c, packId, file, words, skipped, null); }
+
+    /** Junta um vetor (tema/emojis/forma da frase) ao que o sticker já sabia: o antigo perde força com o tempo, fica só o mais forte. */
+    static JSONObject mergeVec(JSONObject old, JSONObject add, double k, int keep) throws JSONException {
+        JSONObject out = new JSONObject();
+        if (old != null) { java.util.Iterator<String> it = old.keys(); while (it.hasNext()) { String x = it.next(); out.put(x, old.optDouble(x, 0) * k); } }
+        if (add != null) { java.util.Iterator<String> it = add.keys(); while (it.hasNext()) { String x = it.next(); out.put(x, out.optDouble(x, 0) + add.optDouble(x, 0)); } }
+        // só os mais fortes
+        java.util.List<String> ks = new java.util.ArrayList<String>();
+        java.util.Iterator<String> it = out.keys(); while (it.hasNext()) ks.add(it.next());
+        final JSONObject o = out;
+        java.util.Collections.sort(ks, new java.util.Comparator<String>() { public int compare(String a, String b) { return Double.compare(o.optDouble(b, 0), o.optDouble(a, 0)); } });
+        JSONObject r = new JSONObject();
+        for (int i = 0; i < ks.size() && i < keep; i++) { double v = out.optDouble(ks.get(i), 0); if (v >= 0.02) r.put(ks.get(i), r2(Math.min(30, v))); }
+        return r;
+    }
+
+    /** O contexto em que mandaste o sticker (temas da mensagem, emojis, forma da frase): o teclado aprende com isto. */
+    static void learnCtx(JSONObject s, JSONObject ctx, int day, double sign) throws JSONException {
+        if (ctx == null) return;
+        JSONObject cx = s.optJSONObject("cx");
+        double k = 1;
+        if (cx != null) k = Math.pow(0.5, Math.max(0, day - cx.optInt("d", day)) / 45.0);
+        else cx = new JSONObject();
+        if (sign > 0) {
+            cx.put("f", mergeVec(cx.optJSONObject("f"), ctx.optJSONObject("f"), k, 8));
+            cx.put("e", mergeVec(cx.optJSONObject("e"), ctx.optJSONObject("e"), k, 10));
+            cx.put("s", mergeVec(cx.optJSONObject("s"), ctx.optJSONObject("s"), k, 8));
+            cx.put("n", r2(Math.min(40, cx.optDouble("n", 0) * k + 1)));
+        } else {
+            // estava à frente e não o escolheste: os temas desta mensagem perdem um pouco neste sticker
+            JSONObject f = cx.optJSONObject("f");
+            JSONObject add = ctx.optJSONObject("f");
+            if (f == null || add == null) return;
+            java.util.Iterator<String> it = add.keys();
+            while (it.hasNext()) { String x = it.next(); if (f.has(x)) { double v = f.optDouble(x, 0) - 0.35 * add.optDouble(x, 0); if (v <= 0.02) f.remove(x); else f.put(x, r2(v)); } }
+        }
+        cx.put("d", day);
+        s.put("cx", cx);
+    }
+
+    public static void learn(Context c, String packId, String file, JSONArray words, JSONArray skipped, JSONObject ctx) {
         synchronized (LOCK) {
             try {
                 JSONObject data = load(c);
@@ -317,14 +358,20 @@ public final class Store {
                 if (h == null || h.length() != 6) { h = new JSONArray(); for (int i = 0; i < 6; i++) h.put(0); s.put("hrs", h); }
                 int b = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) / 4;
                 h.put(b, h.optInt(b, 0) + 1);
+                learnCtx(s, ctx, day, 1);
                 if (words != null && words.length() > 0) {
                     JSONObject l = lrnOf(s, day);
                     java.util.HashSet<String> ws = new java.util.HashSet<String>();
+                    java.util.HashMap<String, Double> inc = new java.util.HashMap<String, Double>();
                     for (int i = 0; i < words.length(); i++) {
-                        String w = words.optString(i, "").trim().toLowerCase();
+                        // cada palavra pode vir com a sua força: ["palavra", 0.2…1.5] (o fim da mensagem e as expressões contam mais)
+                        JSONArray pair = words.optJSONArray(i);
+                        String w = (pair != null ? pair.optString(0, "") : words.optString(i, "")).trim().toLowerCase();
+                        double add = pair != null ? Math.max(0.2, Math.min(1.5, pair.optDouble(1, 1))) : 1;
                         if (w.length() < 2 || w.length() > 40 || !ws.add(w)) continue;
+                        inc.put(w, add);
                         JSONArray e = l.optJSONArray(w);
-                        double wt = decayed(e, day) + 1;
+                        double wt = decayed(e, day) + add;
                         l.put(w, new JSONArray().put(r2(Math.min(12, wt))).put(day).put((e == null ? 0 : e.optInt(2, 0)) + 1));
                     }
                     // no máximo 60 palavras por sticker: saem as mais fracas
@@ -347,7 +394,7 @@ public final class Store {
                             if (m == null) { m = new JSONObject(); el.put(k, m); }
                             for (String w : ws) {
                                 JSONArray e = m.optJSONArray(w);
-                                double wt = decayed(e, day) + 1;
+                                double wt = decayed(e, day) + (inc.containsKey(w) ? inc.get(w) : 1);
                                 // [força, dia, vezes, em quantos stickers diferentes, o último sticker]
                                 int distinct = e == null ? 1 : e.optInt(3, 1) + (me.equals(e.optString(4, "")) ? 0 : 1);
                                 m.put(w, new JSONArray().put(r2(Math.min(15, wt))).put(day).put((e == null ? 0 : e.optInt(2, 0)) + 1).put(Math.min(99, distinct)).put(me));
@@ -367,6 +414,7 @@ public final class Store {
                         JSONObject sp = findPack(data, x.optString("p"));
                         JSONObject ss = sp == null ? null : findSticker(sp, x.optString("f"));
                         if (ss == null || ss == s) continue;
+                        learnCtx(ss, ctx, day, -1);
                         JSONObject l2 = ss.optJSONObject("lrn");
                         if (l2 == null && ss.optJSONObject("learn") != null) l2 = lrnOf(ss, day);
                         if (l2 == null) continue;
@@ -401,7 +449,7 @@ public final class Store {
                             JSONObject l = lrnOf(s, today());
                             l.remove(word);
                         } else {
-                            s.remove("lrn"); s.remove("learn");
+                            s.remove("lrn"); s.remove("learn"); s.remove("cx");
                             if (packId == null) { s.remove("uses"); s.remove("hrs"); s.remove("last"); }
                         }
                     }

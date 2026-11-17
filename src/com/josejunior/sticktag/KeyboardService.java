@@ -39,6 +39,8 @@ public class KeyboardService extends InputMethodService {
     boolean inputOn = false;
     /** O motor dos especiais deixou este teclado aberto entre envios seguidos. */
     boolean engineHolding = false;
+    /** O que o teclado/bolha decidiu sobre apagar o texto ao mandar o próximo sticker (null = como antes: apaga). */
+    static volatile Boolean deleteHint = null;
     /** Altura do ecrã "A enviar…" (a do teclado anterior); 0 = teclado normal. */
     int busyH = 0;
     String busyLabel = null;
@@ -362,7 +364,8 @@ public class KeyboardService extends InputMethodService {
             if (engine) return ok ? 1 : 0;
             logApp(pkg, mimes, ok ? "direct:" + fmt : "share:" + shareMime.replace("image/", ""));
             if (ok) {
-                if (Store.load(this).optBoolean("kbDelete", true)) deleteAllBefore();
+                Boolean dh = deleteHint; deleteHint = null;
+                if (Store.load(this).optBoolean("kbDelete", true) && (dh == null || dh)) deleteAllBefore();
                 result = "{\"ok\":true,\"mode\":\"direct\",\"fmt\":\"" + fmt + "\"}";
                 mode = 1;
             } else {
@@ -490,6 +493,14 @@ public class KeyboardService extends InputMethodService {
         }
 
         /** Aprender com contexto: palavras + os stickers que estavam à frente e não escolheste. */
+        /** Aprender com o contexto todo: palavras (com força), os que estavam à frente e o tema/forma da mensagem. */
+        @JavascriptInterface public void learn3(String packId, String file, String wordsJson, String skippedJson, String ctxJson) {
+            try { Store.learn(KeyboardService.this, packId, file, new JSONArray(wordsJson), skippedJson == null ? null : new JSONArray(skippedJson), ctxJson == null ? null : new org.json.JSONObject(ctxJson)); } catch (Exception ignored) {}
+        }
+
+        /** Ao mandar o próximo sticker: apagar o que está escrito? (só 1 palavra ou exatamente uma palavra do sticker) */
+        @JavascriptInterface public void deleteHint(boolean del) { KeyboardService.deleteHint = del ? Boolean.TRUE : Boolean.FALSE; }
+
         @JavascriptInterface public void learn2(String packId, String file, String wordsJson, String skippedJson) {
             try { Store.learn(KeyboardService.this, packId, file, new JSONArray(wordsJson), skippedJson == null ? null : new JSONArray(skippedJson)); } catch (Exception ignored) {}
         }

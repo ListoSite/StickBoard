@@ -86,16 +86,21 @@ function sendIt(p, s) {
   // os que estavam à frente nas sugestões e não escolheste: o teclado aprende que não eram esses
   const skipped = [];
   if (words.length && tab === 'sug') for (const r of lastRes) { if (r.p.id === p.id && r.s.f === s.f) break; skipped.push({ p: r.p.id, f: r.s.f }); if (skipped.length >= 3) break; }
-  try { K.learn2(p.id, s.f, JSON.stringify(words), JSON.stringify(skipped)); } catch (e) { if (words.length) try { K.learn(p.id, s.f, JSON.stringify(words)); } catch (e2) {} }
+  // aprende as palavras (com força: o fim da mensagem e as expressões contam mais) e o contexto (tema e forma da frase)
+  const lw = M.learnTokens(text), cx = text.trim() ? M.contextOf(IDX, text) : null;
+  try { K.learn3(p.id, s.f, JSON.stringify(lw), JSON.stringify(skipped), cx ? JSON.stringify(cx) : null); }
+  catch (e) { try { K.learn2(p.id, s.f, JSON.stringify(words), JSON.stringify(skipped)); } catch (e2) {} }
+  // só apaga o que escreveste se for 1 palavra ou exatamente uma palavra deste sticker
+  try { K.deleteHint(M.shouldDelete(text, s, DATA, info)); } catch (e) {}
   K.send(p.id, s.f);
 }
 
-function tile(p, s) {
+function tile(p, s, r) {
   const d = document.createElement('button');
-  d.className = 's';
+  d.className = 's' + (r && r.usualTag ? ' usual' : '');
   const mi = multi ? multi.findIndex(x => x.p === p.id && x.f === s.f) : -1;
   if (mi >= 0) d.classList.add('sel');
-  d.innerHTML = `<img loading="lazy" src="${img(p, s.f)}">${s.fav ? '<span class="fv">⭐</span>' : ''}${s.secretName || s.secretPub ? '<span class="sec">🤫</span>' : ''}${mi >= 0 ? `<span class="num">${mi + 1}</span>` : ''}`;
+  d.innerHTML = `<img loading="lazy" src="${img(p, s.f)}">${s.fav ? '<span class="fv">⭐</span>' : ''}${s.secretName || s.secretPub ? '<span class="sec">🤫</span>' : ''}${r && r.usualTag ? '<span class="us">🧠</span>' : ''}${mi >= 0 ? `<span class="num">${mi + 1}</span>` : ''}`;
   let timer = null, long = false, sx = 0, sy = 0;
   d.addEventListener('pointerdown', e => {
     long = false; sx = e.clientX; sy = e.clientY;
@@ -223,7 +228,13 @@ function renderGrid() {
       }
     }
     lastRes = DATA.kbShuffle ? [] : shown;
-    if (shown.length) shown.forEach(r => g.appendChild(tile(r.p, r.s)));
+    const nUs = shown.filter(r => r.usualTag).length;
+    if (nUs && !DATA.kbShuffle) {
+      addMsg(g, '🧠 Costumas usar estes com mensagens assim', 'secl');
+      shown.filter(r => r.usualTag).forEach(r => g.appendChild(tile(r.p, r.s, r)));
+      if (shown.length > nUs) addMsg(g, '✨ Mais sugestões', 'secl');
+      shown.filter(r => !r.usualTag).forEach(r => g.appendChild(tile(r.p, r.s, r)));
+    } else if (shown.length) shown.forEach(r => g.appendChild(tile(r.p, r.s, r)));
     else {
       if (text.trim()) addMsg(g, `Nenhum sticker para <b>«${esc(lastWords(text))}»</b>. Dá palavras ou emojis aos teus stickers no StickTag.`);
       // sugestões pela hora do dia

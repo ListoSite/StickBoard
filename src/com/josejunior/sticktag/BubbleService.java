@@ -487,6 +487,14 @@ public class BubbleService extends AccessibilityService {
             try { Store.learn(BubbleService.this, packId, file, new JSONArray(wordsJson)); } catch (Exception ignored) {}
         }
 
+        /** Aprender com o contexto todo: palavras (com força), os que estavam à frente e o tema/forma da mensagem. */
+        @JavascriptInterface public void learn3(String packId, String file, String wordsJson, String skippedJson, String ctxJson) {
+            try { Store.learn(BubbleService.this, packId, file, new JSONArray(wordsJson), skippedJson == null ? null : new JSONArray(skippedJson), ctxJson == null ? null : new org.json.JSONObject(ctxJson)); } catch (Exception ignored) {}
+        }
+
+        /** Ao mandar o próximo sticker: apagar o que está escrito? (só 1 palavra ou exatamente uma palavra do sticker) */
+        @JavascriptInterface public void deleteHint(boolean del) { KeyboardService.deleteHint = del ? Boolean.TRUE : Boolean.FALSE; }
+
         @JavascriptInterface public void learn2(String packId, String file, String wordsJson, String skippedJson) {
             try { Store.learn(BubbleService.this, packId, file, new JSONArray(wordsJson), skippedJson == null ? null : new JSONArray(skippedJson)); } catch (Exception ignored) {}
         }

@@ -172,7 +172,7 @@
   /** Prepara a lista de stickers com as palavras de cada um. */
   function buildIndex(data, emoInfo) {
     const items = [];
-    const cache = new Map(), ecache = new Map();
+    const cache = new Map(), ecache = new Map(), phr = new Map();
     for (const p of (data.packs || [])) for (const st of (p.stickers || [])) {
       const kws = [];
       for (const w of (st.words || [])) { const t = prep(w), ph = phraseKey(w); if (t.length || ph) kws.push({ t, ph, w: 3, src: w }); }
@@ -200,9 +200,17 @@
         const ph = l.w.includes(' ') ? phraseKey(l.w) : null;
         if (t.length || ph) kws.push({ t, ph, w: 1 + Math.min(l.eff, 6) * 0.55, src: l.w, learned: true });
       }
-      items.push({ p, s: st, kws, emo: (st.emojis || []).map(stripVS), boost: habitBoost(st) });
+      items.push({ p, s: st, kws, emo: (st.emojis || []).map(stripVS), boost: habitBoost(st), cx: ctxProfile(st) });
+      for (const k of kws) {
+        const c = canonToks(k.src);
+        if (c.length < 2 || c.length > 6) continue;
+        const key = c.join(' ');
+        let set = phr.get(key); if (!set) phr.set(key, set = new Set());
+        for (const e of (k.e ? [k.e] : (st.emojis || []).map(stripVS))) set.add(e);
+      }
     }
     items.ctx = ctxLexicon(data, emoInfo, cache);
+    items.phr = phr;
     return items;
   }
 
@@ -234,16 +242,21 @@
     hi: '👋 🙋',
     party: '🥳 🎉 🎊 🎂 🍾 🥂 🎈 🎁',
     think: '🤔 🧐 🤷 😶 😐',
-    flirt: '😏 😉 😈 🔥 🍆 🍑 🥵 💦 👅 🤤',
+    flirt: '😏 😉 😈 🍆 🍑 🥵 💦 👅 🤤',
     disgust: '🤢 🤮 💩',
     shy: '🙈 🫣 😳',
     food: '🍕 🍔 🍟 🌭 🍿 🍩 🍪 🍰 🍫 ☕ 🍺 🍻 🍷 🍽 😋'
   };
   const FAM = new Map();
   for (const f in FAMS) for (const e of FAMS[f].split(' ')) if (e) FAM.set(stripVS(e), f);
+  const FAMC = new Map();
   const famOf = e => {
+    let r = FAMC.get(e);
+    if (r !== undefined) return r;
     const k = stripVS(e);
-    return FAM.get(k) || FAM.get(k.replace(/[\u{1F3FB}-\u{1F3FF}]/gu, '').replace(/‍.*$/u, '')) || null;
+    r = FAM.get(k) || FAM.get(k.replace(/[\u{1F3FB}-\u{1F3FF}]/gu, '').replace(/‍.*$/u, '')) || null;
+    FAMC.set(e, r);
+    return r;
   };
   // palavras que dizem logo o tema, mesmo sem nenhum sticker com elas
   const MOODW = {
@@ -333,7 +346,7 @@
           role = alone ? 'answer' : 'modifier';
           if (!alone) w *= 0.3; // «não» a mudar um verbo («não te preocupes») não é dizer que não
         }
-        out.push({ t, w, neg, role, ci });
+        out.push({ t, w, neg, role, ci, i });
       });
     });
     return { clauses, toks: out };
@@ -343,15 +356,17 @@
   function moodOf(L, P) {
     const fam = {}, emo = {};
     let total = 0;
-    const vote = (set, w) => {
+    // as tuas palavras e as palavras de tema claras valem 1; as listas gerais (expressões soltas) valem menos
+    const vote = (set, w, gen) => {
       if (!set || !set.size || w <= 0) return false;
       const vals = Array.from(set);
       const share = w / vals.length;
+      let used = 0;
       for (const v of vals) {
-        if (v.startsWith('f:')) { const f = v.slice(2); fam[f] = (fam[f] || 0) + share; }
-        else { emo[v] = (emo[v] || 0) + share; const f = famOf(v); if (f) fam[f] = (fam[f] || 0) + share; }
+        if (v.startsWith('f:')) { const f = v.slice(2); fam[f] = (fam[f] || 0) + share; used += share; }
+        else { const k = gen ? 0.55 : 1; emo[v] = (emo[v] || 0) + share * k; const f = famOf(v); if (f) fam[f] = (fam[f] || 0) + share * k; used += share * k; }
       }
-      total += w;
+      total += used;
       return true;
     };
     P.clauses.forEach((c, ci) => {
@@ -361,8 +376,8 @@
       for (let len = Math.min(6, c.length); len >= 2; len--) for (let i = 0; i + len <= c.length; i++) {
         if (used.slice(i, i + len).some(Boolean)) continue;
         const k = ' ' + c.slice(i, i + len).join(' ') + ' ';
-        const set = L.phrase.get(k) || L.base.phrase.get(k);
-        if (set && vote(set, cw * (1 + 0.25 * (len - 1)))) for (let j = i; j < i + len; j++) used[j] = true;
+        const mine = L.phrase.get(k), set = mine || L.base.phrase.get(k);
+        if (set && vote(set, cw * (1 + 0.25 * (len - 1)), !mine)) for (let j = i; j < i + len; j++) used[j] = true;
       }
       c.forEach((t, i) => {
         if (used[i]) return;
@@ -370,7 +385,10 @@
         if (tk) tk._done = true;
         if (STOP.has(t) && !NEG.has(t)) return;
         if (tk && tk.neg) return; // «não gosto»: o «gosto» não conta como amor
-        vote(lookWord(L, pst(t)), tk ? tk.w : cw);
+        const k = pst(t), mine = L.word.get(k);
+        if (mine) vote(mine, tk ? tk.w : cw, false);
+        const b = L.base.word.get(k);
+        if (b) vote(b, (tk ? tk.w : cw) * (mine ? 0.5 : 1), true);
       });
     });
     return { fam, emo, total };
@@ -393,22 +411,122 @@
     return 0.42 + 0.58 * Math.min(1, best / maxS);
   }
 
+  /* ---------- o que o teclado aprendeu do CONTEXTO em que usas cada sticker ---------- */
+  /** Perfil guardado no sticker (st.cx): temas, emojis e forma das frases com que o mandas, a perder força com o tempo. */
+  function ctxProfile(st) {
+    const c = st.cx;
+    if (!c || !c.n) return null;
+    const today = Math.floor(Date.now() / DAY);
+    const k = Math.pow(0.5, Math.max(0, today - (c.d || today)) / HALF);
+    const n = c.n * k;
+    if (n < 0.4) return null;
+    return { f: c.f || {}, e: c.e || {}, s: c.s || {}, n, conf: 1 - Math.exp(-n / 2.5) };
+  }
+  /** A forma da frase: pergunta, exclamação, curta, longa, risos. */
+  function shapeOf(line, P) {
+    const t = String(line || '').trim(), n = P.toks.length, s = {};
+    if (/\?\s*$/.test(t)) s.q = 1;
+    if (/!\s*$/.test(t)) s.x = 1;
+    if (n <= 2) s.s1 = 1; else if (n <= 5) s.s2 = 1; else if (n <= 12) s.s3 = 1; else s.s4 = 1;
+    if (P.toks.some(x => x.t === 'haha')) s.h = 1;
+    if (P.toks.some(x => NEG.has(x.t) && x.role === 'answer')) s.n = 1;
+    return s;
+  }
+  const norm1 = o => { let t = 0; for (const k in o) t += o[k]; const r = {}; if (t > 0) for (const k in o) r[k] = o[k] / t; return r; };
+  function cosine(a, b) {
+    let d = 0, na = 0, nb = 0;
+    for (const k in a) { na += a[k] * a[k]; if (b[k]) d += a[k] * b[k]; }
+    for (const k in b) nb += b[k] * b[k];
+    return na && nb ? d / Math.sqrt(na * nb) : -1;
+  }
+  /** O contexto da mensagem, no formato que se guarda no sticker quando o mandas. */
+  function contextOf(index, text) {
+    const line = String(text || '').split('\n').pop();
+    const P = parseLine(line);
+    const mood = index && index.ctx ? moodOf(index.ctx, P) : { fam: {}, emo: {}, total: 0 };
+    for (const e of emojisIn(line).map(stripVS)) { mood.emo[e] = (mood.emo[e] || 0) + 1.5; const f = famOf(e); if (f) mood.fam[f] = (mood.fam[f] || 0) + 1.5; }
+    const top = (o, n) => { const r = {}; Object.keys(o).sort((a, b) => o[b] - o[a]).slice(0, n).forEach(k => r[k] = Math.round(o[k] * 100) / 100); return r; };
+    return { f: top(norm1(mood.fam), 6), e: top(norm1(mood.emo), 6), s: shapeOf(line, P) };
+  }
+  /** Quanto a mensagem de agora se parece com as mensagens com que costumas mandar este sticker (0 a 1). */
+  function ctxSim(cx, cur) {
+    if (!cx) return 0;
+    let tot = 0, wsum = 0;
+    const part = (a, b, w) => { const v = cosine(a, b); if (v >= 0) { tot += v * w; wsum += w; } };
+    part(cx.f, cur.f, 0.65); part(cx.e, cur.e, 0.25); part(cx.s, cur.s, 0.1);
+    // só a forma da frase não chega: tem de haver tema em comum
+    if (wsum <= 0.1) return 0;
+    return tot / wsum;
+  }
+  /** As palavras para o teclado aprender, cada uma com a sua força (o fim da mensagem e as expressões contam mais). */
+  function learnTokens(text) {
+    const line = String(text || '').split('\n').pop();
+    const P = parseLine(line);
+    const W = new Map();
+    const put = (w, v) => { if (w.length >= 2 && w.length <= 40) W.set(w, Math.max(W.get(w) || 0, Math.round(v * 100) / 100)); };
+    for (const x of P.toks) {
+      if (STOP.has(x.t) || x.t.length < 2) continue;
+      if (NEG.has(x.t) && x.role !== 'answer') continue;
+      put(x.t, x.neg ? x.w * 0.4 : x.w);
+    }
+    P.clauses.forEach((c, ci) => {
+      const cw = ci === P.clauses.length - 1 ? 1 : ci === P.clauses.length - 2 ? 0.7 : 0.5;
+      for (let i = 0; i + 1 < c.length; i++) {
+        const a = c[i], b = c[i + 1];
+        if (a.length >= 2 && b.length >= 3 && !STOP.has(b)) put(a + ' ' + b, cw * (NEG.has(a) ? 1.2 : 0.9));
+      }
+    });
+    const all = canonToks(line);
+    if (all.length >= 2 && all.length <= 6 && all.some(x => !STOP.has(x))) put(all.join(' '), 1.3);
+    return Array.from(W.entries()).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([w, v]) => [w, Math.max(0.2, Math.min(1.5, v))]);
+  }
+  /** Apagar o que escreveste ao mandar? Só se for 1 palavra ou exatamente uma palavra/expressão deste sticker. */
+  function shouldDelete(text, st, data, emoInfo) {
+    const all = canonToks(String(text || ''));
+    if (all.length <= 1) return true;
+    const msg = all.join(' ');
+    const words = [].concat(st.words || []);
+    for (const e of st.emojis || []) words.push(...effectiveWords(e, data, emoInfo || (() => null)), ...emojiLearned(data, e).map(x => x.w));
+    for (const l of learned(st)) words.push(l.w);
+    return words.some(w => canonToks(w).join(' ') === msg);
+  }
+
   /** Devolve os stickers que combinam com o texto, do melhor para o pior (com .groups: as abas por emoji). */
   function search(index, text, limit) {
     text = String(text || '');
     const line = text.split('\n').pop();
     const P = parseLine(line);
+    // palavras que fazem parte de uma expressão escrita inteira («não gosto», «não te preocupes»): a palavra solta perde força
+    // (só para os stickers que não têm a ver com essa expressão: «claro que não» continua a valer para os stickers de «não»)
+    const cov = new Map();
+    const PH = index.phr || new Map(), LP = index.ctx ? index.ctx : null;
+    P.clauses.forEach((c, ci) => {
+      for (let len = Math.min(6, c.length); len >= 2; len--) for (let i = 0; i + len <= c.length; i++) {
+        const k = c.slice(i, i + len).join(' ');
+        const sets = [PH.get(k), LP && LP.phrase.get(' ' + k + ' '), LP && LP.base.phrase.get(' ' + k + ' ')].filter(Boolean);
+        if (!sets.length) continue;
+        for (let j = i; j < i + len; j++) {
+          let m = cov.get(ci + ':' + j); if (!m) cov.set(ci + ':' + j, m = new Set());
+          for (const st of sets) for (const v of st) { m.add(v); if (!v.startsWith('f:')) { const f = famOf(v); if (f) m.add('f:' + f); } }
+        }
+      }
+    });
+    const relates = (it, m) => it.emo.some(e => m.has(e) || (famOf(e) && m.has('f:' + famOf(e))));
     const q = P.toks.slice(-14);
-    const qt = q.filter(x => !STOP.has(x.t) || NEG.has(x.t)).map(x => ({ w: x.t, s: stem(x.t), wt: x.neg ? x.w * 0.35 : x.w }));
+    const qt = q.filter(x => !STOP.has(x.t) || NEG.has(x.t)).map(x => ({ w: x.t, s: stem(x.t), wt: x.neg ? x.w * 0.35 : x.w, cov: cov.get(x.ci + ':' + x.i) || null }));
     const qstop = q.filter(x => STOP.has(x.t)).map(x => x.t);
     const qe = emojisIn(line).map(stripVS);
     const qcl = P.clauses.slice(-4).map(c => c.slice(-16).map(pst));
     if (!qt.length && !qe.length && !qstop.length) { const r = []; r.groups = []; return r; }
     const mood = index.ctx ? moodOf(index.ctx, P) : null;
     if (mood) for (const e of qe) { mood.emo[e] = (mood.emo[e] || 0) + 1.5; const f = famOf(e); if (f) mood.fam[f] = (mood.fam[f] || 0) + 1.5; mood.total += 1.5; }
+    const cur = mood ? { f: norm1(mood.fam), e: norm1(mood.emo), s: shapeOf(line, P) } : null;
     const res = [];
+    const anyCov = qt.some(x => x.cov);
     for (const it of index) {
-      let score = 0;
+      let score = 0, lrnHit = 0;
+      let covK = null; // calculado só quando preciso
+      const ck = i => { if (!anyCov || !qt[i].cov) return 1; if (!covK) covK = qt.map(x => x.cov && !relates(it, x.cov) ? 0.3 : 1); return covK[i]; };
       const why = new Set();
       const anch = new Map(); // de onde veio a pontuação: palavra/expressão da frase → {c, e}
       const add = (key, label, v, e) => {
@@ -434,7 +552,7 @@
           if (!key) { key = 'ph:' + norm(kw.src); label = kw.src; }
         } else if (kw.t.length === 1) {
           let bi = -1;
-          qt.forEach((x, i) => { const v = sim(kw.t[0], x) * x.wt; if (v > best) { best = v; bi = i; } });
+          for (let i = 0; i < qt.length; i++) { const x = qt[i]; const sv = sim(kw.t[0], x); if (!sv) continue; const v = sv * x.wt * ck(i); if (v > best) { best = v; bi = i; } }
           if (bi >= 0) { key = 'w:' + qt[bi].s; label = qt[bi].w; }
           // palavras pequenas só contam se forem palavras tuas e exatamente iguais
           if (!best && kw.w === 3 && qstop.includes(kw.t[0].w)) { best = 1; key = 'w:' + kw.t[0].w; label = kw.t[0].w; }
@@ -445,18 +563,33 @@
           best = hit === kw.t.length ? 1.3 : hit * 0.35;
           if (hit === kw.t.length || !hx) { key = 'ph:' + norm(kw.src); label = kw.src; } else { key = 'w:' + hx.s; label = hx.w; }
         }
-        if (best > 0) { const v = best * kw.w; score += v; why.add(kw.src); if (key) add(key, label, v, kw.e); }
+        if (best > 0) { const v = best * kw.w; score += v; why.add(kw.src); if (key) add(key, label, v, kw.e); if (kw.learned && !kw.e) lrnHit += v; }
       }
       for (const e of qe) if (it.emo.includes(e)) { score += 4; why.add(e); add('e:' + e, e, 4, e); }
       const raw = score;
       const ag = agreeOf(it, mood);
       score *= ag;
+      // contexto aprendido: mandas este sticker com mensagens parecidas com esta?
+      const cs = cur && it.cx && mood.total >= 0.8 ? ctxSim(it.cx, cur) : 0;
+      const habit = cs > 0.3 ? cs * it.cx.conf : 0;
+      if (habit > 0) score += 2.2 * habit;
+      const usual = habit + Math.min(1, lrnHit / 4);
+      if (raw === 0 && habit >= 0.5) {
+        // nenhuma palavra bate, mas costumas mandá-lo neste tipo de mensagem
+        add('ctx', 'contexto', habit, it.emo[0]);
+        res.push({ p: it.p, s: it.s, score: 1 + habit, raw: 0, agree: ag, why: ['🧠 contexto'], anch, usual, ctxOnly: true });
+        continue;
+      }
       // os que usas muito (e a esta hora) ficam um pouco à frente dos outros que também combinam
-      if (score >= 0.9 || (raw >= 1.6 && score >= 0.6)) res.push({ p: it.p, s: it.s, score: score + (it.boost || 0), raw, agree: ag, why: Array.from(why), anch });
+      if (score >= 0.9 || (raw >= 1.6 && score >= 0.6)) res.push({ p: it.p, s: it.s, score: score + (it.boost || 0), raw, agree: ag, why: Array.from(why), anch, usual });
     }
     res.sort((a, b) => b.score - a.score);
-    const out = res.slice(0, limit || 30);
-    out.groups = groupsOf(out);
+    // «costumas usar»: até 3 dos que mandas neste tipo de mensagem vêm à frente (os outros continuam a aparecer)
+    const us = res.filter(r => r.usual >= 0.45 && (!r.ctxOnly || r.usual >= 0.55)).sort((a, b) => b.usual - a.usual || b.score - a.score).slice(0, 3);
+    us.forEach(r => { r.usualTag = true; });
+    const ordered = us.concat(res.filter(r => !r.usualTag));
+    const out = ordered.slice(0, limit || 30);
+    out.groups = groupsOf(out.filter(r => !r.ctxOnly || r.usualTag));
     out.mood = mood;
     return out;
   }
@@ -570,5 +703,5 @@
     return Object.assign({}, data, { packs });
   }
 
-  window.Match = { famOf, parseLine, groupsOf, emojiLearned, CUR, CANON, canonToks, phraseKey, learned, habitual, habitBoost, queryTokens, isAdult, modeData, norm, stripVS, tokens, stem, defaultWords, effectiveWords, buildIndex, search, emojisIn, STOP };
+  window.Match = { contextOf, learnTokens, shouldDelete, ctxProfile, famOf, parseLine, groupsOf, emojiLearned, CUR, CANON, canonToks, phraseKey, learned, habitual, habitBoost, queryTokens, isAdult, modeData, norm, stripVS, tokens, stem, defaultWords, effectiveWords, buildIndex, search, emojisIn, STOP };
 })();

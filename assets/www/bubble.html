@@ -45,6 +45,8 @@ svg{display:block}
 .s{border-radius:16px;background:#1A1F27;display:grid;place-items:center;position:relative;transition:transform .12s}
 .s:active{transform:scale(.92);background:#20302A}
 .s img{position:absolute;left:7%;top:7%;width:86%;height:86%;object-fit:contain;pointer-events:none}
+.s .us{position:absolute;bottom:3px;right:5px;font-size:11px}
+.s.usual{box-shadow:inset 0 0 0 1.5px rgba(167,139,250,.6)}
 .s .fv{position:absolute;top:3px;right:5px;font-size:11px}
 .sep{grid-row:1/-1;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:4px;width:44px;color:#6B7482;font-size:10.5px;font-weight:700;text-align:center;line-height:1.2}
 .sep .i{font-size:18px}
@@ -155,10 +157,10 @@ function bigPreview(p, s, send) {
   b.querySelector('.go').onclick = () => { b.remove(); send(); };
   b.onclick = ev => { if (ev.target === b) b.remove(); };
 }
-function tile(p, s) {
+function tile(p, s, r) {
   const d = document.createElement('button');
-  d.className = 's';
-  d.innerHTML = `<img loading="lazy" src="${img(p, s.f)}">${s.fav ? '<span class="fv">⭐</span>' : ''}`;
+  d.className = 's' + (r && r.usualTag ? ' usual' : '');
+  d.innerHTML = `<img loading="lazy" src="${img(p, s.f)}">${s.fav ? '<span class="fv">⭐</span>' : ''}${r && r.usualTag ? '<span class="us">🧠</span>' : ''}`;
   let lt = null, longDone = false;
   d.addEventListener('touchstart', () => { longDone = false; lt = setTimeout(() => { longDone = true; bigPreview(p, s, () => d.onclick()); }, 450); }, { passive: true });
   d.addEventListener('touchmove', () => clearTimeout(lt), { passive: true });
@@ -170,7 +172,10 @@ function tile(p, s) {
     const w = M.queryTokens(text);
     const skipped = [];
     if (w.length && (tab === 'sug' || tab.startsWith('g:'))) for (const r of lastRes) { if (r.p.id === p.id && r.s.f === s.f) break; skipped.push({ p: r.p.id, f: r.s.f }); if (skipped.length >= 3) break; }
-    try { B.learn2(p.id, s.f, JSON.stringify(w), JSON.stringify(skipped)); } catch (e) { if (w.length) try { B.learn(p.id, s.f, JSON.stringify(w)); } catch (e2) {} }
+    const lw = M.learnTokens(text), cx = text.trim() ? M.contextOf(IDX, text) : null;
+    try { B.learn3(p.id, s.f, JSON.stringify(lw), JSON.stringify(skipped), cx ? JSON.stringify(cx) : null); }
+    catch (e) { try { B.learn2(p.id, s.f, JSON.stringify(w), JSON.stringify(skipped)); } catch (e2) {} }
+    try { B.deleteHint(M.shouldDelete(text, s, DATA, info)); } catch (e) {}
     const ov = document.createElement('div'); ov.className = 'sending'; ov.textContent = 'A enviar…';
     $('#card').appendChild(ov);
     setTimeout(() => ov.remove(), 1200);
@@ -219,10 +224,16 @@ function drawPanel() {
     const g = GROUPS.find(x => 'g:' + x.e === tab);
     const list = g ? g.items : [];
     lastRes = DATA.kbShuffle ? [] : list;
-    list.forEach(r => st.appendChild(tile(r.p, r.s)));
+    list.forEach(r => st.appendChild(tile(r.p, r.s, r)));
   } else if (tab === 'sug') {
     lastRes = DATA.kbShuffle ? [] : res;
-    if (res.length) res.forEach(r => st.appendChild(tile(r.p, r.s)));
+    const nUs = res.filter(r => r.usualTag).length;
+    if (nUs && !DATA.kbShuffle) {
+      st.appendChild(sep('🧠', 'Costumas usar'));
+      res.filter(r => r.usualTag).forEach(r => st.appendChild(tile(r.p, r.s, r)));
+      if (res.length > nUs) st.appendChild(sep('✨', 'Mais'));
+      res.filter(r => !r.usualTag).forEach(r => st.appendChild(tile(r.p, r.s, r)));
+    } else if (res.length) res.forEach(r => st.appendChild(tile(r.p, r.s, r)));
     else {
       const tw = timeWords();
       const now = M.search(IDX, tw.q, 12);

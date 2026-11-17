@@ -3035,13 +3035,27 @@ function habitText(s) {
   const when = tot >= 3 && bv / tot >= 0.34 ? ` · mais ${HOURS[best]}` : '';
   return `Mandaste-o ${u}×${when}`;
 }
+const FAM_PT = { love: '❤️ amor', laugh: '😂 riso', yes: '👍 «sim»/concordar', no: '👎 «não»', sad: '😢 tristeza', angry: '😠 raiva', surprise: '😱 surpresa', fear: '😨 medo/nervos', sleep: '😴 sono/boa noite', hi: '👋 cumprimentos', party: '🥳 festa', think: '🤔 dúvida', flirt: '😏 malícia', disgust: '🤢 nojo', shy: '🙈 vergonha', food: '🍕 comida' };
+const SHAPE_PT = { q: 'perguntas', x: 'exclamações', s1: 'mensagens de 1–2 palavras', s2: 'mensagens curtas', s3: 'mensagens médias', s4: 'mensagens grandes', h: 'com risos', n: 'quando dizes que não' };
+/** Em que tipo de mensagens costumas mandar este sticker (o que o teclado percebeu do contexto). */
+function ctxText(s) {
+  const c = Match.ctxProfile(s);
+  if (!c) return '';
+  const tot = Object.values(c.f).reduce((a, x) => a + x, 0) || 1;
+  const fam = Object.keys(c.f).sort((a, b) => c.f[b] - c.f[a]).filter(k => FAM_PT[k] && c.f[k] / tot >= 0.12).slice(0, 3).map(k => `${FAM_PT[k]} ${Math.round(100 * c.f[k] / tot)}%`);
+  const n = c.n || 1;
+  const shp = Object.keys(c.s).filter(k => SHAPE_PT[k] && c.s[k] / n >= 0.5).sort((a, b) => c.s[b] - c.s[a]).slice(0, 2).map(k => SHAPE_PT[k]);
+  if (!fam.length && !shp.length) return '';
+  return `Costumas mandá-lo em mensagens de ${fam.join(' · ') || 'vários temas'}${shp.length ? ` (sobretudo ${shp.join(' e ')})` : ''}.`;
+}
 function learnBlock(s) {
   const L = Match.learned(s);
-  const hab = habitText(s);
-  if (!L.length && !hab) return '';
+  const hab = habitText(s), cxt = ctxText(s);
+  if (!L.length && !hab && !cxt) return '';
   const dots = e => '●'.repeat(Math.max(1, Math.min(4, Math.ceil(e / 2)))) + '○'.repeat(4 - Math.max(1, Math.min(4, Math.ceil(e / 2))));
   return `<div class="row" style="margin-top:16px;justify-content:space-between"><div class="sec" style="margin:0">🧠 O teclado aprendeu</div>${L.length ? '<button class="btn sm ghost" id="lforget">Esquecer tudo</button>' : ''}</div>
     ${hab ? `<div class="hint" style="margin:4px 0 8px">${esc(hab)}</div>` : ''}
+    ${cxt ? `<div class="hint" style="margin:0 0 8px">🧠 ${esc(cxt)}</div>` : ''}
     ${L.length ? `<div class="words" id="lw">${L.slice(0, 30).map(l => `<button class="lchip" data-w="${esc(l.w)}">${esc(l.w)} <span class="ld">${dots(l.eff)}</span></button>`).join('')}</div>
     <div class="hint" style="margin-top:6px">Palavras que escreves antes de mandar este sticker. Ganham força quando as usas e vão perdendo se deixares de as usar. Toca numa para a tornar fixa ou esquecer.</div>` : ''}`;
 }
@@ -3130,7 +3144,7 @@ function learnCard() {
   const on = S.data.learnOn !== false;
   const nE = Object.keys(S.data.emojiLrn || {}).filter(k => Match.emojiLearned(S.data, k).length).length;
   const c = el(`<div class="card" style="margin-bottom:12px"><div class="opt" style="padding:0;border:0"><div class="t"><b>🧠 Aprender com o que escreves</b><div class="small muted">${on ? `Já aprendi ${nW} palavra${nW === 1 ? '' : 's'} em ${nS} sticker${nS === 1 ? '' : 's'}.` : 'Desligado: o teclado não aprende nada novo.'}</div></div><button class="sw ${on ? 'on' : ''}" id="lon"></button></div>
-    <div class="hint" style="margin-top:8px">Cada vez que mandas um sticker, o teclado guarda as palavras que escreveste antes (e pares como «boa noite»). Dá prioridade aos que usas mais e à hora a que os costumas usar. Se deixares de usar uma palavra para um sticker, ela vai perdendo força até desaparecer. Se escolheres outro em vez dos primeiros sugeridos, esses descem para essa palavra.</div>
+    <div class="hint" style="margin-top:8px">Cada vez que mandas um sticker, o teclado guarda as palavras que escreveste antes (e pares como «boa noite»), com mais força para o fim da mensagem, e o <b>contexto</b>: o tema da mensagem (amor, riso, «não»…) e a forma da frase (pergunta, curta, grande). Com mensagens parecidas, mostra-os à frente com 🧠. Dá prioridade aos que usas mais e à hora a que os costumas usar. Se deixares de usar uma palavra para um sticker, ela vai perdendo força até desaparecer. Se escolheres outro em vez dos primeiros sugeridos, esses descem para essa palavra.</div>
     <div class="hint" style="margin-top:6px">Os emojis também aprendem: o que escreves antes de mandar stickers com um emoji passa a valer para todos os stickers com ele (também os novos)${nE ? ` — ${nE} emoji${nE === 1 ? '' : 's'} já aprenderam palavras` : ''}.</div>
     <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap"><button class="btn sm primary" id="ltr">🎯 Treino rápido</button>${nW || nE ? '<button class="btn sm ghost" id="lall">Esquecer tudo o que aprendi</button>' : ''}</div></div>`);
   $('#ltr', c).onclick = () => openTrainer(null);
