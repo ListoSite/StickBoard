@@ -38,6 +38,7 @@ svg{display:block}
 .tabs::-webkit-scrollbar{display:none}
 .tab{height:30px;padding:0 12px;border-radius:15px;background:#1D222A;color:#9AA3B0;font-size:13px;font-weight:600;white-space:nowrap;display:flex;align-items:center;gap:5px}
 .tab.on{background:rgba(37,211,102,.16);color:#25D366}
+.kx{margin-left:6px;background:rgba(255,255,255,.08);border:0;color:#9AA3B0;border-radius:9px;padding:1px 7px;font-size:11px;text-transform:none;letter-spacing:0}
 .tab .ge{font-size:16px;line-height:1}
 .tab .n{font-size:11px;background:#25D366;color:#06210F;border-radius:8px;padding:0 6px;line-height:16px}
 .strip{flex:1;min-height:0;display:grid;grid-auto-flow:column;grid-template-rows:repeat(var(--rows,2),minmax(0,1fr));grid-auto-columns:max-content;gap:6px;overflow-x:auto;overflow-y:hidden;padding:0 12px 12px;scrollbar-width:none}
@@ -113,6 +114,21 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&a
 const EM = new Map();
 const info = e => EM.get(M.stripVS(e));
 let DATA = { packs: [] }, IDX = [], text = '', mode = 'bubble', lastLoad = 0, tab = 'sug', lastCount = 0;
+// a mensagem que acabaste de mandar: os stickers continuam a aparecer até voltares a escrever
+let kept = null;
+const KEEP_MS = 15 * 60 * 1000;
+function takeText(t) {
+  t = t || '';
+  if (!t.trim()) {
+    // a caixa ficou vazia de repente (mandaste a mensagem): fica a última frase
+    if (!kept && text.trim().length >= 3) kept = { t: text, at: Date.now() };
+    if (kept && Date.now() - kept.at < KEEP_MS) { text = kept.t; return; }
+    kept = null; text = ''; return;
+  }
+  if (kept && t !== kept.t) kept = null; // voltaste a escrever
+  text = t;
+}
+function dropKept() { kept = null; text = ''; }
 const img = (p, f) => `f/${encodeURIComponent(p.id)}/${encodeURIComponent(f)}?v=${p.version || 0}`;
 
 function load(force) {
@@ -211,10 +227,11 @@ window.addEventListener('resize', () => fitStrip());
 function drawPanel() {
   fitStrip();
   const l = line();
-  $('#qa').textContent = l ? 'Stickers para' : 'Escreve uma frase';
+  $('#qa').innerHTML = l ? (kept ? '<span style="color:#25D366">✓ Mensagem enviada</span> <button id="kx" class="kx">✕ limpar</button>' : 'Stickers para') : 'Escreve uma frase';
+  const kx = $('#kx'); if (kx) kx.onclick = ev => { ev.stopPropagation(); dropKept(); drawPanel(); };
   const qb = $('#qb');
   qb.textContent = l ? `«${l.length > 34 ? '…' + l.slice(-32) : l}»` : (DATA.adultMode ? 'só stickers +18' : 'e os stickers aparecem aqui');
-  if (DATA.adultMode) $('#qa').textContent = '🔞 ' + $('#qa').textContent;
+  if (DATA.adultMode) $('#qa').insertAdjacentHTML('afterbegin', '🔞 ');
   qb.classList.toggle("muted", !l);
   const res = l ? results() : [];
   drawTabs(res.length);
@@ -306,7 +323,9 @@ window.BubbleApp = {
     else drawBadge();
   },
   onText(t) {
-    text = t || '';
+    const was = text, wk = !!kept;
+    takeText(t);
+    if (wk && kept && text === was) return;
     load(false);
     if (mode === 'panel') drawPanel(); else drawBadge();
   },
@@ -330,7 +349,7 @@ window.BubbleApp = {
     j.emojis.forEach(a => EM.set(M.stripVS(a[0]), { e: a[0], n: a[2], pt: a[3] ? a[3].split('|') : [] }));
   } catch (e) {}
   load(true);
-  try { text = B.getText(); } catch (e) {}
+  try { takeText(B.getText()); } catch (e) {}
   BubbleApp.setMode('bubble');
 })();
 </script>

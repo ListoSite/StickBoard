@@ -6,6 +6,21 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const EM = new Map();
 let DATA = { packs: [] }, IDX = [], text = '', tab = 'sug', direct = true;
+// a mensagem que acabaste de mandar: os stickers continuam a aparecer até voltares a escrever
+let kept = null;
+const KEEP_MS = 15 * 60 * 1000;
+function takeText(t) {
+  t = t || '';
+  if (!t.trim()) {
+    // a caixa ficou vazia de repente (mandaste a mensagem): fica a última frase
+    if (!kept && text.trim().length >= 3) kept = { t: text, at: Date.now() };
+    if (kept && Date.now() - kept.at < KEEP_MS) { text = kept.t; return; }
+    kept = null; text = ''; return;
+  }
+  if (kept && t !== kept.t) kept = null; // voltaste a escrever
+  text = t;
+}
+function dropKept() { kept = null; text = ''; }
 let shufKey = null, shufOrder = [];
 let sugGrp = ''; // aba das sugestões: '' = todos, ou o emoji do tema
 let searching = false, sq = '', multi = null;
@@ -60,7 +75,9 @@ function lastWords(t) {
 function renderTop() {
   if (searching) { $('#q').innerHTML = `🔍 <b>${esc(sq) || ''}</b><span style="color:#25D366">▏</span>${sq ? '' : '<span style="color:#6B7482">escreve para procurar</span>'}`; return; }
   const lw = lastWords(text);
-  $('#q').innerHTML = (DATA.adultMode ? '<span class="a18">🔞</span> ' : '') + (lw ? `Para <b>«${esc(lw)}»</b>` : (DATA.adultMode ? 'Modo +18 ligado' : 'Escreve no teu teclado e volta aqui'));
+  $('#q').innerHTML = (DATA.adultMode ? '<span class="a18">🔞</span> ' : '') + (lw ? `${kept ? '<span class="kept">✓ enviada</span> ' : 'Para '}<b>«${esc(lw)}»</b>` : (DATA.adultMode ? 'Modo +18 ligado' : 'Escreve no teu teclado e volta aqui'));
+  const kx = $('#kx');
+  if (kx) { kx.classList.toggle('hidden', !kept || searching); kx.onclick = ev => { ev.stopPropagation(); dropKept(); renderTop(); if (tab === 'sug') renderGrid(); }; }
   $('#mode').classList.toggle('hidden', direct);
 }
 
@@ -407,13 +424,13 @@ window.KBApp = {
   onBusy(label) { setBusy(label); },
   onOpen(o) {
     setBusy(o.busy || null);
-    text = o.text || ''; direct = !!o.direct; tab = 'sug'; shufKey = null; multi = null;
+    takeText(o.text); direct = !!o.direct; tab = 'sug'; shufKey = null; multi = null;
     $('#multi').classList.remove('on'); drawSend();
     if (searching) setSearch(false);
     closePv(); refresh(); $('#grid').scrollTop = 0;
   },
   onSaved(r) { flash(r && r.ok ? 'Guardado na galeria (Imagens/StickTag) ✓' : 'Não guardei: ' + ((r && r.error) || 'erro')); },
-  onText(t) { text = t || ''; if (searching) return; renderTop(); if (tab === 'sug' && !(multi && multi.length)) renderGrid(); },
+  onText(t) { const was = text, wk = !!kept; takeText(t); if (wk && kept && text === was) return; if (searching) return; renderTop(); if (tab === 'sug' && !(multi && multi.length)) renderGrid(); },
   onSent(r) {
     if (!r || !r.ok) flash('Não consegui enviar');
     else if (r.mode === 'share') flash('A abrir a partilha…');
@@ -423,6 +440,6 @@ window.KBApp = {
 
 (async function () {
   await loadEmoji();
-  try { text = K.getText(); } catch (e) {}
+  try { takeText(K.getText()); } catch (e) {}
   refresh();
 })();
