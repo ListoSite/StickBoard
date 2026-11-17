@@ -38,6 +38,7 @@ svg{display:block}
 .tabs::-webkit-scrollbar{display:none}
 .tab{height:30px;padding:0 12px;border-radius:15px;background:#1D222A;color:#9AA3B0;font-size:13px;font-weight:600;white-space:nowrap;display:flex;align-items:center;gap:5px}
 .tab.on{background:rgba(37,211,102,.16);color:#25D366}
+.tab .ge{font-size:16px;line-height:1}
 .tab .n{font-size:11px;background:#25D366;color:#06210F;border-radius:8px;padding:0 6px;line-height:16px}
 .strip{flex:1;min-height:0;display:grid;grid-auto-flow:column;grid-template-rows:repeat(var(--rows,2),minmax(0,1fr));grid-auto-columns:max-content;gap:6px;overflow-x:auto;overflow-y:hidden;padding:0 12px 12px;scrollbar-width:none}
 .strip::-webkit-scrollbar{display:none}
@@ -95,6 +96,12 @@ body.adult #bub{box-shadow:0 0 0 2px #FF4D5E,0 6px 16px rgba(0,0,0,.45)}
     <div class="strip" id="strip"></div>
   </div>
 </div>
+<script src="lex.js"></script>
+<script src="frases.js"></script>
+<script src="conversa.js"></script>
+<script src="portugal.js"></script>
+<script src="calao.js"></script>
+<script src="calao_pt.js"></script>
 <script src="match.js"></script>
 <script>
 'use strict';
@@ -115,7 +122,8 @@ function load(force) {
   IDX = M.buildIndex(DATA, info);
 }
 function shuffle(r) { for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; } return r; }
-function results() { const r = M.search(IDX, text, 40); return DATA.kbShuffle ? shuffle(r) : r; }
+let GROUPS = [];
+function results() { const r = M.search(IDX, text, 40); GROUPS = r.groups || []; return DATA.kbShuffle ? shuffle(r.slice()) : r; }
 function timeWords() {
   const h = new Date().getHours();
   if (h >= 5 && h < 12) return { label: 'Bom dia', icon: '☀️', q: 'bom dia manhã café' };
@@ -161,7 +169,7 @@ function tile(p, s) {
     pushRecent(p.id, s.f);
     const w = M.queryTokens(text);
     const skipped = [];
-    if (w.length && tab === 'sug') for (const r of lastRes) { if (r.p.id === p.id && r.s.f === s.f) break; skipped.push({ p: r.p.id, f: r.s.f }); if (skipped.length >= 3) break; }
+    if (w.length && (tab === 'sug' || tab.startsWith('g:'))) for (const r of lastRes) { if (r.p.id === p.id && r.s.f === s.f) break; skipped.push({ p: r.p.id, f: r.s.f }); if (skipped.length >= 3) break; }
     try { B.learn2(p.id, s.f, JSON.stringify(w), JSON.stringify(skipped)); } catch (e) { if (w.length) try { B.learn(p.id, s.f, JSON.stringify(w)); } catch (e2) {} }
     const ov = document.createElement('div'); ov.className = 'sending'; ov.textContent = 'A enviar…';
     $('#card').appendChild(ov);
@@ -175,9 +183,13 @@ function empty(icon, html) { const d = document.createElement('div'); d.classNam
 
 function drawTabs(nSug) {
   const favs = DATA.packs.reduce((a, p) => a + p.stickers.filter(s => s.fav).length, 0);
-  const T = [['sug', '✨ Sugestões', nSug], ['fav', '⭐ Favoritos', 0], ['rec', '🕘 Recentes', 0]];
+  const T = [['sug', GROUPS.length ? '✨ Todos' : '✨ Sugestões', nSug]];
+  // abas por tema: o emoji da palavra da frase que trouxe esses stickers
+  for (const g of GROUPS) T.push(['g:' + g.e, `<span class="ge">${esc(g.show || g.e)}</span> ${esc(g.words[0].length > 12 ? g.words[0].slice(0, 11) + '…' : g.words[0])}`, g.items.length]);
+  T.push(['fav', '⭐ Favoritos', 0], ['rec', '🕘 Recentes', 0]);
   if ((DATA.specials || []).some(sp => sp.first && find(sp.first.p, sp.first.f))) T.push(['spc', '⚡ Especiais', 0]);
-  if (!favs) T.splice(1, 1);
+  if (!favs) { const i = T.findIndex(x => x[0] === 'fav'); if (i >= 0) T.splice(i, 1); }
+  if (tab.startsWith('g:') && !GROUPS.some(g => 'g:' + g.e === tab)) tab = 'sug';
   if (tab === 'fav' && !favs) tab = 'sug';
   if (tab === 'spc' && !(DATA.specials || []).length) tab = 'sug';
   $('#tabs').innerHTML = T.map(([id, l, n]) => `<button class="tab ${tab === id ? 'on' : ''}" data-t="${id}">${l}${n ? `<span class="n">${n}</span>` : ''}</button>`).join('');
@@ -203,7 +215,12 @@ function drawPanel() {
   drawTabs(res.length);
   const st = $('#strip');
   st.innerHTML = '';
-  if (tab === 'sug') {
+  if (tab.startsWith('g:')) {
+    const g = GROUPS.find(x => 'g:' + x.e === tab);
+    const list = g ? g.items : [];
+    lastRes = DATA.kbShuffle ? [] : list;
+    list.forEach(r => st.appendChild(tile(r.p, r.s)));
+  } else if (tab === 'sug') {
     lastRes = DATA.kbShuffle ? [] : res;
     if (res.length) res.forEach(r => st.appendChild(tile(r.p, r.s)));
     else {

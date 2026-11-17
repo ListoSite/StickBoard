@@ -7,6 +7,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&a
 const EM = new Map();
 let DATA = { packs: [] }, IDX = [], text = '', tab = 'sug', direct = true;
 let shufKey = null, shufOrder = [];
+let sugGrp = ''; // aba das sugestões: '' = todos, ou o emoji do tema
 let searching = false, sq = '', multi = null;
 const secOf = {};
 
@@ -192,6 +193,7 @@ function renderGrid() {
   if (!total) { addMsg(g, DATA.adultMode ? '🔞 Ainda não tens stickers +18. Marca packs ou stickers como +18 no StickTag (ou toca em 🔞 para voltar ao normal).' : 'Ainda não tens stickers. Toca em ⚙️ para abrir o StickTag e criar um pack.'); return; }
   if (tab === 'sug') {
     let res = M.search(IDX, text, 60);
+    const groups = res.groups || [];
     if (DATA.kbShuffle && res.length > 1) {
       // ordem aleatória (fica igual enquanto a frase não muda)
       const key = text + '|' + res.length;
@@ -203,8 +205,25 @@ function renderGrid() {
       const pos = new Map(shufOrder.map((k, i) => [k, i]));
       res = res.slice().sort((a, b) => (pos.get(a.p.id + '/' + a.s.f) ?? 999) - (pos.get(b.p.id + '/' + b.s.f) ?? 999));
     }
-    lastRes = DATA.kbShuffle ? [] : res;
-    if (res.length) res.forEach(r => g.appendChild(tile(r.p, r.s)));
+    // abas por tema: os stickers de cada palavra da frase, com o emoji dessa palavra
+    if (sugGrp && !groups.some(x => x.e === sugGrp)) sugGrp = '';
+    let shown = res;
+    if (groups.length) {
+      const bar = document.createElement('div');
+      bar.className = 'secs sugtabs';
+      const lab = w => w.length > 14 ? w.slice(0, 13) + '…' : w;
+      bar.innerHTML = `<button class="${!sugGrp ? 'on' : ''}" data-g="">✨ Todos <span class="n">${res.length}</span></button>` +
+        groups.map(x => `<button class="${sugGrp === x.e ? 'on' : ''}" data-g="${esc(x.e)}"><span class="ge">${esc(x.show || x.e)}</span> ${esc(lab(x.words[0]))} <span class="n">${x.items.length}</span></button>`).join('');
+      bar.querySelectorAll('button').forEach(b => b.onclick = () => { sugGrp = b.dataset.g; renderGrid(); $('#grid').scrollTop = 0; });
+      g.appendChild(bar);
+      if (sugGrp) {
+        const gi = groups.find(x => x.e === sugGrp).items;
+        const pos = new Map(res.map((r, i) => [r.p.id + '/' + r.s.f, i]));
+        shown = gi.slice().sort((a, b) => DATA.kbShuffle ? (pos.get(a.p.id + '/' + a.s.f) ?? 999) - (pos.get(b.p.id + '/' + b.s.f) ?? 999) : b.score - a.score);
+      }
+    }
+    lastRes = DATA.kbShuffle ? [] : shown;
+    if (shown.length) shown.forEach(r => g.appendChild(tile(r.p, r.s)));
     else {
       if (text.trim()) addMsg(g, `Nenhum sticker para <b>«${esc(lastWords(text))}»</b>. Dá palavras ou emojis aos teus stickers no StickTag.`);
       // sugestões pela hora do dia
