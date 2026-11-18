@@ -661,3 +661,13 @@ html,body{background:var(--bg);-webkit-font-smoothing:antialiased}
 .ewchip{display:inline-flex;align-items:center;gap:4px;padding:5px 4px 5px 10px;border-radius:999px;background:var(--bg);border:1px solid var(--line);font-size:13px}
 .ewx{width:22px;height:22px;border-radius:11px;border:0;background:transparent;color:var(--muted);font-size:16px;line-height:20px;padding:0}
 .ed2-slots .slot.sel{box-shadow:0 0 0 2px var(--green)}
+
+/* especial «Montar» */
+.fblock{padding:12px;margin-bottom:10px}
+.fbh{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.fblock .seg{margin-bottom:8px}
+.fbtools{display:flex;gap:4px;margin-left:auto}
+.fbtools button{width:30px;height:30px;border-radius:9px;border:1px solid var(--line);background:transparent;color:var(--text);font-size:14px;padding:0}
+.fbtools button:disabled{opacity:.3}
+.fblock .seg{display:grid;grid-template-columns:1fr 1fr}
+.flowplan{margin:-4px 0 12px;padding:10px 12px;border-radius:12px;background:var(--greenSoft)}

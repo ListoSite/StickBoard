@@ -70,6 +70,8 @@ public final class Specials {
         List<Integer> left; int lastIdx = -1, rounds;
         // n.º do envio (para o vigia de um envio antigo não cancelar o seguinte) e quando começou a enviar
         int batchNo; long sendStart;
+        // «Montar»: o plano todo (já com os ao calhas escolhidos) e quais esperam pela resposta
+        List<Pending.Item> plan; List<Boolean> planWait; int planIdx;
     }
 
     /* ---------- dados ---------- */
@@ -142,6 +144,65 @@ public final class Specials {
         return new Pending.Item(x.pack, x.file, gap);
     }
 
+    /* ---------- «Montar»: blocos à tua maneira (pela tua ordem ou ao calhas), sozinhos ou a cada resposta ---------- */
+
+    static boolean flowWaits(JSONObject d) {
+        JSONArray bl = d.optJSONArray("blocks");
+        for (int i = 0; bl != null && i < bl.length(); i++) { JSONObject b = bl.optJSONObject(i); if (b != null && "reply".equals(b.optString("when", "auto"))) return true; }
+        return false;
+    }
+
+    /** Monta o plano: os teus blocos pela ordem; nos blocos ao calhas escolhe já quais vão (sem repetir, se for o caso). */
+    static void flowPlan(Run r, JSONObject d) {
+        r.plan = new ArrayList<Pending.Item>(); r.planWait = new ArrayList<Boolean>(); r.planIdx = 0;
+        long gap = Math.round(d.optDouble("gap", 2) * 1000);
+        boolean noRep = d.optBoolean("noRepeat", true);
+        java.util.HashSet<String> used = new java.util.HashSet<String>();
+        JSONObject f0 = d.optJSONObject("first");
+        if (f0 != null) used.add(f0.optString("p") + "/" + f0.optString("f"));
+        JSONArray bl = d.optJSONArray("blocks");
+        for (int i = 0; bl != null && i < bl.length(); i++) {
+            JSONObject b = bl.optJSONObject(i);
+            if (b == null) continue;
+            boolean w = "reply".equals(b.optString("when", "auto"));
+            long bg = b.has("d") ? Math.round(b.optDouble("d", 2) * 1000) : gap;
+            if ("random".equals(b.optString("k"))) {
+                List<Pending.Item> pool = items(b.optJSONArray("pool"), bg, bg);
+                List<Pending.Item> cand = new ArrayList<Pending.Item>();
+                for (Pending.Item x : pool) if (!noRep || !used.contains(x.pack + "/" + x.file)) cand.add(x);
+                java.util.Collections.shuffle(cand, RND);
+                int n = b.optInt("n", 1);
+                if (n <= 0) n = cand.size();
+                for (int k = 0; k < n; k++) {
+                    Pending.Item x;
+                    if (k < cand.size()) x = cand.get(k);
+                    else if (!noRep && !pool.isEmpty()) x = pool.get(RND.nextInt(pool.size()));
+                    else break;
+                    r.plan.add(new Pending.Item(x.pack, x.file, bg)); r.planWait.add(w);
+                    used.add(x.pack + "/" + x.file);
+                }
+            } else {
+                for (Pending.Item x : items(b.optJSONArray("stickers"), bg, bg)) {
+                    r.plan.add(x); r.planWait.add(w); used.add(x.pack + "/" + x.file);
+                }
+            }
+        }
+    }
+
+    /** Põe na fila os próximos do plano até encontrar um que espera pela resposta. */
+    static void flowNext(Run r, boolean replied, long replyGap) {
+        boolean firstOne = true;
+        while (r.planIdx < r.plan.size()) {
+            boolean w = r.planWait.get(r.planIdx);
+            if (w && !(replied && firstOne)) { r.then = "wait"; return; }
+            Pending.Item x = r.plan.get(r.planIdx++);
+            if (w) x = new Pending.Item(x.pack, x.file, replyGap);
+            r.queue.add(x);
+            firstOne = false;
+        }
+        r.then = null;
+    }
+
     /** Chamado pelo teclado depois de enviar o 1.º sticker de um especial. */
     static void start(Context c, String id, String pkg) {
         ctx = c.getApplicationContext();
@@ -155,7 +216,8 @@ public final class Specials {
         r.ignoreOut = r.started + 3500;
         BubbleService b = BubbleService.inst;
         r.chat = b != null ? b.chatTitle(r.pkg) : null;
-        if (waitsReply(r.type) && b == null) {
+        boolean needsReply = waitsReply(r.type) || (r.type.equals("flow") && flowWaits(d));
+        if (needsReply && b == null) {
             toast("⚡ Para o StickTag ler a resposta, liga a bolha (StickTag › Teclado)");
             return;
         }
@@ -163,6 +225,18 @@ public final class Specials {
         log("▶ «" + r.name + "» (" + r.type + ") em " + r.pkg + (r.chat != null ? " · conversa «" + r.chat + "»" : "") + (b == null ? " · bolha desligada" : ""));
         if (r.type.equals("seq") || r.type.equals("typing")) {
             r.queue.addAll(items(d.optJSONArray("steps"), 2000, 2000));
+        } else if (r.type.equals("flow")) {
+            flowPlan(r, d);
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < r.plan.size(); i++) sb.append(r.planWait.get(i) ? "💬" : "⏱");
+            log("🧩 plano: " + r.plan.size() + " stickers " + sb);
+            flowNext(r, false, 0);
+            if (r.queue.isEmpty() && "wait".equals(r.then)) {
+                // o 1.º bloco já espera pela resposta
+                r.then = null;
+                H.postDelayed(new Runnable() { @Override public void run() { scan(); } }, 300);
+                beginWait(r, true);
+            }
         } else if (r.type.equals("random")) {
             Pending.Item x = pick(d.optJSONArray("pool"), Math.round(d.optDouble("delay", 2) * 1000));
             if (x != null) r.queue.add(x);
@@ -342,6 +416,9 @@ public final class Specials {
 
     /* ---------- ler a conversa ---------- */
 
+    /** Especiais em que cada resposta da pessoa faz avançar (várias mensagens seguidas contam como uma). */
+    static boolean multiTurn(Run r) { return r.def.optBoolean("multi", false) || r.type.equals("flow"); }
+
     static boolean isWhatsApp(String pkg) { return pkg.equals("com.whatsapp") || pkg.equals("com.whatsapp.w4b"); }
 
     static void onA11y(BubbleService b, AccessibilityEvent e, String pkg) {
@@ -404,12 +481,12 @@ public final class Specials {
             log("nova: " + rowStr(x) + (x.dir < 0 && ignoring ? " (enviada pelo StickTag)" : ""));
             if (x.dir < 0 && !ignoring) { cancel("respondeste na conversa"); return; }
             if (x.dir > 0 && r.waiting && onReply(x)) {
-                if (!r.def.optBoolean("multi", false)) return;
+                if (!multiTurn(r)) return;
                 continue; // as outras mensagens deste mesmo momento juntam-se a esta resposta
             }
             if (x.dir > 0 && !r.waiting && "wait".equals(r.then) && r.late == null) {
                 // «continuar a conversa»: o que chega antes de o sticker começar a sair junta-se à resposta anterior
-                if (r.def.optBoolean("multi", false) && r.sendStart == 0) { log("   (junta-se à resposta anterior)"); continue; }
+                if (multiTurn(r) && r.sendStart == 0) { log("   (junta-se à resposta anterior)"); continue; }
                 r.late = x; // respondeu enquanto o StickTag enviava
             }
         }
@@ -586,6 +663,15 @@ public final class Specials {
             r.waiting = false;
             log("✓ respondeu depois de " + r.nudged + " insistência" + (r.nudged == 1 ? "" : "s"));
             r.queue.addAll(items(d.optJSONArray("then"), first, 1500));
+        } else if (r.type.equals("flow")) {
+            if (r.plan == null || r.planIdx >= r.plan.size()) { r.waiting = false; }
+            else {
+                r.waiting = false;
+                int before = r.planIdx;
+                flowNext(r, true, first);
+                log("🧩 resposta → sticker " + (before + 1) + (r.planIdx - before > 1 ? "–" + r.planIdx : "") + " de " + r.plan.size());
+                if (r.planIdx >= r.plan.size()) log("🏁 era o último do plano");
+            }
         } else if (r.type.equals("reply") && d.optBoolean("multi", false)) {
             // continuar a conversa: a cada resposta vai UM sticker (pela ordem ou ao calhas, com ou sem repetir)
             List<Pending.Item> all = items(d.optJSONArray("then"), first, first);

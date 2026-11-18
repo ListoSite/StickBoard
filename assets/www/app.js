@@ -3407,6 +3407,7 @@ function showDupes(r) {
 /* ---------- stickers especiais ---------- */
 const SP_TYPES = {
   seq: { icon: '⏱️', name: 'Sequência', desc: 'Mandas um e os seguintes vão sozinhos, com o tempo que escolheres entre eles.' },
+  flow: { icon: '🧩', name: 'Montar', desc: 'Tu montas a sequência por blocos: uns pela tua ordem, outros ao calhas (ex.: 2 teus e depois 3 ao calhas). Cada bloco vai sozinho ou a cada resposta.' },
   reply: { icon: '💬', name: 'Resposta', desc: 'Mandas uma pergunta e, quando a pessoa responder qualquer coisa, vai o sticker seguinte.' },
   choice: { icon: '🔢', name: 'Escolha', desc: 'Pergunta com opções (1, 2, 3…): o StickTag lê a resposta e manda o sticker certo.' },
   random: { icon: '🎲', name: 'Ao calhas', desc: 'Mandas um e, passado um bocado, vai um ao calhas de uma lista (dado, bola mágica…).' },
@@ -3417,6 +3418,16 @@ const SP_TYPES = {
   secret: { icon: '🤫', name: 'Não cliques', desc: 'Quem tocar no sticker vê uma mensagem tua escondida no nome do pack.' }
 };
 const specials = () => S.data.specials || [];
+/** Resumo do «Montar»: o que vai e como (ex.: «2 pela tua ordem → 3 ao calhas de 8 💬»). */
+function flowText(sp) {
+  const n = a => (a || []).filter(stRef).length;
+  const parts = (sp.blocks || []).map(b => {
+    const w = b.when === 'reply' ? ' 💬' : '';
+    if (b.k === 'random') { const tot = n(b.pool); if (!b.n || b.n <= 0) return `🎲 os ${tot} baralhados${w}`; const k = sp.noRepeat === false ? b.n : Math.min(b.n, tot); return `🎲 ${k} ao calhas de ${tot}${w}`; }
+    return `📋 ${n(b.stickers)} pela tua ordem${w}`;
+  }).filter(Boolean);
+  return parts.length ? parts.join(' → ') : 'Sem blocos';
+}
 const stRef = x => { const p = x && packOf(x.p); const s = p && p.stickers.find(q => q.f === x.f); return s ? { p, s } : null; };
 const refImg = x => { const r = stRef(x); return r ? imgUrl(r.p, r.s.f) : ''; };
 function saveSpecials(list) {
@@ -3425,6 +3436,7 @@ function saveSpecials(list) {
 function spSummary(sp) {
   const n = a => (a || []).filter(stRef).length;
   if (sp.type === 'seq') return `${n(sp.steps) + 1} stickers seguidos`;
+  if (sp.type === 'flow') return flowText(sp);
   if (sp.type === 'reply' && sp.multi) return `🔁 A cada resposta 1 de ${n(sp.then)} · ${sp.order === 'random' ? 'aleatório' : 'pela ordem'}${sp.repeat ? ' · repete' : ''}${sp.maxRounds ? ` · máx. ${sp.maxRounds}` : ''}`;
   if (sp.type === 'reply') return `Responde com ${n(sp.then)} sticker${n(sp.then) === 1 ? '' : 's'}${sp.noReply && sp.noReply.secs ? ` · sem resposta em ${sp.noReply.secs} s: ${n(sp.noReply.stickers)}` : ''}`;
   if (sp.type === 'choice') return `${(sp.options || []).length} opções${n(sp.other) ? ' + outra resposta' : ''}${sp.noReply && sp.noReply.secs ? ` · sem resposta em ${sp.noReply.secs} s` : ''}`;
@@ -3579,6 +3591,7 @@ async function newSpecial() {
   }
   const base = { id: 'sp' + Date.now().toString(36), type: chosen, name: '', first: null };
   if (chosen === 'seq') base.steps = [];
+  if (chosen === 'flow') Object.assign(base, { blocks: [{ k: 'fixed', when: 'auto', stickers: [] }, { k: 'random', when: 'auto', pool: [], n: 2 }], gap: 2, noRepeat: true, replyDelay: 1, maxWait: 300 });
   if (chosen === 'reply') Object.assign(base, { then: [], replyDelay: 1, maxWait: 300, noReply: { secs: 0, stickers: [] }, multi: false, order: 'seq', repeat: false, maxRounds: 0 });
   if (chosen === 'choice') Object.assign(base, { options: [{ answers: '1', stickers: [] }, { answers: '2', stickers: [] }], other: [], replyDelay: 1, maxWait: 300, noReply: { secs: 0, stickers: [] } });
   if (chosen === 'random') Object.assign(base, { pool: [], delay: 2 });
@@ -3857,6 +3870,7 @@ function specialSection(getMain, hostPack, wrap) {
 function newSpecialData(k) {
   const base = { id: 'sp' + Date.now().toString(36), type: k, name: '', first: null };
   if (k === 'seq' || k === 'typing') base.steps = [];
+  if (k === 'flow') Object.assign(base, { blocks: [{ k: 'fixed', when: 'auto', stickers: [] }, { k: 'random', when: 'auto', pool: [], n: 2 }], gap: 2, noRepeat: true, replyDelay: 1, maxWait: 300 });
   if (k === 'reply') Object.assign(base, { then: [], replyDelay: 1, maxWait: 300, noReply: { secs: 0, stickers: [] }, multi: false, order: 'seq', repeat: false, maxRounds: 0 });
   if (k === 'choice') Object.assign(base, { options: [{ answers: '1', stickers: [] }, { answers: '2', stickers: [] }], other: [], replyDelay: 1, maxWait: 300, noReply: { secs: 0, stickers: [] } });
   if (k === 'random') Object.assign(base, { pool: [], delay: 2 });
@@ -3930,6 +3944,82 @@ function specialForm(sp, bd, opts = {}) {
   } else if (sp.type !== 'quiz') bd.appendChild(field(sp.type === 'game' ? '1.º sticker (a pergunta, ex.: «pedra, papel ou tesoura?»)' : '1.º sticker', firstPicker()));
   if (sp.type === 'seq') {
     bd.appendChild(field('Depois vão estes, por ordem', stickerList(sp.steps, true, 'Próximo'), '⏱ = quanto tempo espera antes de mandar esse sticker.'));
+  }
+  if (sp.type === 'flow') {
+    sp.blocks = sp.blocks || [];
+    const NS = [1, 2, 3, 4, 5, 6, 8, 10, 15, 20, 0];
+    const wrap = el('<div class="flow"></div>');
+    const plan = el('<div class="hint flowplan"></div>');
+    const drawPlan = () => { plan.innerHTML = '<b>Vai assim:</b> 1.º sticker → ' + esc(flowText(sp)); };
+    function drawBlocks() {
+      wrap.innerHTML = '';
+      sp.blocks.forEach((b, i) => {
+        const rnd = b.k === 'random';
+        const c = el(`<div class="card fblock">
+          <div class="fbh"><b>Bloco ${i + 1}</b>
+            <div class="fbtools"><button class="fup" ${i ? '' : 'disabled'}>↑</button><button class="fdn" ${i < sp.blocks.length - 1 ? '' : 'disabled'}>↓</button><button class="fdel">✕</button></div></div>
+          <div class="seg fk"><button data-k="fixed" class="${!rnd ? 'on' : ''}">📋 Minha ordem</button><button data-k="random" class="${rnd ? 'on' : ''}">🎲 Ao calhas</button></div>
+          <div class="seg fw"><button data-w="auto" class="${b.when !== 'reply' ? 'on' : ''}">⏱ Sozinhos</button><button data-w="reply" class="${b.when === 'reply' ? 'on' : ''}">💬 A cada resposta</button></div>
+          <div class="fbb"></div></div>`);
+        const bb = $('.fbb', c);
+        if (rnd) {
+          b.pool = b.pool || [];
+          bb.appendChild(el('<div class="small muted" style="margin:8px 0 6px">Podem sair estes:</div>'));
+          bb.appendChild(stickerList(b.pool, false, 'Opção'));
+          const row = el(`<div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap"><span class="small muted">Quantos saem</span>
+            <select class="dsel fn">${NS.map(v => `<option value="${v}" ${(b.n == null ? 2 : b.n) === v ? 'selected' : ''}>${v ? v : 'Todos (baralhados)'}</option>`).join('')}</select>
+            ${b.when !== 'reply' ? `<span class="small muted">⏱ entre cada</span>${delaySel(b.d == null ? 2 : b.d, 'fd')}` : ''}</div>`);
+          $('.fn', row).onchange = e => { b.n = +e.target.value; drawPlan(); };
+          const fd = $('.fd', row); if (fd) fd.onchange = e => { b.d = +e.target.value; };
+          bb.appendChild(row);
+        } else {
+          b.stickers = b.stickers || [];
+          bb.appendChild(el(`<div class="small muted" style="margin:8px 0 6px">${b.when === 'reply' ? 'Um destes a cada resposta, por esta ordem:' : 'Por esta ordem (⏱ = espera antes de cada um):'}</div>`));
+          bb.appendChild(stickerList(b.stickers, b.when !== 'reply', 'Próximo'));
+        }
+        $$('.fk button', c).forEach(x => x.onclick = () => {
+          if (x.dataset.k === b.k) return;
+          // trocar de tipo leva os stickers que já lá estavam
+          if (x.dataset.k === 'random') { b.pool = (b.pool || []).concat(b.stickers || []); b.stickers = []; if (b.n == null) b.n = 1; }
+          else { b.stickers = (b.stickers || []).concat(b.pool || []); b.pool = []; }
+          b.k = x.dataset.k; drawBlocks();
+        });
+        $$('.fw button', c).forEach(x => x.onclick = () => { b.when = x.dataset.w; drawBlocks(); drawReply(); });
+        $('.fup', c).onclick = () => { sp.blocks.splice(i - 1, 0, sp.blocks.splice(i, 1)[0]); drawBlocks(); };
+        $('.fdn', c).onclick = () => { sp.blocks.splice(i + 1, 0, sp.blocks.splice(i, 1)[0]); drawBlocks(); };
+        $('.fdel', c).onclick = () => { sp.blocks.splice(i, 1); drawBlocks(); drawReply(); };
+        wrap.appendChild(c);
+      });
+      const add = el(`<div class="row" style="gap:8px;margin-top:4px"><button class="btn sm ghost" data-k="fixed" style="flex:1">＋ 📋 Pela minha ordem</button><button class="btn sm ghost" data-k="random" style="flex:1">＋ 🎲 Ao calhas</button></div>`);
+      $$('button', add).forEach(x => x.onclick = () => {
+        const last = sp.blocks[sp.blocks.length - 1];
+        sp.blocks.push(x.dataset.k === 'random' ? { k: 'random', when: last ? last.when : 'auto', pool: [], n: 2 } : { k: 'fixed', when: last ? last.when : 'auto', stickers: [] });
+        drawBlocks();
+      });
+      wrap.appendChild(add);
+      drawPlan();
+    }
+    // a lista de stickers mexe nos blocos: o plano atualiza sempre que algo muda lá dentro
+    wrap.addEventListener('click', () => setTimeout(drawPlan, 0));
+    drawBlocks();
+    bd.appendChild(field('Depois do 1.º, vão estes blocos', wrap, 'Ex.: bloco 1 📋 com 2 stickers teus e bloco 2 🎲 «3 ao calhas». Podes misturar quantos blocos quiseres.'));
+    bd.appendChild(plan);
+    const nr = el(`<div class="opt" style="padding:8px 2px 4px;border:0"><div class="t"><b>Não repetir stickers</b><div class="small muted">Os blocos ao calhas não escolhem stickers que já foram (nem o 1.º).</div></div><button class="sw ${sp.noRepeat === false ? '' : 'on'}"></button></div>`);
+    $('.sw', nr).onclick = e => { sp.noRepeat = !e.currentTarget.classList.toggle('on') ? false : true; drawPlan(); };
+    bd.appendChild(nr);
+    const rw = el('<div></div>');
+    bd.appendChild(rw);
+    // tempos da resposta (só se algum bloco espera pela resposta)
+    function drawReply() {
+      rw.innerHTML = '';
+      if (!sp.blocks.some(b => b.when === 'reply')) return;
+      rw.appendChild(field('Espera depois da resposta', el(`<div>${delaySel(sp.replyDelay == null ? 1 : sp.replyDelay, 'big rd')}</div>`)));
+      const MW = [[60, '1 minuto'], [180, '3 minutos'], [300, '5 minutos'], [600, '10 minutos'], [1800, '30 minutos']];
+      rw.appendChild(field('Desiste se ninguém responder em', el(`<div><select class="dsel big" id="mw">${MW.map(([s2, l]) => `<option value="${s2}" ${(sp.maxWait || 300) === s2 ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`)));
+      $('.rd', rw).onchange = e => { sp.replyDelay = +e.target.value; };
+      $('#mw', rw).onchange = e => { sp.maxWait = +e.target.value; };
+    }
+    drawReply();
   }
   if (sp.type === 'random') {
     bd.appendChild(field('Espera antes de mandar', el(`<div>${delaySel(sp.delay, 'big')}</div>`)));
@@ -4112,6 +4202,10 @@ function specialForm(sp, bd, opts = {}) {
     if (sp.type === 'typing' && !sp.steps.length) return void toast('Escolhe o sticker da piada');
     if (!o2.noFirst && !stRef(sp.first)) return void toast('Escolhe o 1.º sticker');
     if (sp.type === 'seq' && !sp.steps.length) return void toast('Junta pelo menos mais um sticker à sequência');
+    if (sp.type === 'flow') {
+      sp.blocks = (sp.blocks || []).filter(b => (b.k === 'random' ? b.pool : b.stickers || []).length);
+      if (!sp.blocks.length) { sp.blocks.push({ k: 'fixed', when: 'auto', stickers: [] }); return void toast('Junta stickers a pelo menos um bloco'); }
+    }
     if (sp.type === 'random' && !sp.pool.length) return void toast('Junta os stickers que podem sair');
     if (sp.type === 'reply' && sp.multi && !sp.then.length) return void toast('Para continuar a conversa, junta stickers à lista');
     if (sp.type === 'reply' && !sp.then.length && !(sp.noReply.secs && sp.noReply.stickers.length)) return void toast('Escolhe o que mandar quando responderem');
