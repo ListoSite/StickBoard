@@ -77,6 +77,11 @@ body.adult #bub{box-shadow:0 0 0 2px #FF4D5E,0 6px 16px rgba(0,0,0,.45)}
 .big .ba .go{background:#25D366;color:#06210F}
 .big .bw{font-size:12px;color:#9AA3B0;text-align:center;max-height:34px;overflow:hidden}
 .strip>.s{width:var(--cw,76px)}
+#bub.ask{background:radial-gradient(circle at 30% 25%,#FFE89A,#FFC83D 55%,#D99A00);animation:pulsey 1.8s ease-out 3}
+#bub.ask svg{color:#3A2A00}
+#bub .qm{position:absolute;top:-4px;left:-4px;width:20px;height:20px;border-radius:10px;background:#2B1F00;color:#FFC83D;font-size:12px;font-weight:900;display:grid;place-items:center;border:2px solid #FFC83D}
+@keyframes pulsey{0%{box-shadow:0 0 0 0 rgba(255,200,61,.6),0 6px 16px rgba(0,0,0,.45)}100%{box-shadow:0 0 0 16px rgba(255,200,61,0),0 6px 16px rgba(0,0,0,.45)}}
+.s .vb{position:absolute;bottom:3px;left:5px;font-size:10px}
 </style>
 </head>
 <body>
@@ -84,6 +89,7 @@ body.adult #bub{box-shadow:0 0 0 2px #FF4D5E,0 6px 16px rgba(0,0,0,.45)}
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.6" fill="currentColor"/></svg>
   <span class="bd hidden" id="badge"></span>
   <span class="zap hidden" id="zap">⚡</span>
+  <span class="qm hidden" id="qm">?</span>
 </div>
 <div id="pan" class="hidden">
   <div class="card" id="card">
@@ -95,6 +101,7 @@ body.adult #bub{box-shadow:0 0 0 2px #FF4D5E,0 6px 16px rgba(0,0,0,.45)}
       <button class="ib" id="x" title="Fechar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
     <div class="spbar hidden" id="spbar"><span id="spt"></span><button id="spx">Cancelar</button></div>
+    <div id="askw"></div>
     <div class="tabs" id="tabs"></div>
     <div class="strip" id="strip"></div>
   </div>
@@ -106,6 +113,7 @@ body.adult #bub{box-shadow:0 0 0 2px #FF4D5E,0 6px 16px rgba(0,0,0,.45)}
 <script src="calao.js"></script>
 <script src="calao_pt.js"></script>
 <script src="match.js"></script>
+<script src="vibe.js"></script>
 <script>
 'use strict';
 const B = window.BB, M = window.Match;
@@ -114,6 +122,9 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&a
 const EM = new Map();
 const info = e => EM.get(M.stripVS(e));
 let DATA = { packs: [] }, IDX = [], text = '', mode = 'bubble', lastLoad = 0, tab = 'sug', lastCount = 0;
+// o ambiente: as últimas mensagens da conversa (vêm do Android) e a pergunta à espera de resposta
+let CHAT = [], ASK = null, CONV = null;
+const conv = () => (CONV = M.vibeOf(IDX, CHAT, text));
 // a mensagem que acabaste de mandar: os stickers continuam a aparecer até voltares a escrever.
 // Quem sabe qual foi é o Android (vê a caixa do WhatsApp mesmo quando escreves no outro teclado): chega em «k».
 let kept = null;
@@ -135,7 +146,7 @@ function load(force) {
 }
 function shuffle(r) { for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; } return r; }
 let GROUPS = [];
-function results() { const r = M.search(IDX, text, 40); GROUPS = r.groups || []; return DATA.kbShuffle ? shuffle(r.slice()) : r; }
+function results() { const r = M.search(IDX, text, 40, CONV); GROUPS = r.groups || []; return DATA.kbShuffle ? shuffle(r.slice()) : r; }
 function timeWords() {
   const h = new Date().getHours();
   if (h >= 5 && h < 12) return { label: 'Bom dia', icon: '☀️', q: 'bom dia manhã café' };
@@ -150,6 +161,8 @@ const line = () => text.split('\n').pop().trim();
 function drawBadge() {
   const n = line() ? M.search(IDX, text, 99).length : 0;
   const b = $('#badge'), bub = $('#bub');
+  bub.classList.toggle('ask', !!ASK);
+  $('#qm').classList.toggle('hidden', !ASK);
   b.classList.toggle('hidden', !n);
   b.textContent = n > 9 ? '9+' : n;
   bub.classList.toggle('dim', !n);
@@ -170,7 +183,7 @@ function bigPreview(p, s, send) {
 function tile(p, s, r) {
   const d = document.createElement('button');
   d.className = 's' + (r && r.usualTag ? ' usual' : '');
-  d.innerHTML = `<img loading="lazy" src="${img(p, s.f)}">${s.fav ? '<span class="fv">⭐</span>' : ''}${r && r.usualTag ? '<span class="us">🧠</span>' : ''}`;
+  d.innerHTML = `<img loading="lazy" src="${img(p, s.f)}">${s.fav ? '<span class="fv">⭐</span>' : ''}${r && r.usualTag ? '<span class="us">🧠</span>' : ''}${r && r.vibe >= 0.45 ? '<span class="vb">🎭</span>' : ''}`;
   let lt = null, longDone = false;
   d.addEventListener('touchstart', () => { longDone = false; lt = setTimeout(() => { longDone = true; bigPreview(p, s, () => d.onclick()); }, 450); }, { passive: true });
   d.addEventListener('touchmove', () => clearTimeout(lt), { passive: true });
@@ -186,6 +199,7 @@ function tile(p, s, r) {
     try { B.learn3(p.id, s.f, JSON.stringify(lw), JSON.stringify(skipped), cx ? JSON.stringify(cx) : null); }
     catch (e) { try { B.learn2(p.id, s.f, JSON.stringify(w), JSON.stringify(skipped)); } catch (e2) {} }
     try { B.deleteHint(M.shouldDelete(text, s, DATA, info)); } catch (e) {}
+    VibeUI.afterSend(B, p, s, CHAT, text, IDX, DATA);
     const ov = document.createElement('div'); ov.className = 'sending'; ov.textContent = 'A enviar…';
     $('#card').appendChild(ov);
     setTimeout(() => ov.remove(), 1200);
@@ -201,6 +215,9 @@ function drawTabs(nSug) {
   const T = [['sug', GROUPS.length ? '✨ Todos' : '✨ Sugestões', nSug]];
   // abas por tema: o emoji da palavra da frase que trouxe esses stickers
   for (const g of GROUPS) T.push(['g:' + g.e, `<span class="ge">${esc(g.show || g.e)}</span> ${esc(g.words[0].length > 12 ? g.words[0].slice(0, 11) + '…' : g.words[0])}`, g.items.length]);
+  const vl = M.byVibe(IDX, CONV, 30);
+  if (vl.length) T.push(['vibe', '🎭 ' + esc(VibeUI.vName(CONV.top)), vl.length]);
+  if (tab === 'vibe' && !vl.length) tab = 'sug';
   T.push(['fav', '⭐ Favoritos', 0], ['rec', '🕘 Recentes', 0]);
   if ((DATA.specials || []).some(sp => sp.first && find(sp.first.p, sp.first.f))) T.push(['spc', '⚡ Especiais', 0]);
   if (!favs) { const i = T.findIndex(x => x[0] === 'fav'); if (i >= 0) T.splice(i, 1); }
@@ -212,13 +229,33 @@ function drawTabs(nSug) {
 }
 function fitStrip() {
   const st = $('#strip'); if (!st) return;
-  const rows = DATA.stkSize === 'xl' ? 1 : 2;
+  const rows = DATA.stkSize === 'xl' || ASK ? 1 : 2; // com a pergunta à vista, só 1 fila
   st.style.setProperty('--rows', rows);
   const h = st.clientHeight - 12 - (rows - 1) * 6;
   if (h > 40) st.style.setProperty('--cw', Math.floor(h / rows) + 'px');
 }
 window.addEventListener('resize', () => fitStrip());
+function drawAsk() {
+  const w = $('#askw'); w.innerHTML = '';
+  if (!ASK) return;
+  w.appendChild(VibeUI.askBox(B, ASK, DATA, img, r => {
+    ASK = null;
+    if (r) { try { DATA = M.modeData(JSON.parse(r)); IDX = M.buildIndex(DATA, info); } catch (e) {} }
+    drawPanel(); drawBadge();
+  }));
+}
+/** Os stickers para o ambiente, que ainda não estão à vista. */
+function vibeSection(st, shown, max) {
+  const seen = new Set(shown.map(r => r.p.id + '/' + r.s.f));
+  const vl = M.byVibe(IDX, CONV, 30).filter(r => !seen.has(r.p.id + '/' + r.s.f)).slice(0, max);
+  if (!vl.length) return 0;
+  st.appendChild(sep(M.VIBE[CONV.top].e, M.VIBE[CONV.top].n));
+  vl.forEach(r => st.appendChild(tile(r.p, r.s, r)));
+  return vl.length;
+}
 function drawPanel() {
+  conv();
+  drawAsk();
   fitStrip();
   const l = line();
   $('#qa').innerHTML = l ? (kept ? '<span style="color:#25D366">✓ Mensagem enviada</span> <button id="kx" class="kx">✕ limpar</button>' : 'Stickers para') : 'Escreve uma frase';
@@ -226,6 +263,7 @@ function drawPanel() {
   const qb = $('#qb');
   qb.textContent = l ? `«${l.length > 34 ? '…' + l.slice(-32) : l}»` : (DATA.adultMode ? 'só stickers +18' : 'e os stickers aparecem aqui');
   if (DATA.adultMode) $('#qa').insertAdjacentHTML('afterbegin', '🔞 ');
+  $('#qa').insertAdjacentHTML('beforeend', VibeUI.chip(CONV));
   qb.classList.toggle("muted", !l);
   const res = l ? results() : [];
   drawTabs(res.length);
@@ -244,8 +282,15 @@ function drawPanel() {
       res.filter(r => r.usualTag).forEach(r => st.appendChild(tile(r.p, r.s, r)));
       if (res.length > nUs) st.appendChild(sep('✨', 'Mais'));
       res.filter(r => !r.usualTag).forEach(r => st.appendChild(tile(r.p, r.s, r)));
-    } else if (res.length) res.forEach(r => st.appendChild(tile(r.p, r.s, r)));
+      if (!DATA.kbShuffle) vibeSection(st, res, 8);
+    } else if (res.length) { res.forEach(r => st.appendChild(tile(r.p, r.s, r))); if (!DATA.kbShuffle) vibeSection(st, res, 8); }
     else {
+      // ainda não escreveste: o que a outra pessoa disse e o ambiente da conversa
+      const lin = CONV && CONV.lastIn ? CONV.lastIn.trim() : '';
+      const rep = lin ? M.search(IDX, lin, 12, CONV) : [];
+      if (rep.length) { st.appendChild(sep('💬', 'Responder')); rep.forEach(r => st.appendChild(tile(r.p, r.s, r))); }
+      const nv = vibeSection(st, rep, 12);
+      if (rep.length || nv) { const rec = getRecent().map(x => find(x.p, x.f)).filter(Boolean).slice(0, 12); if (rec.length) { st.appendChild(sep('🕘', 'Recentes')); rec.forEach(x => st.appendChild(tile(x.p, x.s))); } st.scrollLeft = 0; return; }
       const tw = timeWords();
       const now = M.search(IDX, tw.q, 12);
       if (now.length) { st.appendChild(sep(tw.icon, tw.label)); now.forEach(r => st.appendChild(tile(r.p, r.s))); }
@@ -253,6 +298,10 @@ function drawPanel() {
       if (rec.length) { st.appendChild(sep('🕘', 'Recentes')); rec.forEach(x => st.appendChild(tile(x.p, x.s))); }
       if (!now.length && !rec.length) st.appendChild(empty('💬', l ? `Nada para <b>«${esc(l.slice(-30))}»</b> ainda.<br>Dá palavras aos teus stickers no StickTag.` : 'Escreve na conversa e eu mostro os stickers que combinam.'));
     }
+  } else if (tab === 'vibe') {
+    const vl = M.byVibe(IDX, CONV, 30);
+    lastRes = [];
+    vl.forEach(r => st.appendChild(tile(r.p, r.s, r)));
   } else if (tab === 'spc') {
     const SP_IC = { seq: '⏱️', flow: '🧩', reply: '💬', choice: '🔢', random: '🎲', quiz: '🧠', game: '🎮', nudge: '🔔', typing: '💭' };
     (DATA.specials || []).forEach(sp => {
@@ -323,6 +372,15 @@ window.BubbleApp = {
     load(false);
     if (mode === 'panel') drawPanel(); else drawBadge();
   },
+  onChat(rows) {
+    CHAT = Array.isArray(rows) ? rows : [];
+    if (mode === 'panel') drawPanel();
+  },
+  onAsk(a) {
+    try { ASK = a ? JSON.parse(a) : null; } catch (e) { ASK = null; }
+    if (ASK) load(true);
+    if (mode === 'panel') drawPanel(); else drawBadge();
+  },
   onSpecial(st) {
     SPS = st;
     $('#zap').classList.toggle('hidden', !st);
@@ -344,6 +402,8 @@ window.BubbleApp = {
   } catch (e) {}
   load(true);
   try { takeText(B.getText(), B.getKept ? B.getKept() : ''); } catch (e) {}
+  try { CHAT = JSON.parse(B.getChat() || '[]'); } catch (e) {}
+  try { const a = B.getAsk(); ASK = a ? JSON.parse(a) : null; } catch (e) {}
   BubbleApp.setMode('bubble');
 })();
 </script>

@@ -2695,6 +2695,7 @@ function viewKeyboard() {
     <div class="opt"><div class="t"><b>Ordem aleatória nas sugestões</b><div class="small muted">Os stickers que combinam aparecem por ordem diferente de cada vez (também há o botão 🔀 no teclado).</div></div><button class="sw ${d.kbShuffle ? 'on' : ''}" data-k="kbShuffle"></button></div>
     <div class="opt" style="display:block"><b>Tamanho dos stickers</b><div class="small muted">No teclado e na caixa da bolha. Nos maiores, a caixa da bolha também fica mais alta. Carrega sem largar num sticker para o ver em grande.</div><div class="seg" id="ksz" style="grid-template-columns:repeat(4,1fr);margin-top:8px">${[['s', 'Pequeno'], ['m', 'Médio'], ['l', 'Grande'], ['xl', 'Enorme']].map(([k, l]) => `<button data-z="${k}" class="${k === (d.stkSize || 'm') ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div class="szprev" id="szp"></div></div>
+    <div class="opt" style="display:block"><b>🎭 Perguntar a situação dos stickers</b><div class="small muted">Depois de mandares um sticker, a bolha fica amarela e pergunta em que situação o usaste (😂 Brincar, ❤️ Amor, 😈 Insultar…). As respostas ensinam a app a perceber o ambiente da conversa e a sugerir os stickers certos.</div><div class="seg" id="vask" style="grid-template-columns:repeat(3,1fr);margin-top:8px">${[['auto', 'Só quando não sei'], ['always', 'Sempre'], ['off', 'Nunca']].map(([k, l]) => `<button data-v="${k}" class="${k === (d.vibeAsk || 'auto') ? 'on' : ''}">${l}</button>`).join('')}</div></div>
     <div class="opt" style="display:block"><b>Altura do teclado</b><div class="seg" id="kh" style="grid-template-columns:repeat(4,1fr);margin-top:8px">${[['s', 'Baixo'], ['m', 'Médio'], ['l', 'Alto'], ['xl', 'Muito alto']].map(([k, l]) => `<button data-h="${k}" class="${k === ho ? 'on' : ''}">${l}</button>`).join('')}</div></div>
   </div>`);
   $$('.sw', op).forEach(b => b.onclick = () => {
@@ -2715,6 +2716,10 @@ function viewKeyboard() {
     if (b.dataset.z === 'xl' && (S.data.kbHeight || 'm') === 's') toast('Dica: põe a altura do teclado em «Alto» para caberem mais');
   });
   setTimeout(szPrev, 0);
+  $$('#vask button', op).forEach(b => b.onclick = () => {
+    try { S.data = JSON.parse(A.setText('vibeAsk', b.dataset.v)); } catch (e) {}
+    $$('#vask button', op).forEach(x => x.classList.toggle('on', x === b));
+  });
   $$('#kh button', op).forEach(b => b.onclick = () => {
     try { S.data = JSON.parse(A.setText('kbHeight', b.dataset.h)); } catch (e) {}
     $$('#kh button', op).forEach(x => x.classList.toggle('on', x === b));

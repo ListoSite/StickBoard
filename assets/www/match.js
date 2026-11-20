@@ -200,7 +200,7 @@
         const ph = l.w.includes(' ') ? phraseKey(l.w) : null;
         if (t.length || ph) kws.push({ t, ph, w: 1 + Math.min(l.eff, 6) * 0.55, src: l.w, learned: true });
       }
-      items.push({ p, s: st, kws, emo: (st.emojis || []).map(stripVS), boost: habitBoost(st), cx: ctxProfile(st) });
+      items.push({ p, s: st, kws, emo: (st.emojis || []).map(stripVS), boost: habitBoost(st), cx: ctxProfile(st), vb: vibeProfile(st) });
       for (const k of kws) {
         const c = canonToks(k.src);
         if (c.length < 2 || c.length > 6) continue;
@@ -211,6 +211,7 @@
     }
     items.ctx = ctxLexicon(data, emoInfo, cache);
     items.phr = phr;
+    items.vlex = vibeLexicon(data);
     return items;
   }
 
@@ -458,6 +459,206 @@
     if (wsum <= 0.1) return 0;
     return tot / wsum;
   }
+  /* ================= o AMBIENTE da conversa =================
+     Olha para as últimas mensagens dos dois lados (e para o que estás a escrever) e decide em que ambiente
+     estão: a brincar, amor, a insultar… Cada sticker guarda os ambientes em que o usas (as tuas respostas à
+     pergunta da bolha amarela) e as palavras da conversa nesses momentos ensinam o detetor. */
+  const VIBES = [
+    { k: 'play', e: '😂', n: 'Brincar' }, { k: 'love', e: '❤️', n: 'Amor' }, { k: 'insult', e: '😈', n: 'Insultar' },
+    { k: 'sad', e: '😢', n: 'Triste' }, { k: 'angry', e: '😡', n: 'Zangado' }, { k: 'party', e: '🎉', n: 'Festejar' }
+  ];
+  const VIBE = {}; VIBES.forEach(v => VIBE[v.k] = v);
+  // o tema das palavras/emojis (famílias) → ambiente
+  const FAM2V = { laugh: { play: 1 }, love: { love: 1 }, sad: { sad: 1 }, angry: { angry: 0.65, insult: 0.35 }, party: { party: 1 },
+    flirt: { love: 0.45, play: 0.35 }, disgust: { insult: 0.4, angry: 0.2 } };
+  // palavras que dizem logo o ambiente (PT-PT e PT-BR, sem acentos)
+  const VIBEW = {
+    play: 'haha, a brincar, brincadeira, estou a brincar, to brincando, so a gozar, a gozar, gozar, piada, engracado, engracada, morri, chorei a rir, morri a rir, palhaco, maluco, maluca, tolinho, tolinha, parvinho, parvinha, zoar, zoeira, trollar, que comedia',
+    love: 'amo, amor, adoro, te amo, amo te, saudades, saudade, beijinho, beijinhos, beijo, beijos, carinho, querido, querida, fofo, fofa, lindo, linda, coracao, paixao, meu amor, minha vida, bebe, mor, princesa, abraco, abracinho, mimo, gosto de ti, gosto muito de ti, namorado, namorada, xoxo, estou com saudades',
+    insult: 'burro, burra, idiota, estupido, estupida, parvo, parva, otario, otaria, nabo, palerma, imbecil, cretino, cretina, anormal, besta, mongo, mongoloide, retardado, atrasado, atrasada, feio, feia, gordo, gorda, cabrao, cabra, filho da puta, puta, corno, cornudo, vai te foder, vai a merda, vai para o caralho, cala te, cala a boca, inutil, lixo, nojento, nojenta, pateta, tanso, toto, choninhas, caguinchas, bimbo, saloio, vai dar uma volta, es mesmo burro, que burro, pior que tu, ridiculo, ridicula, otaria, panasca, fracassado, falhado, falhada',
+    sad: 'triste, tristeza, chorar, choro, chorei, pena, coitado, coitada, magoado, magoada, sinto muito, deprimido, deprimida, sozinho, sozinha, perdi, lamento, coracao partido, que pena, nao estou bem, estou mal, dor, sofrer, desiludido, desiludida',
+    angry: 'raiva, odio, odeio, irritado, irritada, chateado, chateada, furioso, furiosa, fulo, fula, piurso, passei me, estou farto, estou farta, farto, farta, que se lixe, porra, chega, basta, nao aguento, que seca, aff, nao me chateies, deixa me em paz, para com isso',
+    party: 'parabens, feliz aniversario, festa, celebrar, comemorar, ganhamos, ganhei, conseguimos, consegui, viva, bora festejar, uhu, yay, finalmente, brinde, sucesso, aprovado, aprovada, boas festas, feliz natal, feliz ano novo'
+  };
+  let VLEX = null;
+  function vibeBase() {
+    if (VLEX) return VLEX;
+    const L = { word: new Map(), phrase: new Map() };
+    for (const k in VIBEW) for (const w of VIBEW[k].split(',')) {
+      const t = canonToks(w.trim());
+      if (!t.length) continue;
+      const key = t.length === 1 ? pst(t[0]) : ' ' + t.join(' ') + ' ';
+      const M = t.length === 1 ? L.word : L.phrase;
+      let o = M.get(key); if (!o) M.set(key, o = {});
+      o[k] = 1;
+    }
+    return (VLEX = L);
+  }
+  /** As palavras que o detetor aprendeu contigo: data.vibeLrn = { play: { "burro": [força, dia, vezes] } }. */
+  function vibeLexicon(data) {
+    const out = new Map(), V = (data && data.vibeLrn) || {};
+    const today = Math.floor(Date.now() / DAY);
+    for (const k in V) {
+      if (!VIBE[k]) continue;
+      for (const w in V[k]) {
+        const x = V[k][w] || [];
+        const eff = (x[0] || 0) * Math.pow(0.5, Math.max(0, today - (x[1] || today)) / HALF);
+        if (eff < 0.5 || (x[2] || 0) < 2) continue; // só depois de 2 respostas, para não ser sorte
+        let o = out.get(w); if (!o) out.set(w, o = {});
+        o[k] = eff;
+      }
+    }
+    // uma palavra que aparece em todos os ambientes («hoje», «amanhã») não diz nada: fica só o que sobra acima da média
+    for (const [w, o] of out) {
+      const ks = Object.keys(o); let sum = 0; for (const k of ks) sum += o[k];
+      const avg = sum / VIBES.length, r = {};
+      for (const k of ks) { const v = o[k] - avg; if (v > 0.3) r[k] = Math.min(2, v * 0.5); }
+      if (Object.keys(r).length) out.set(w, r); else out.delete(w);
+    }
+    return out;
+  }
+  /** As chaves (palavras e pares de palavras) de uma frase, no formato do vibeLrn. */
+  function vibeKeys(line) {
+    const P = parseLine(line), out = [];
+    P.clauses.forEach((c, ci) => {
+      c.forEach((t, i) => {
+        const tk = P.toks.find(x => x.ci === ci && x.i === i);
+        if (tk && tk.neg) return;
+        if (!(STOP.has(t) && !NEG.has(t)) && t.length >= 3) out.push(pst(t));
+        if (i + 1 < c.length && c[i + 1].length >= 2) out.push(pst(t) + ' ' + pst(c[i + 1]));
+      });
+    });
+    return out;
+  }
+  /** O ambiente de UMA mensagem: { play: 0.8, … } (soma até 1) ou null se não diz nada. */
+  function vibeOfLine(index, line) {
+    line = String(line || '').trim();
+    if (!line) return null;
+    const v = {};
+    const add = (map, w) => { for (const k in map) v[k] = (v[k] || 0) + map[k] * w; };
+    const P = parseLine(line);
+    // 1) os temas que o motor já percebe (palavras, listas, emojis)
+    const mood = index && index.ctx ? moodOf(index.ctx, P) : { fam: {} };
+    for (const e of emojisIn(line).map(stripVS)) { const f = famOf(e); if (f) mood.fam[f] = (mood.fam[f] || 0) + 1.2; }
+    for (const f in mood.fam) if (FAM2V[f]) add(FAM2V[f], mood.fam[f] * 0.6);
+    // 2) as palavras de ambiente (expressões primeiro)
+    const L = vibeBase();
+    const negAt = new Set(P.toks.filter(x => x.neg).map(x => x.ci + ':' + x.i));
+    P.clauses.forEach((c, ci) => {
+      const used = new Array(c.length).fill(false);
+      for (let len = Math.min(5, c.length); len >= 2; len--) for (let i = 0; i + len <= c.length; i++) {
+        if (used.slice(i, i + len).some(Boolean)) continue;
+        const o = L.phrase.get(' ' + c.slice(i, i + len).join(' ') + ' ');
+        if (o) { add(o, 1.2); for (let j = i; j < i + len; j++) used[j] = true; }
+      }
+      c.forEach((t, i) => {
+        if (used[i] || negAt.has(ci + ':' + i)) return; // «não estou chateado»: não conta
+        const o = L.word.get(pst(t)); if (o) add(o, 1);
+      });
+    });
+    // 3) o que aprendeu contigo
+    const VL = index && index.vlex;
+    if (VL && VL.size) for (const k of vibeKeys(line)) { const o = VL.get(k); if (o) add(o, 1); }
+    let s = 0; for (const k in v) s += v[k];
+    if (s <= 0.05) return null;
+    const scale = Math.min(1, s / 1.2) / s; // uma mensagem vale no máximo 1
+    for (const k in v) v[k] *= scale;
+    return v;
+  }
+  /**
+   * O ambiente da conversa: rows = [{d: 1 recebida / -1 minha, t: texto}] (a mais recente no fim) + o que estás a escrever.
+   * Devolve { d: {play: 0.6, …}, top, conf (0 a 1), lastIn (última mensagem recebida) }.
+   */
+  function vibeOf(index, rows, typed) {
+    const acc = {}; let T = 0, lastIn = '';
+    const take = (v, w) => { if (!v) return; let s = 0; for (const k in v) { acc[k] = (acc[k] || 0) + v[k] * w; s += v[k]; } T += s * w; };
+    const R = (rows || []).filter(r => r && String(r.t || '').trim()).slice(-8);
+    for (let i = R.length - 1; i >= 0; i--) if (R[i].d > 0) { lastIn = String(R[i].t); break; }
+    R.forEach((r, i) => {
+      const age = R.length - 1 - i; // 0 = a mais recente
+      take(vibeOfLine(index, r.t), Math.pow(0.78, age) * (r.d > 0 ? 1 : 0.85));
+    });
+    if (typed && String(typed).trim()) take(vibeOfLine(index, String(typed).split('\n').pop()), 1.3);
+    const d = {}; let sum = 0, top = null;
+    for (const k in acc) sum += acc[k];
+    for (const k in acc) { d[k] = acc[k] / sum; if (!top || d[k] > d[top]) top = k; }
+    const conf = top ? Math.min(1, d[top] * Math.min(1, T / 1.1)) : 0;
+    return { d, top, conf: Math.round(conf * 100) / 100, lastIn };
+  }
+  /** O ambiente em que costumas usar um sticker: o que respondeste (st.vb) + o que o emoji e as palavras dele dizem. */
+  function vibeProfile(st) {
+    const v = {}; let ans = 0;
+    if (st.vb) {
+      const today = Math.floor(Date.now() / DAY);
+      const k = Math.pow(0.5, Math.max(0, today - (st.vbd || today)) / (HALF * 2));
+      for (const x in st.vb) if (VIBE[x]) { const w = (st.vb[x] || 0) * k; if (w > 0.05) { v[x] = w; ans += w; } }
+    }
+    // pista do emoji e das palavras (vale pouco: as tuas respostas mandam)
+    let prior = 0;
+    for (const e of (st.emojis || []).slice(0, 3)) {
+      const f = famOf(stripVS(e)); const m = f && FAM2V[f];
+      if (m) for (const x in m) { v[x] = (v[x] || 0) + 0.35 * m[x]; prior += 0.35 * m[x]; }
+    }
+    const L = vibeBase();
+    for (const w of (st.words || []).slice(0, 12)) {
+      const t = canonToks(w); if (!t.length) continue;
+      const o = t.length === 1 ? L.word.get(pst(t[0])) : L.phrase.get(' ' + t.join(' ') + ' ');
+      if (o) for (const x in o) { v[x] = (v[x] || 0) + 0.3; prior += 0.3; }
+    }
+    let s = 0, top = null; for (const x in v) s += v[x];
+    if (s <= 0) return null;
+    const d = {}; for (const x in v) { d[x] = v[x] / s; if (!top || d[x] > d[top]) top = x; }
+    // confiança: as respostas contam muito, a pista do emoji só um pouco
+    const conf = Math.min(1, 1 - Math.exp(-ans / 1.4) + Math.min(0.45, prior * 1.2));
+    return { d, top, conf, ans: Math.round(ans * 10) / 10, n: st.vbn || 0 };
+  }
+  /** Quanto o sticker combina com o ambiente da conversa (0 a 1). */
+  function vibeMatch(vb, conv) {
+    if (!vb || !conv || !conv.top) return 0;
+    let dot = 0, cc = 0;
+    for (const k in conv.d) { cc += conv.d[k] * conv.d[k]; if (vb.d[k]) dot += vb.d[k] * conv.d[k]; }
+    return cc ? Math.min(1, dot / cc) : 0;
+  }
+  /** Os stickers para o ambiente da conversa (mesmo sem nenhuma palavra em comum). */
+  function byVibe(index, conv, limit) {
+    if (!conv || !conv.top || conv.conf < 0.3) return [];
+    const out = [];
+    for (const it of index) {
+      if (!it.vb) continue;
+      const m = vibeMatch(it.vb, conv) * it.vb.conf;
+      if (m >= 0.3) out.push({ p: it.p, s: it.s, score: m + (it.boost || 0) * 0.5 + (it.vb.ans > 0 ? 0.25 : 0), vibe: m });
+    }
+    return out.sort((a, b) => b.score - a.score).slice(0, limit || 16);
+  }
+  /**
+   * Perguntar a situação depois de mandares este sticker? (mode: 'auto' | 'always' | 'off')
+   * auto: só enquanto o sticker tem poucas respostas, ou quando a app não tem certeza do ambiente.
+   */
+  function shouldAsk(st, conv, mode) {
+    if (mode === 'off') return false;
+    if (mode === 'always') return true;
+    const vb = vibeProfile(st), ans = vb ? vb.ans : 0;
+    if (ans < 0.9) return true; // ainda nunca respondeste para este sticker
+    if (ans >= 5) return false;
+    if (!conv || conv.conf < 0.45) return true;
+    return vb.top !== conv.top;
+  }
+  /** A resposta que a app acha certa (vem marcada na pergunta). */
+  function vibeGuess(st, conv) {
+    const vb = vibeProfile(st);
+    if (conv && conv.top && conv.conf >= 0.3 && (!vb || vb.ans < 2 || vb.d[conv.top] >= 0.25)) return conv.top;
+    return vb ? vb.top : (conv && conv.top) || null;
+  }
+  /** As palavras da conversa para ensinar o ambiente: o que escreveste + as últimas mensagens (com força). */
+  function vibeWords(rows, typed) {
+    const W = new Map();
+    const put = (line, w) => { for (const k of vibeKeys(line)) W.set(k, Math.max(W.get(k) || 0, Math.round(w * 100) / 100)); };
+    const R = (rows || []).filter(r => r && String(r.t || '').trim()).slice(-4);
+    R.forEach((r, i) => put(r.t, 0.45 + 0.15 * i));
+    if (typed && String(typed).trim()) put(String(typed).split('\n').pop(), 1);
+    return Array.from(W.entries()).sort((a, b) => b[1] - a[1]).slice(0, 16);
+  }
+
   /** As palavras para o teclado aprender, cada uma com a sua força (o fim da mensagem e as expressões contam mais). */
   function learnTokens(text) {
     const line = String(text || '').split('\n').pop();
@@ -492,8 +693,9 @@
   }
 
   /** Devolve os stickers que combinam com o texto, do melhor para o pior (com .groups: as abas por emoji). */
-  function search(index, text, limit) {
+  function search(index, text, limit, conv) {
     text = String(text || '');
+    const cv = conv && conv.top && conv.conf >= 0.3 ? conv : null;
     const line = text.split('\n').pop();
     const P = parseLine(line);
     // palavras que fazem parte de uma expressão escrita inteira («não gosto», «não te preocupes»): a palavra solta perde força
@@ -573,6 +775,9 @@
       const cs = cur && it.cx && mood.total >= 0.8 ? ctxSim(it.cx, cur) : 0;
       const habit = cs > 0.3 ? cs * it.cx.conf : 0;
       if (habit > 0) score += 2.2 * habit;
+      // o ambiente da conversa (a brincar, amor…): os stickers desse ambiente sobem
+      const vm = cv && it.vb && raw > 0 ? vibeMatch(it.vb, cv) * it.vb.conf : 0;
+      if (vm > 0) score += 1.6 * vm * cv.conf;
       const usual = habit + Math.min(1, lrnHit / 4);
       if (raw === 0 && habit >= 0.5) {
         // nenhuma palavra bate, mas costumas mandá-lo neste tipo de mensagem
@@ -581,7 +786,7 @@
         continue;
       }
       // os que usas muito (e a esta hora) ficam um pouco à frente dos outros que também combinam
-      if (score >= 0.9 || (raw >= 1.6 && score >= 0.6)) res.push({ p: it.p, s: it.s, score: score + (it.boost || 0), raw, agree: ag, why: Array.from(why), anch, usual });
+      if (score >= 0.9 || (raw >= 1.6 && score >= 0.6)) res.push({ p: it.p, s: it.s, score: score + (it.boost || 0), raw, agree: ag, why: Array.from(why), anch, usual, vibe: vm });
     }
     res.sort((a, b) => b.score - a.score);
     // «costumas usar»: até 3 dos que mandas neste tipo de mensagem vêm à frente (os outros continuam a aparecer)
@@ -591,6 +796,7 @@
     const out = ordered.slice(0, limit || 30);
     out.groups = groupsOf(out.filter(r => !r.ctxOnly || r.usualTag));
     out.mood = mood;
+    out.conv = cv;
     return out;
   }
 
@@ -703,5 +909,5 @@
     return Object.assign({}, data, { packs });
   }
 
-  window.Match = { contextOf, learnTokens, shouldDelete, ctxProfile, famOf, parseLine, groupsOf, emojiLearned, CUR, CANON, canonToks, phraseKey, learned, habitual, habitBoost, queryTokens, isAdult, modeData, norm, stripVS, tokens, stem, defaultWords, effectiveWords, buildIndex, search, emojisIn, STOP };
+  window.Match = { VIBES, VIBE, vibeOf, vibeOfLine, vibeProfile, vibeMatch, byVibe, shouldAsk, vibeGuess, vibeWords, vibeKeys, contextOf, learnTokens, shouldDelete, ctxProfile, famOf, parseLine, groupsOf, emojiLearned, CUR, CANON, canonToks, phraseKey, learned, habitual, habitBoost, queryTokens, isAdult, modeData, norm, stripVS, tokens, stem, defaultWords, effectiveWords, buildIndex, search, emojisIn, STOP };
 })();

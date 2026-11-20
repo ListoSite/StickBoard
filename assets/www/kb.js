@@ -16,6 +16,10 @@ function takeText(t, k) {
 }
 function dropKept() { kept = null; text = ''; try { (typeof K !== 'undefined' ? K : B).forgetKept(); } catch (e) {} }
 let shufKey = null, shufOrder = [];
+// o ambiente: as últimas mensagens da conversa (lidas pela bolha) e a pergunta à espera de resposta
+let CHAT = [], ASK = null, CONV = null;
+const conv = () => (CONV = M.vibeOf(IDX, CHAT, text));
+const parseAsk = a => { try { return a ? JSON.parse(a) : null; } catch (e) { return null; } };
 let sugGrp = ''; // aba das sugestões: '' = todos, ou o emoji do tema
 let searching = false, sq = '', multi = null;
 const secOf = {};
@@ -69,7 +73,8 @@ function lastWords(t) {
 function renderTop() {
   if (searching) { $('#q').innerHTML = `🔍 <b>${esc(sq) || ''}</b><span style="color:#25D366">▏</span>${sq ? '' : '<span style="color:#6B7482">escreve para procurar</span>'}`; return; }
   const lw = lastWords(text);
-  $('#q').innerHTML = (DATA.adultMode ? '<span class="a18">🔞</span> ' : '') + (lw ? `${kept ? '<span class="kept">✓ enviada</span> ' : 'Para '}<b>«${esc(lw)}»</b>` : (DATA.adultMode ? 'Modo +18 ligado' : 'Escreve no teu teclado e volta aqui'));
+  conv();
+  $('#q').innerHTML = (DATA.adultMode ? '<span class="a18">🔞</span> ' : '') + (lw ? `${kept ? '<span class="kept">✓ enviada</span> ' : 'Para '}<b>«${esc(lw)}»</b>` : (DATA.adultMode ? 'Modo +18 ligado' : CONV && CONV.top && CONV.conf >= 0.3 ? 'Conversa' : 'Escreve no teu teclado e volta aqui')) + VibeUI.chip(CONV);
   const kx = $('#kx');
   if (kx) { kx.classList.toggle('hidden', !kept || searching); kx.onclick = ev => { ev.stopPropagation(); dropKept(); renderTop(); if (tab === 'sug') renderGrid(); }; }
   $('#mode').classList.toggle('hidden', direct);
@@ -103,6 +108,7 @@ function sendIt(p, s) {
   catch (e) { try { K.learn2(p.id, s.f, JSON.stringify(words), JSON.stringify(skipped)); } catch (e2) {} }
   // só apaga o que escreveste se for 1 palavra ou exatamente uma palavra deste sticker
   try { K.deleteHint(M.shouldDelete(text, s, DATA, info)); } catch (e) {}
+  VibeUI.afterSend(K, p, s, CHAT, text, IDX, DATA);
   K.send(p.id, s.f);
 }
 
@@ -111,7 +117,7 @@ function tile(p, s, r) {
   d.className = 's' + (r && r.usualTag ? ' usual' : '');
   const mi = multi ? multi.findIndex(x => x.p === p.id && x.f === s.f) : -1;
   if (mi >= 0) d.classList.add('sel');
-  d.innerHTML = `<img loading="lazy" src="${img(p, s.f)}">${s.fav ? '<span class="fv">⭐</span>' : ''}${s.secretName || s.secretPub ? '<span class="sec">🤫</span>' : ''}${r && r.usualTag ? '<span class="us">🧠</span>' : ''}${mi >= 0 ? `<span class="num">${mi + 1}</span>` : ''}`;
+  d.innerHTML = `<img loading="lazy" src="${img(p, s.f)}">${s.fav ? '<span class="fv">⭐</span>' : ''}${s.secretName || s.secretPub ? '<span class="sec">🤫</span>' : ''}${r && r.usualTag ? '<span class="us">🧠</span>' : ''}${r && r.vibe >= 0.45 ? '<span class="vb">🎭</span>' : ''}${mi >= 0 ? `<span class="num">${mi + 1}</span>` : ''}`;
   let timer = null, long = false, sx = 0, sy = 0;
   d.addEventListener('pointerdown', e => {
     long = false; sx = e.clientX; sy = e.clientY;
@@ -184,6 +190,16 @@ function findSticker(pid, f) {
   return s ? { p, s } : null;
 }
 
+/** Os stickers para o ambiente da conversa que ainda não estão à vista. */
+function vibeSection(g, shown, max) {
+  const seen = new Set(shown.map(r => r.p.id + '/' + r.s.f));
+  const vl = M.byVibe(IDX, CONV, 40).filter(r => !seen.has(r.p.id + '/' + r.s.f)).slice(0, max);
+  if (!vl.length) return 0;
+  addMsg(g, `🎭 Para o ambiente · ${esc(VibeUI.vName(CONV.top))}`, 'secl');
+  vl.forEach(r => g.appendChild(tile(r.p, r.s, r)));
+  return vl.length;
+}
+
 function addMsg(g, html, cls = 'msg') { const m = document.createElement('div'); m.className = cls; m.innerHTML = html; g.appendChild(m); }
 
 function renderRecent(g, label) {
@@ -208,7 +224,13 @@ function renderGrid() {
   const total = DATA.packs.reduce((n, p) => n + (p.stickers ? p.stickers.length : 0), 0);
   if (!total) { addMsg(g, DATA.adultMode ? '🔞 Ainda não tens stickers +18. Marca packs ou stickers como +18 no StickTag (ou toca em 🔞 para voltar ao normal).' : 'Ainda não tens stickers. Toca em ⚙️ para abrir o StickTag e criar um pack.'); return; }
   if (tab === 'sug') {
-    let res = M.search(IDX, text, 60);
+    conv();
+    if (ASK) g.appendChild(VibeUI.askBox(K, ASK, DATA, img, r => {
+      ASK = null;
+      if (r) { try { DATA = M.modeData(JSON.parse(r)); IDX = M.buildIndex(DATA, info); } catch (e) {} }
+      renderTop(); renderGrid();
+    }));
+    let res = M.search(IDX, text, 60, CONV);
     const groups = res.groups || [];
     if (DATA.kbShuffle && res.length > 1) {
       // ordem aleatória (fica igual enquanto a frase não muda)
@@ -245,8 +267,14 @@ function renderGrid() {
       shown.filter(r => r.usualTag).forEach(r => g.appendChild(tile(r.p, r.s, r)));
       if (shown.length > nUs) addMsg(g, '✨ Mais sugestões', 'secl');
       shown.filter(r => !r.usualTag).forEach(r => g.appendChild(tile(r.p, r.s, r)));
-    } else if (shown.length) shown.forEach(r => g.appendChild(tile(r.p, r.s, r)));
+      if (!sugGrp && !DATA.kbShuffle) vibeSection(g, shown, 12);
+    } else if (shown.length) { shown.forEach(r => g.appendChild(tile(r.p, r.s, r))); if (!sugGrp && !DATA.kbShuffle) vibeSection(g, shown, 12); }
     else {
+      // ainda não escreveste (ou nada combina): o que a outra pessoa disse e o ambiente da conversa
+      const lin = CONV && CONV.lastIn ? CONV.lastIn.trim() : '';
+      const rep = lin ? M.search(IDX, lin, 12, CONV) : [];
+      if (rep.length) { addMsg(g, `💬 Para responder a «${esc(lin.length > 30 ? lin.slice(0, 29) + '…' : lin)}»`, 'secl'); rep.forEach(r => g.appendChild(tile(r.p, r.s, r))); }
+      vibeSection(g, rep, 16);
       if (text.trim()) addMsg(g, `Nenhum sticker para <b>«${esc(lastWords(text))}»</b>. Dá palavras ou emojis aos teus stickers no StickTag.`);
       // sugestões pela hora do dia
       const tw = timeWords();
@@ -419,9 +447,20 @@ window.KBApp = {
   onOpen(o) {
     setBusy(o.busy || null);
     takeText(o.text, o.kept); direct = !!o.direct; tab = 'sug'; shufKey = null; multi = null;
+    CHAT = Array.isArray(o.chat) ? o.chat : []; ASK = parseAsk(o.ask);
     $('#multi').classList.remove('on'); drawSend();
     if (searching) setSearch(false);
     closePv(); refresh(); $('#grid').scrollTop = 0;
+  },
+  onChat(rows) {
+    CHAT = Array.isArray(rows) ? rows : [];
+    if (searching || (multi && multi.length)) return;
+    renderTop(); if (tab === 'sug') renderGrid();
+  },
+  onAsk(a) {
+    ASK = parseAsk(a);
+    if (ASK) { try { DATA = M.modeData(JSON.parse(K.getData())); IDX = M.buildIndex(DATA, info); } catch (e) {} }
+    if (!searching && tab === 'sug') renderGrid();
   },
   onSaved(r) { flash(r && r.ok ? 'Guardado na galeria (Imagens/StickTag) ✓' : 'Não guardei: ' + ((r && r.error) || 'erro')); },
   onText(t, k) { const was = text, wk = !!kept; takeText(t, k); if (wk && kept && text === was) return; if (searching) return; renderTop(); if (tab === 'sug' && !(multi && multi.length)) renderGrid(); },
@@ -435,5 +474,6 @@ window.KBApp = {
 (async function () {
   await loadEmoji();
   try { takeText(K.getText(), K.getKept ? K.getKept() : ''); } catch (e) {}
+  try { CHAT = JSON.parse(K.getChat() || '[]'); ASK = parseAsk(K.getAsk()); } catch (e) {}
   refresh();
 })();

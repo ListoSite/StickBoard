@@ -197,6 +197,8 @@ public class KeyboardService extends InputMethodService {
         super.onStartInputView(info, restarting);
         // pedido vindo da bolha: envia já e volta ao teclado anterior
         handlePending();
+        final BubbleService bs = BubbleService.inst;
+        if (bs != null) bs.ui.postDelayed(new Runnable() { @Override public void run() { bs.readChat(); } }, 300);
         applyHeight();
         try {
             JSONObject o = new JSONObject();
@@ -205,6 +207,8 @@ public class KeyboardService extends InputMethodService {
             o.put("app", info != null && info.packageName != null ? info.packageName : "");
             o.put("direct", chooseMime(info) != null);
             if (busyLabel != null) o.put("busy", busyLabel);
+            o.put("chat", new org.json.JSONArray(Vibe.chat(curPkg())));
+            o.put("ask", Vibe.get());
             String payload = o.toString();
             if (pageReady) js("onOpen", payload); else pendingOpen = payload;
         } catch (Exception ignored) {}
@@ -499,6 +503,19 @@ public class KeyboardService extends InputMethodService {
         /** Aprender com o contexto todo: palavras (com força), os que estavam à frente e o tema/forma da mensagem. */
         @JavascriptInterface public void learn3(String packId, String file, String wordsJson, String skippedJson, String ctxJson) {
             try { Store.learn(KeyboardService.this, packId, file, new JSONArray(wordsJson), skippedJson == null ? null : new JSONArray(skippedJson), ctxJson == null ? null : new org.json.JSONObject(ctxJson)); } catch (Exception ignored) {}
+        }
+
+        /* ---- ambiente da conversa (as mensagens vêm da bolha) ---- */
+        @JavascriptInterface public String getChat() { return Vibe.chat(curPkg()); }
+        @JavascriptInterface public String getAsk() { return Vibe.get(); }
+        @JavascriptInterface public void askVibe(String json) { Vibe.ask(json); }
+        @JavascriptInterface public void skipAsk() { Vibe.clear(); }
+        @JavascriptInterface public String learnVibe(String packId, String file, String vibe, String wordsJson, double weight) {
+            org.json.JSONArray w = null;
+            try { w = wordsJson == null ? null : new org.json.JSONArray(wordsJson); } catch (Exception ignored) {}
+            String r = Store.learnVibe(KeyboardService.this, packId, file, vibe, w, weight);
+            if (weight >= 1) Vibe.clear();
+            return r == null ? "" : r;
         }
 
         /** Ao mandar o próximo sticker: apagar o que está escrito? (só 1 palavra ou exatamente uma palavra do sticker) */

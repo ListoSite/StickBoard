@@ -432,6 +432,68 @@ public final class Store {
         }
     }
 
+    /**
+     * O AMBIENTE em que usaste um sticker (brincar, amor, insultar…). weight 1 = a tua resposta à pergunta;
+     * menos do que isso = a app aprendeu sozinha. As palavras da conversa (words = [["chave", força]…]) ensinam
+     * o detetor de ambiente (data.vibeLrn), e perdem um pouco nos outros ambientes.
+     */
+    public static String learnVibe(Context c, String packId, String file, String vibe, JSONArray words, double weight) {
+        synchronized (LOCK) {
+            try {
+                if (vibe == null || vibe.length() == 0 || vibe.length() > 20) return null;
+                JSONObject data = load(c);
+                JSONObject p = findPack(data, packId);
+                JSONObject s = p == null ? null : findSticker(p, file);
+                if (s == null) return null;
+                int day = today();
+                JSONObject vb = s.optJSONObject("vb");
+                double k = vb == null ? 1 : Math.pow(0.5, Math.max(0, day - s.optInt("vbd", day)) / (HALF_LIFE_DAYS * 2));
+                JSONObject nv = new JSONObject();
+                if (vb != null) { java.util.Iterator<String> it = vb.keys(); while (it.hasNext()) { String x = it.next(); double v = vb.optDouble(x, 0) * k; if (v >= 0.05) nv.put(x, r2(v)); } }
+                nv.put(vibe, r2(Math.min(30, nv.optDouble(vibe, 0) + weight)));
+                s.put("vb", nv);
+                s.put("vbd", day);
+                if (weight >= 1) s.put("vbn", s.optInt("vbn", 0) + 1);
+                if (words != null && words.length() > 0 && weight >= 1) {
+                    JSONObject vl = data.optJSONObject("vibeLrn");
+                    if (vl == null) { vl = new JSONObject(); data.put("vibeLrn", vl); }
+                    JSONObject m = vl.optJSONObject(vibe);
+                    if (m == null) { m = new JSONObject(); vl.put(vibe, m); }
+                    java.util.HashSet<String> seen = new java.util.HashSet<String>();
+                    for (int i = 0; i < words.length() && i < 20; i++) {
+                        JSONArray pair = words.optJSONArray(i);
+                        String w = pair == null ? words.optString(i, "") : pair.optString(0, "");
+                        double add = pair == null ? 1 : Math.max(0.2, Math.min(1.5, pair.optDouble(1, 1)));
+                        w = w.trim().toLowerCase();
+                        if (w.length() < 2 || w.length() > 40 || !seen.add(w)) continue;
+                        JSONArray e = m.optJSONArray(w);
+                        m.put(w, new JSONArray().put(r2(Math.min(15, decayed(e, day) + add))).put(day).put((e == null ? 0 : e.optInt(2, 0)) + 1));
+                        // nos outros ambientes esta palavra perde um pouco (assim as palavras de todos os dias não puxam para lado nenhum)
+                        java.util.Iterator<String> vi = vl.keys();
+                        while (vi.hasNext()) {
+                            String ov = vi.next();
+                            if (ov.equals(vibe)) continue;
+                            JSONObject om = vl.optJSONObject(ov);
+                            JSONArray oe = om == null ? null : om.optJSONArray(w);
+                            if (oe == null) continue;
+                            double wt = decayed(oe, day) - 0.3 * add;
+                            if (wt <= 0.2) om.remove(w); else om.put(w, new JSONArray().put(r2(wt)).put(day).put(oe.optInt(2, 0)));
+                        }
+                    }
+                    // no máximo 250 palavras por ambiente: saem as mais fracas
+                    while (m.length() > 250) {
+                        String min = null; double mv = Double.MAX_VALUE;
+                        java.util.Iterator<String> it = m.keys();
+                        while (it.hasNext()) { String kk = it.next(); double v = decayed(m.optJSONArray(kk), day); if (v < mv) { mv = v; min = kk; } }
+                        m.remove(min);
+                    }
+                }
+                save(c, data);
+                return data.toString();
+            } catch (JSONException e) { return null; }
+        }
+    }
+
     /** Esquecer: uma palavra de um sticker, tudo de um sticker (word = "") ou tudo de todos (packId = null). */
     public static String forget(Context c, String packId, String file, String word) {
         synchronized (LOCK) {
@@ -449,11 +511,12 @@ public final class Store {
                             JSONObject l = lrnOf(s, today());
                             l.remove(word);
                         } else {
-                            s.remove("lrn"); s.remove("learn"); s.remove("cx");
+                            s.remove("lrn"); s.remove("learn"); s.remove("cx"); s.remove("vb"); s.remove("vbd"); s.remove("vbn");
                             if (packId == null) { s.remove("uses"); s.remove("hrs"); s.remove("last"); }
                         }
                     }
                 }
+                if (packId == null && (word == null || word.length() == 0)) data.remove("vibeLrn");
                 save(c, data);
                 return data.toString();
             } catch (JSONException e) { return null; }

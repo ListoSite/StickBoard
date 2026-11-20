@@ -218,6 +218,8 @@ public class BubbleService extends AccessibilityService {
         if (type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
             // rede de segurança: se a bolha devia estar à vista e não está, volta a verificar (no máximo a cada 1,5 s)
             long now = System.currentTimeMillis();
+            // a conversa mudou (chegou ou saiu uma mensagem): lê as últimas mensagens para perceber o ambiente
+            if (allowedApps().contains(pkg)) queueChatRead();
             if (!shown && now - lastCheck > 1500 && allowedApps().contains(pkg)) { lastCheck = now; checkKeyboard(); }
             // a app apagou a caixa sem avisar (mandaste a mensagem)? vê a caixa de texto (no máximo a cada 0,4 s)
             if (text != null && text.trim().length() >= 3 && now - lastBoxCheck > 400 && allowedApps().contains(pkg)) {
@@ -332,6 +334,54 @@ public class BubbleService extends AccessibilityService {
         return null;
     }
 
+    /* ---------- o ambiente da conversa: as últimas mensagens dos dois lados ---------- */
+    boolean chatQueued = false;
+    long lastChatRead = 0;
+    final Runnable chatRead = new Runnable() { @Override public void run() { chatQueued = false; readChat(); } };
+
+    /** Lê a conversa daqui a pouco (no máximo ~1 vez por segundo) e só quando a bolha ou o teclado de stickers estão à vista. */
+    void queueChatRead() {
+        if (chatQueued) return;
+        if (!shown && KeyboardService.inst == null) return;
+        long wait = Math.max(350, 1000 - (System.currentTimeMillis() - lastChatRead));
+        chatQueued = true;
+        ui.postDelayed(chatRead, wait);
+    }
+
+    void readChat() {
+        lastChatRead = System.currentTimeMillis();
+        if (!shown && !myImeActive()) return;
+        try {
+            AccessibilityNodeInfo root = getRootInActiveWindow();
+            if (root == null || root.getPackageName() == null) return;
+            String pkg = root.getPackageName().toString();
+            if (!allowedApps().contains(pkg)) return;
+            String title = Specials.chatTitle(root, pkg);
+            // no WhatsApp só dentro de uma conversa (na lista de conversas não há ambiente)
+            if (Specials.isWhatsApp(pkg) && title == null) return;
+            float dens = getResources().getDisplayMetrics().density;
+            List<ChatDiff.Row> rows = Specials.snapshot(root, Math.round(24 * dens));
+            JSONArray a = new JSONArray();
+            int from = Math.max(0, rows.size() - 10);
+            for (int i = from; i < rows.size(); i++) {
+                ChatDiff.Row r = rows.get(i);
+                if (r.dir == 0) continue;
+                String t = r.text == null ? "" : r.text.trim();
+                if (t.length() == 0) continue;
+                if (t.length() > 300) t = t.substring(t.length() - 300);
+                JSONObject o = new JSONObject();
+                o.put("d", r.dir); o.put("t", t);
+                a.put(o);
+            }
+            String key = pkg + "|" + (title == null ? "" : title);
+            if (Vibe.setChat(key, a.toString())) {
+                if (shown) js("onChat", Vibe.chatJson);
+                KeyboardService k = KeyboardService.inst;
+                if (k != null) k.js("onChat", Vibe.chatJson);
+            }
+        } catch (Exception ignored) {}
+    }
+
     /** Verifica se o teclado está à vista e decide se mostra a bolha. */
     void checkKeyboard() {
         boolean ime = false;
@@ -381,7 +431,7 @@ public class BubbleService extends AccessibilityService {
         web.setWebViewClient(new WebViewClient() {
             @Override public WebResourceResponse shouldInterceptRequest(WebView v, String url) { return Web.serve(BubbleService.this, url); }
             @Override public boolean shouldOverrideUrlLoading(WebView v, String url) { return true; }
-            @Override public void onPageFinished(WebView v, String url) { pageReady = true; js("onText", JSONObject.quote(text) + "," + JSONObject.quote(keptFor(app))); js("onSpecial", Specials.state()); }
+            @Override public void onPageFinished(WebView v, String url) { pageReady = true; js("onText", JSONObject.quote(text) + "," + JSONObject.quote(keptFor(app))); js("onSpecial", Specials.state()); js("onChat", Vibe.chat(app)); js("onAsk", JSONObject.quote(Vibe.get())); }
         });
         web.setOnTouchListener(new View.OnTouchListener() {
             @Override public boolean onTouch(View v, MotionEvent ev) {
@@ -409,6 +459,8 @@ public class BubbleService extends AccessibilityService {
         try { wm.addView(web, lp); shown = true; expanded = false; } catch (Exception e) { shown = false; return; }
         js("setMode", "'bubble'");
         js("onText", JSONObject.quote(text) + "," + JSONObject.quote(keptFor(app)));
+        js("onAsk", JSONObject.quote(Vibe.get()));
+        ui.postDelayed(new Runnable() { @Override public void run() { readChat(); } }, 400);
     }
 
     void hide() {
@@ -562,6 +614,20 @@ public class BubbleService extends AccessibilityService {
 
         @JavascriptInterface public void learn2(String packId, String file, String wordsJson, String skippedJson) {
             try { Store.learn(BubbleService.this, packId, file, new JSONArray(wordsJson), skippedJson == null ? null : new JSONArray(skippedJson)); } catch (Exception ignored) {}
+        }
+
+        /* ---- ambiente da conversa ---- */
+        @JavascriptInterface public String getChat() { return Vibe.chat(app); }
+        @JavascriptInterface public String getAsk() { return Vibe.get(); }
+        @JavascriptInterface public void askVibe(String json) { Vibe.ask(json); }
+        @JavascriptInterface public void skipAsk() { Vibe.clear(); }
+        /** A tua resposta (weight 1) ou o que a app aprendeu sozinha (menos de 1). */
+        @JavascriptInterface public String learnVibe(String packId, String file, String vibe, String wordsJson, double weight) {
+            JSONArray w = null;
+            try { w = wordsJson == null ? null : new JSONArray(wordsJson); } catch (Exception ignored) {}
+            String r = Store.learnVibe(BubbleService.this, packId, file, vibe, w, weight);
+            if (weight >= 1) Vibe.clear();
+            return r == null ? "" : r;
         }
 
         @JavascriptInterface public void hideNow() {
