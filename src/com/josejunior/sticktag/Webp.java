@@ -1,6 +1,8 @@
 package com.josejunior.sticktag;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
@@ -78,6 +80,56 @@ public final class Webp {
         in.frames = in.animated ? anmf : 1;
         if (in.minFrameMs == Integer.MAX_VALUE) in.minFrameMs = 0;
         return gotSize ? in : null;
+    }
+
+    static boolean readFully(InputStream in, byte[] b, int n) throws IOException {
+        int o = 0;
+        while (o < n) { int k = in.read(b, o, n - o); if (k < 0) return false; o += k; }
+        return true;
+    }
+
+    static boolean skipFully(InputStream in, long n) throws IOException {
+        byte[] tmp = null;
+        while (n > 0) {
+            long k = in.skip(n);
+            if (k <= 0) {
+                if (tmp == null) tmp = new byte[8192];
+                int r = in.read(tmp, 0, (int) Math.min(tmp.length, n));
+                if (r < 0) return false;
+                k = r;
+            }
+            n -= k;
+        }
+        return true;
+    }
+
+    /**
+     * 6.9: devolve o "sound-sha256" do EXIF (sticker com som do WhatsApp), ou null.
+     * Só lê os cabeçalhos dos blocos e salta as imagens, por isso é rápido mesmo com ficheiros grandes.
+     */
+    public static String soundOf(InputStream in) throws IOException {
+        byte[] h = new byte[12];
+        if (!readFully(in, h, 12)) return null;
+        if (h[0] != 'R' || h[1] != 'I' || h[2] != 'F' || h[3] != 'F' || h[8] != 'W' || h[9] != 'E' || h[10] != 'B' || h[11] != 'P') return null;
+        byte[] ch = new byte[8];
+        while (readFully(in, ch, 8)) {
+            long len = le32(ch, 4) & 0xffffffffL;
+            if (ch[0] == 'E' && ch[1] == 'X' && ch[2] == 'I' && ch[3] == 'F') {
+                if (len > 65536) return null;
+                byte[] d = new byte[(int) len];
+                if (!readFully(in, d, (int) len)) return null;
+                int s = -1, e = -1;
+                for (int i = 0; i < d.length; i++) if (d[i] == '{') { s = i; break; }
+                for (int i = d.length - 1; i > s && s >= 0; i--) if (d[i] == '}') { e = i; break; }
+                if (s < 0 || e <= s) return null;
+                try {
+                    String v = new org.json.JSONObject(new String(d, s, e - s + 1, UTF8)).optString("sound-sha256", "").trim();
+                    return v.length() > 0 ? v : null;
+                } catch (Exception ex) { return null; }
+            }
+            if (!skipFully(in, len + (len & 1))) return null;
+        }
+        return null;
     }
 
     /** Devolve o texto JSON guardado no EXIF (formato dos stickers do WhatsApp), ou null. */

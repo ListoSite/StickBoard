@@ -525,7 +525,11 @@ function viewFolder() {
   S.data.packs.forEach(p => p.stickers.forEach(s => { if (s.src) have.add(s.src); }));
   const isIn = x => have.has(x.name + '|' + x.size);
   const fsm = fsort();
-  const files = sortFiles(S.fonlyNew ? S.ffiles.filter(x => !isIn(x)) : S.ffiles, fsm, isIn);
+  scanSound(S.ffiles);
+  const sndN = S.ffiles.filter(x => S.fsnd[x.uri]).length;
+  if (!sndN) S.fsndOnly = false;
+  let files = sortFiles(S.fonlyNew ? S.ffiles.filter(x => !isIn(x)) : S.ffiles, fsm, isIn);
+  if (S.fsndOnly) files = files.filter(x => S.fsnd[x.uri]);
   const nNew = S.ffiles.filter(x => !isIn(x)).length;
   const nHave = S.ffiles.length - nNew;
   const tp = el(`<div class="top"><button class="iconbtn" id="bk">${ICON.back}</button><div style="flex:1;min-width:0"><h1>${esc(f.name)}</h1><div class="sub">${S.ffiles.length} imagens · ${nNew} ainda não estão na app</div></div><button class="iconbtn" id="rf" title="Atualizar">⟳</button></div>`);
@@ -542,6 +546,12 @@ function viewFolder() {
   const opt = el(`<div class="opt" style="padding:4px 2px 12px;border:0"><div class="t"><b>Apagar da pasta depois de importar</b><div class="small muted">O que entra na app sai desta pasta (a app fica com a sua cópia).</div></div><button class="sw ${folderDeleteOn() ? 'on' : ''}"></button></div>`);
   $('.sw', opt).onclick = e => { try { S.data = JSON.parse(A.setOption('folderDelete', !folderDeleteOn())); } catch (er) {} e.currentTarget.classList.toggle('on', folderDeleteOn()); toast(folderDeleteOn() ? 'Os importados vão sair da pasta' : 'Os importados ficam na pasta'); };
   const dpf = acts.querySelector('#dpf'); if (dpf) dpf.onclick = () => findDupes(S.ffiles);
+  // 6.9: filtro dos stickers com som (aparece quando a app encontra algum)
+  const sndB = el(`<button class="btn ${S.fsndOnly ? 'primary' : ''}" id="sndf">🔊 Com som (${sndN})</button>`);
+  if (!sndN) sndB.style.display = 'none';
+  sndB.onclick = () => { S.fsndOnly = !S.fsndOnly; render(); };
+  acts.appendChild(sndB);
+  S.ftiles = new Map();
   const vw = acts.querySelector('#vw'); if (vw) vw.onclick = () => openFolderViewer(files, 0);
 
   // importa pela mesma ordem em que os vês
@@ -554,8 +564,9 @@ function viewFolder() {
   // títulos dos grupos (Hoje, Ontem…, A, B…) no meio da grelha
   progressive(grid, withGroups(files, fsm, isIn), x => {
     if (x.hdr) return fgrpEl(x);
-    const c = el(`<div class="st" style="padding:4px"><div class="im"><img loading="lazy" src="d/${encodeURIComponent(x.uri)}"></div>${isIn(x) ? '<span class="cv" style="color:var(--green);left:10px;right:auto">✓</span>' : ''}<span class="ck" style="${S.fsel.size ? '' : 'display:none'}"></span></div>`);
+    const c = el(`<div class="st" style="padding:4px"><div class="im"><img loading="lazy" src="d/${encodeURIComponent(x.uri)}"></div>${S.fsnd[x.uri] ? SND_BADGE : ''}${isIn(x) ? '<span class="cv" style="color:var(--green);left:10px;right:auto">✓</span>' : ''}<span class="ck" style="${S.fsel.size ? '' : 'display:none'}"></span></div>`);
     if (S.fsel.has(x.uri)) c.classList.add('sel');
+    if (S.ftiles) S.ftiles.set(x.uri, c);
     const toggle = () => {
       S.fsel.has(x.uri) ? S.fsel.delete(x.uri) : S.fsel.add(x.uri);
       c.classList.toggle('sel');
@@ -618,6 +629,29 @@ async function folderToPack(uris) {
 // "Não perguntar outra vez" só dura enquanto a app estiver aberta (não é guardado).
 let skipDeleteAsk = false;
 
+/* ---------- 6.9: stickers com som nas pastas ---------- */
+const SND_BADGE = '<span class="sndb" style="bottom:8px;left:8px" title="Sticker com som">🔊</span>';
+S.fsnd = S.fsnd || {};      // uri → true (tem som) / false (já visto, sem som)
+// pede ao lado nativo para ver (só uma vez por ficheiro) quais têm o código do som no EXIF
+function scanSound(list) {
+  const todo = list.filter(x => S.fsnd[x.uri] === undefined && /\.webp$/i.test(x.name || '') ).map(x => x.uri);
+  if (!todo.length || !A.scanSoundAsync) return;
+  todo.forEach(u => { S.fsnd[u] = false; });
+  for (let k = 0; k < todo.length; k += 400) A.scanSoundAsync(JSON.stringify(todo.slice(k, k + 400)));
+}
+function onSoundFound(found) {
+  if (!found || !found.length) return;
+  found.forEach(u => {
+    S.fsnd[u] = true;
+    const c = S.ftiles && S.ftiles.get(u);
+    if (c && c.isConnected && !c.querySelector('.sndb')) { const t = document.createElement('div'); t.innerHTML = SND_BADGE; c.appendChild(t.firstChild); }
+  });
+  const b = document.getElementById('sndf');
+  if (b && S.ffiles) { b.textContent = `🔊 Com som (${S.ffiles.filter(x => S.fsnd[x.uri]).length})`; b.style.display = ''; }
+  const vt = document.getElementById('fvsnd');
+  if (vt && vt.dataset.u && S.fsnd[vt.dataset.u]) vt.classList.remove('hidden');
+}
+
 async function isAnimDoc(x) {
   if (x.anim !== undefined) return x.anim;
   const n = (x.name || '').toLowerCase(), m = (x.mime || '').toLowerCase();
@@ -636,7 +670,7 @@ function openFolderViewer(list, start) {
   let i = Math.max(0, start), changed = false;
   const inPack = x => S.data.packs.some(p => p.stickers.some(s => s.src === x.name + '|' + x.size));
   const v = el(`<div class="fv">
-    <div class="fv-top"><button class="iconbtn" id="x">${ICON.close}</button><div class="fv-t"><b id="ct"></b><span id="nm"></span></div><span class="fv-tag hidden" id="an">🎞️ Animado</span><span class="fv-tag ok hidden" id="ok">✓ Num pack</span></div>
+    <div class="fv-top"><button class="iconbtn" id="x">${ICON.close}</button><div class="fv-t"><b id="ct"></b><span id="nm"></span></div><span class="fv-tag hidden" id="an">🎞️ Animado</span><span class="fv-tag hidden" id="fvsnd">🔊 Com som</span><span class="fv-tag ok hidden" id="ok">✓ Num pack</span></div>
     <div class="fv-stage" id="stage"><button class="fv-nav l" id="pv">‹</button><img id="im" alt=""><button class="fv-nav r" id="nx">›</button></div>
     <div class="fv-bottom">
       <button class="fv-pack" id="pk"><span class="muted">Pack:</span> <b id="pkn"></b> <span class="muted">▾</span></button>
@@ -669,6 +703,8 @@ function openFolderViewer(list, start) {
     im.src = 'd/' + encodeURIComponent(x.uri);
     if (list[i + 1]) new Image().src = 'd/' + encodeURIComponent(list[i + 1].uri);
     $('#an', v).classList.add('hidden');
+    $('#fvsnd', v).dataset.u = x.uri;
+    $('#fvsnd', v).classList.toggle('hidden', !S.fsnd[x.uri]);
     const a = await isAnimDoc(x);
     if (list[i] === x) $('#an', v).classList.toggle('hidden', !a);
   }
@@ -4307,6 +4343,7 @@ window.App = {
     if (S.flistCb) { const cb = S.flistCb; S.flistCb = null; cb(r); }
   },
   onDupes(r) { showDupes(r || { groups: [] }); },
+  onSoundScan(r) { if (r) onSoundFound(r.found); },
   onSimilar(r) { const f = r && SIMW[r.id]; if (f) { delete SIMW[r.id]; f(r); } },
   onImported(r) {
     if (r && r.hidden && S.hiddenCb) { S.hiddenCb(r); return; }

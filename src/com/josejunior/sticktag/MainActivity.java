@@ -1111,6 +1111,34 @@ public class MainActivity extends Activity {
             }).start();
         }
 
+        /** 6.9: vê que ficheiros da pasta são stickers com som (têm "sound-sha256" no EXIF). */
+        @JavascriptInterface
+        public void scanSoundAsync(final String urisJson) {
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    JSONArray found = new JSONArray(), done = new JSONArray();
+                    try {
+                        JSONArray a = new JSONArray(urisJson);
+                        for (int i = 0; i < a.length(); i++) {
+                            String us = a.getString(i);
+                            done.put(us);
+                            Uri u = Uri.parse(us);
+                            if (!Folders.allowed(MainActivity.this, u)) continue;
+                            InputStream in = null;
+                            try {
+                                in = getContentResolver().openInputStream(u);
+                                if (in != null && Webp.soundOf(in) != null) found.put(us);
+                            } catch (Exception ignored) {
+                            } finally {
+                                if (in != null) try { in.close(); } catch (Exception ignored) {}
+                            }
+                        }
+                        js("onSoundScan", new JSONObject().put("found", found).put("done", done).toString());
+                    } catch (JSONException ignored) {}
+                }
+            }).start();
+        }
+
         void progress(String label, int done, int total) {
             try { js("onBulkProgress", new JSONObject().put("label", label).put("done", done).put("total", total).toString()); } catch (JSONException ignored) {}
         }
