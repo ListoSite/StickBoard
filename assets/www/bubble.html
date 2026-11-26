@@ -82,6 +82,7 @@ body.adult #bub{box-shadow:0 0 0 2px #FF4D5E,0 6px 16px rgba(0,0,0,.45)}
 #bub .qm{position:absolute;top:-4px;left:-4px;width:20px;height:20px;border-radius:10px;background:#2B1F00;color:#FFC83D;font-size:12px;font-weight:900;display:grid;place-items:center;border:2px solid #FFC83D}
 @keyframes pulsey{0%{box-shadow:0 0 0 0 rgba(255,200,61,.6),0 6px 16px rgba(0,0,0,.45)}100%{box-shadow:0 0 0 16px rgba(255,200,61,0),0 6px 16px rgba(0,0,0,.45)}}
 .s .vb{position:absolute;bottom:3px;left:5px;font-size:10px}
+.s .snd{position:absolute;top:3px;left:5px;font-size:10px}
 </style>
 </head>
 <body>
@@ -183,7 +184,7 @@ function bigPreview(p, s, send) {
 function tile(p, s, r) {
   const d = document.createElement('button');
   d.className = 's' + (r && r.usualTag ? ' usual' : '');
-  d.innerHTML = `<img loading="lazy" src="${img(p, s.f)}">${s.fav ? '<span class="fv">⭐</span>' : ''}${r && r.usualTag ? '<span class="us">🧠</span>' : ''}${r && r.vibe >= 0.45 ? '<span class="vb">🎭</span>' : ''}`;
+  d.innerHTML = `<img loading="lazy" src="${img(p, s.f)}">${s.fav ? '<span class="fv">⭐</span>' : ''}${s.snd ? '<span class="snd">🔊</span>' : ''}${r && r.usualTag ? '<span class="us">🧠</span>' : ''}${r && r.vibe >= 0.45 ? '<span class="vb">🎭</span>' : ''}`;
   let lt = null, longDone = false;
   d.addEventListener('touchstart', () => { longDone = false; lt = setTimeout(() => { longDone = true; bigPreview(p, s, () => d.onclick()); }, 450); }, { passive: true });
   d.addEventListener('touchmove', () => clearTimeout(lt), { passive: true });

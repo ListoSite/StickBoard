@@ -671,3 +671,4 @@ html,body{background:var(--bg);-webkit-font-smoothing:antialiased}
 .fbtools button:disabled{opacity:.3}
 .fblock .seg{display:grid;grid-template-columns:1fr 1fr}
 .flowplan{margin:-4px 0 12px;padding:10px 12px;border-radius:12px;background:var(--greenSoft)}
+.st .sndb{position:absolute;bottom:34px;left:10px;font-size:12px;background:rgba(14,16,20,.82);border-radius:8px;padding:0 5px}

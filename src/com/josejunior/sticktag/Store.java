@@ -162,6 +162,9 @@ public final class Store {
             j.put("sticker-pack-publisher", sn.length() > 0 || sp.length() > 0 ? sp : pack.optString("publisher"));
             JSONArray e = st.optJSONArray("emojis");
             j.put("emojis", e == null ? new JSONArray() : e);
+            // 6.8: código do som (sticker com som do WhatsApp)
+            String snd = st.optString("snd", "");
+            if (snd.length() > 0) j.put("sound-sha256", snd);
             return j.toString();
         } catch (JSONException ex) { return null; }
     }
@@ -193,6 +196,7 @@ public final class Store {
         boolean anim = pack.optBoolean("animated");
         for (int i = 0; i < a.length(); i++) {
             JSONObject s = a.getJSONObject(i);
+            if (s.optBoolean("sndKeep")) continue; // 6.8: sticker com som fica com o ficheiro original
             String want = exifJson(pack, s);
             if (want == null) continue;
             String wantH = Integer.toHexString(want.hashCode());

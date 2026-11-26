@@ -224,6 +224,7 @@ public class MainActivity extends Activity {
                         st.put("emojis", r.emojis);
                         st.put("words", new JSONArray());
                         if (r.animated) st.put("anim", true);
+                    Importer.mark(st, r);
                         st.put("src", Importer.srcKey(MainActivity.this, u));
                         if (hidden) st.put("hidden", true);
                         pending.add(st);
@@ -359,6 +360,7 @@ public class MainActivity extends Activity {
                 st.put("emojis", r.emojis);
                 st.put("words", new JSONArray());
                 if (r.animated) st.put("anim", true);
+                    Importer.mark(st, r);
                 st.put("src", src);
                 if (!pend.containsKey(target)) pend.put(target, new ArrayList<JSONObject>());
                 pend.get(target).add(st);
@@ -1544,6 +1546,7 @@ public class MainActivity extends Activity {
                     try { if (wordsJson != null && wordsJson.length() > 0) w = new JSONArray(wordsJson); } catch (JSONException ignored) {}
                     st.put("words", w);
                     if (r.animated) st.put("anim", true);
+                    Importer.mark(st, r);
                     p.getJSONArray("stickers").put(st);
                     Store.sync(MainActivity.this, data, p);
                     Store.save(MainActivity.this, data);

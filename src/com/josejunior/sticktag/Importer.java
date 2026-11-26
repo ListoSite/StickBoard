@@ -26,6 +26,19 @@ public final class Importer {
         public String note;           // aviso (ex.: animado convertido em estático)
         public String name;           // nome original
         public boolean animated;      // sticker animado
+        public String sound;          // 6.8: "sound-sha256" do EXIF (sticker com som do WhatsApp)
+        public boolean keep;          // 6.8: ficheiro guardado tal como veio (sticker com som)
+    }
+
+    /** Tamanho máximo de um sticker com som guardado tal como veio (o WhatsApp aceita ~1 MB). */
+    public static final int SOUND_LIMIT = 1000 * 1000;
+
+    /** 6.8: passa para o sticker guardado o código do som (snd) e se o ficheiro ficou original (sndKeep). */
+    public static void mark(JSONObject st, Result r) {
+        try {
+            if (r.sound != null) st.put("snd", r.sound);
+            if (r.keep) st.put("sndKeep", true);
+        } catch (Exception ignored) {}
     }
 
     static int seq = 0;
@@ -64,7 +77,10 @@ public final class Importer {
             try {
                 String js = Webp.readExifJson(b);
                 if (js != null) {
-                    JSONArray e = new JSONObject(js).optJSONArray("emojis");
+                    JSONObject jo = new JSONObject(js);
+                    String snd = jo.optString("sound-sha256", "").trim();
+                    if (snd.length() > 0) r.sound = snd;
+                    JSONArray e = jo.optJSONArray("emojis");
                     if (e != null) for (int i = 0; i < e.length() && r.emojis.length() < 3; i++) {
                         String s = e.optString(i, "").trim();
                         if (s.length() > 0) r.emojis.put(s);
@@ -73,7 +89,14 @@ public final class Importer {
             } catch (Exception ignored) {}
         }
         byte[] out;
-        if (mixed && info != null && info.animated && info.frames > 1 && b.length <= Store.ANIM_LIMIT) {
+        boolean packOk = info != null && info.width == 512 && info.height == 512 && b.length <= Store.ANIM_LIMIT;
+        if (r.sound != null && info != null && info.animated && b.length <= SOUND_LIMIT && (mixed || (animatedPack && packOk))) {
+            // 6.8: sticker com som: fica exatamente igual (bytes e EXIF originais), para o WhatsApp o reconhecer
+            out = b;
+            r.animated = true;
+            r.keep = true;
+            r.note = "🔊 sticker com som: guardado tal como veio";
+        } else if (mixed && info != null && info.animated && info.frames > 1 && b.length <= Store.ANIM_LIMIT) {
             // animado num pack do teclado: fica como está
             out = Webp.withExif(b, null);
             r.animated = true;

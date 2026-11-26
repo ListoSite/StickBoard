@@ -117,7 +117,7 @@ function tile(p, s, r) {
   d.className = 's' + (r && r.usualTag ? ' usual' : '');
   const mi = multi ? multi.findIndex(x => x.p === p.id && x.f === s.f) : -1;
   if (mi >= 0) d.classList.add('sel');
-  d.innerHTML = `<img loading="lazy" src="${img(p, s.f)}">${s.fav ? '<span class="fv">⭐</span>' : ''}${s.secretName || s.secretPub ? '<span class="sec">🤫</span>' : ''}${r && r.usualTag ? '<span class="us">🧠</span>' : ''}${r && r.vibe >= 0.45 ? '<span class="vb">🎭</span>' : ''}${mi >= 0 ? `<span class="num">${mi + 1}</span>` : ''}`;
+  d.innerHTML = `<img loading="lazy" src="${img(p, s.f)}">${s.fav ? '<span class="fv">⭐</span>' : ''}${s.snd && mi < 0 ? '<span class="snd">🔊</span>' : ''}${s.secretName || s.secretPub ? '<span class="sec">🤫</span>' : ''}${r && r.usualTag ? '<span class="us">🧠</span>' : ''}${r && r.vibe >= 0.45 ? '<span class="vb">🎭</span>' : ''}${mi >= 0 ? `<span class="num">${mi + 1}</span>` : ''}`;
   let timer = null, long = false, sx = 0, sy = 0;
   d.addEventListener('pointerdown', e => {
     long = false; sx = e.clientX; sy = e.clientY;
